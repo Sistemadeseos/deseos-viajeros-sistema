@@ -2084,7 +2084,8 @@ function addOpcion(data){
             tours:{ad:'',n11:'',n3:''},
             transp:{ad:'',n11:'',n3:''},
             fee:{ad:String(fees.fee_adulto||''),n11:String(fees.fee_nino||''),n3:String(fees.fee_bebe||'')},
-            xgrupo:{ad:'',n11:'',n3:''}
+            xgrupo:{ad:'',n11:'',n3:''},
+            reserva:{ad:'',n11:'',n3:''}
         },
         paxCount:{ad:1,n11:0,n3:0}
     };
@@ -2146,7 +2147,7 @@ function buildCalcHtml(opId,calc){
                 <tr><td>Fee</td><td><input data-op="${opId}" data-fld="fee" data-col="ad" oninput="onCalcInput(this)" onblur="showCalcResult(this)"></td><td><input data-op="${opId}" data-fld="fee" data-col="n11" oninput="onCalcInput(this)" onblur="showCalcResult(this)"></td><td><input data-op="${opId}" data-fld="fee" data-col="n3" oninput="onCalcInput(this)" onblur="showCalcResult(this)"></td></tr>
                 <tr><td>X grupo</td><td><input data-op="${opId}" data-fld="xgrupo" data-col="ad" oninput="onCalcInput(this)" onblur="showCalcResult(this)"></td><td><input data-op="${opId}" data-fld="xgrupo" data-col="n11" oninput="onCalcInput(this)" onblur="showCalcResult(this)"></td><td><input data-op="${opId}" data-fld="xgrupo" data-col="n3" oninput="onCalcInput(this)" onblur="showCalcResult(this)"></td></tr>
                 <tr class="calc-total"><td>Total</td><td><span class="calc-readonly" data-op="${opId}" data-tot="ad">0</span></td><td><span class="calc-readonly" data-op="${opId}" data-tot="n11">0</span></td><td><span class="calc-readonly" data-op="${opId}" data-tot="n3">0</span></td></tr>
-                <tr class="calc-reserva"><td>Reserva</td><td><span class="calc-readonly" data-op="${opId}" data-res="ad">0</span></td><td><span class="calc-readonly" data-op="${opId}" data-res="n11">0</span></td><td><span class="calc-readonly" data-op="${opId}" data-res="n3">0</span></td></tr>
+                <tr class="calc-reserva"><td>Reserva</td><td><input data-op="${opId}" data-fld="reserva" data-col="ad" oninput="onCalcInput(this)" onblur="showCalcResult(this)"></td><td><input data-op="${opId}" data-fld="reserva" data-col="n11" oninput="onCalcInput(this)" onblur="showCalcResult(this)"></td><td><input data-op="${opId}" data-fld="reserva" data-col="n3" oninput="onCalcInput(this)" onblur="showCalcResult(this)"></td></tr>
             </tbody>
         </table>
         <button class="btn btn-sm btn-ghost" style="margin-top:6px;font-size:0.7rem;" onclick="addCalcRow('${opId}')">+ Agregar fila</button>
@@ -2275,7 +2276,7 @@ document.addEventListener('keydown',function(e){
 
 function populateCalcInputs(opId,calc){
     const v=calc.values||{};
-    ['boleto','hotel','tours','transp','fee','xgrupo'].forEach(fld=>{
+    ['boleto','hotel','tours','transp','fee','xgrupo','reserva'].forEach(fld=>{
         ['ad','n11','n3'].forEach(col=>{
             const inp=document.querySelector(`input[data-op="${opId}"][data-fld="${fld}"][data-col="${col}"]`);
             if(inp)inp.value=(v[fld]&&v[fld][col])||'';
@@ -2356,8 +2357,8 @@ function recalcRow(opId,autoFill){
             });
         });
     }
-    // Filas fijas (fee, xgrupo)
-    ['fee','xgrupo'].forEach(fld=>{
+    // Filas fijas (fee, xgrupo, reserva) — reserva ahora es editable con fórmulas
+    ['fee','xgrupo','reserva'].forEach(fld=>{
         calc.values[fld]={};
         ['ad','n11','n3'].forEach(col=>{
             const inp=document.querySelector(`input[data-op="${opId}"][data-fld="${fld}"][data-col="${col}"]`);
@@ -2373,38 +2374,30 @@ function recalcRow(opId,autoFill){
     calc.expanded=prev.expanded||false;
     tr.dataset.calc=JSON.stringify(calc);
     // Fórmulas: sumar TODAS las filas dinámicas para el subtotal
-    const reservaFee=cfgGet().fees.reserva_fee||0;
     const results={ad:{},n11:{},n3:{}};
-    // Recolectar las flds dinámicas (todas menos fee y xgrupo)
+    // Recolectar las flds dinámicas (todas menos fee, xgrupo, reserva)
     const dynFlds=dynTbody?Array.from(dynTbody.querySelectorAll('tr[data-calc-fld]')).map(r=>r.dataset.calcFld):['boleto','hotel','tours','transp'];
     ['ad','n11','n3'].forEach(col=>{
         let subSum=0;
-        let firstRowVal=0; // Para reserva, usamos la primera fila (Boleto)
-        dynFlds.forEach((fld,i)=>{
-            const v=evalExpr(calc.values[fld]?.[col]);
-            subSum+=v;
-            if(i===0)firstRowVal=v;
+        dynFlds.forEach(fld=>{
+            subSum+=evalExpr(calc.values[fld]?.[col]);
         });
         const fee=evalExpr(calc.values.fee?.[col]);
         const xgr=evalExpr(calc.values.xgrupo?.[col]);
         const sub=subSum;
-        const bol=firstRowVal;
         const pax=Math.max(1,calc.paxCount[col]||0);
         const xgrPerPax=calc.paxCount[col]>0?(xgr/pax):0;
         const totalRaw=sub+fee+xgrPerPax;
         // Redondear al siguiente número que termine en 9 (sin decimales)
         const total=roundToEnding9(totalRaw);
-        const reserva=bol+reservaFee;
-        results[col]={sub,total,reserva};
+        results[col]={sub,total};
     });
-    // Update readonly cells
+    // Update readonly cells (subtotal y total) — reserva ahora es input editable, no se actualiza aquí
     ['ad','n11','n3'].forEach(col=>{
         const subEl=document.querySelector(`span[data-op="${opId}"][data-sub="${col}"]`);
         const totEl=document.querySelector(`span[data-op="${opId}"][data-tot="${col}"]`);
-        const resEl=document.querySelector(`span[data-op="${opId}"][data-res="${col}"]`);
         if(subEl)subEl.textContent=results[col].sub.toFixed(2);
         if(totEl)totEl.textContent=results[col].total; // sin decimales, ya es entero
-        if(resEl)resEl.textContent=results[col].reserva.toFixed(2);
     });
     // Auto-fill main row (si no hay manual override)
     if(autoFill&&tr.dataset.manualOverride!=='1'){
