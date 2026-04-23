@@ -1425,6 +1425,26 @@ function evalExpr(v){
 }
 
 // Pobla el select de encargados desde config, preservando valor actual
+// Normaliza un string para comparar (lowercase, sin tildes, sin espacios/signos)
+function normalizarParaMatch(s){
+    return String(s||'').toLowerCase()
+        .normalize('NFD').replace(/[\u0300-\u036f]/g,'') // quita tildes
+        .replace(/[^a-z0-9]/g,''); // quita espacios, puntos, guiones, etc.
+}
+
+// Dado un email, busca en la lista de encargados el que mejor coincida.
+// Ejemplo: "susanacastro@deseosviajeros.com" → "Susana Castro"
+function matchEncargadoDesdeEmail(email,encargados){
+    if(!email||!encargados||!encargados.length)return '';
+    const prefix=email.split('@')[0];
+    const normPrefix=normalizarParaMatch(prefix);
+    if(!normPrefix)return '';
+    for(const e of encargados){
+        if(normalizarParaMatch(e)===normPrefix)return e;
+    }
+    return '';
+}
+
 function populateEncargadosSelect(){
     const sel=document.getElementById('encargado');
     if(!sel)return;
@@ -1440,7 +1460,14 @@ function populateEncargadosSelect(){
         o.value=current;o.textContent=current+' (eliminado)';
         sel.appendChild(o);
     }
-    if(current)sel.value=current;
+    if(current){
+        sel.value=current;
+    }else{
+        // Sin valor previo: intentar auto-seleccionar segun el email del usuario logueado
+        const email=window.currentUser&&window.currentUser.email;
+        const match=matchEncargadoDesdeEmail(email,cfg.encargados);
+        if(match)sel.value=match;
+    }
 }
 
 // ===== NAV =====
@@ -3315,7 +3342,7 @@ function resetForm(){if(!confirm('\u00bfLimpiar todos los campos?'))return;editi
 document.getElementById('hospedajeContainer').innerHTML='';
 document.getElementById('toursContainer').innerHTML='';
 document.getElementById('itinerarioContainer').innerHTML='';
-document.getElementById('paisSelect').value='';document.getElementById('encargado').value='';document.getElementById('destinoPreviewImg').classList.remove('visible');onPaisChange();document.getElementById('opcionesBody').innerHTML='';document.getElementById('puertosContainer').innerHTML='';switchTipoCliente('persona');switchFormat(currentFormat);addOpcion();updatePreview();}
+document.getElementById('paisSelect').value='';document.getElementById('encargado').value='';document.getElementById('destinoPreviewImg').classList.remove('visible');onPaisChange();document.getElementById('opcionesBody').innerHTML='';document.getElementById('puertosContainer').innerHTML='';switchTipoCliente('persona');switchFormat(currentFormat);addOpcion();populateEncargadosSelect();updatePreview();}
 
 // ===== UTILS =====
 function esc(t){const d=document.createElement('div');d.textContent=t;return d.innerHTML;}
