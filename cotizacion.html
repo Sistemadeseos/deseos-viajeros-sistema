@@ -1109,18 +1109,138 @@ function setLSObj(k,v){
 }
 
 // ===== FIRESTORE SYNC LAYER =====
-// Mapeo de keys de localStorage → estructura en Firestore
-// Por ahora (Paso 2a) solo sincronizamos dv_config (1 documento).
-// En pasos siguientes agregamos cotizaciones, ventas, clientes, destinos.
+// Estructura en Firestore:
+//   config/default              → objeto completo de configuración
+//   cotizaciones/{id}           → 1 doc por cotización (con imágenes como URLs de Storage)
+//   ventas/{id}                 → 1 doc por venta
+//   clientes/{id}               → 1 doc por cliente
+//   destinos/{pais}             → 1 doc por país, con {ciudades: {ciudad1: url, ciudad2: url, ...}}
+// Storage:
+//   cotizaciones/{id}/adjuntos/{timestamp}_{rand}
+//   destinos/{pais}/{ciudad}_{timestamp}
+
+// Tracking de IDs que ya subimos a Firestore (para poder detectar eliminaciones)
+const _fsDocIds={cotizaciones:new Set(),ventas:new Set(),clientes:new Set(),destinos:new Set()};
+
+// Sube un dataUrl a Storage y devuelve la URL pública. Si ya es URL http, la devuelve tal cual.
+async function uploadDataUrlToStorage(dataUrl,pathHint){
+    if(!dataUrl||typeof dataUrl!=='string')return dataUrl;
+    if(!dataUrl.startsWith('data:'))return dataUrl; // ya es URL
+    const h=window.fbHelpers;
+    const path=`${pathHint}_${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
+    const sref=h.storageRef(window.fbStorage,path);
+    await h.uploadString(sref,dataUrl,'data_url');
+    return await h.getDownloadURL(sref);
+}
+
+// Recorre recursivamente un objeto/array y sube cualquier dataUrl a Storage, reemplazándolo con la URL
+async function uploadImagesInObject(obj,pathHint){
+    if(obj==null)return obj;
+    if(typeof obj==='string'){
+        if(obj.startsWith('data:'))return await uploadDataUrlToStorage(obj,pathHint);
+        return obj;
+    }
+    if(Array.isArray(obj)){
+        const result=[];
+        for(let i=0;i<obj.length;i++){
+            result.push(await uploadImagesInObject(obj[i],`${pathHint}_${i}`));
+        }
+        return result;
+    }
+    if(typeof obj==='object'){
+        const result={};
+        for(const k in obj){
+            result[k]=await uploadImagesInObject(obj[k],`${pathHint}_${k}`);
+        }
+        return result;
+    }
+    return obj;
+}
+
 async function pushToFirestore(key,value){
     const h=window.fbHelpers;const db=window.fbDb;
     if(!h||!db){console.warn('[FS] Firebase helpers no disponibles');return;}
-    if(key==='dv_config'){
-        // Un solo documento en la colección "config" con ID "default"
-        await h.setDoc(h.doc(db,'config','default'),value);
-        console.log('[FS] config guardada');
+    try{
+        if(key==='dv_config'){
+            await h.setDoc(h.doc(db,'config','default'),value);
+            console.log('[FS] config guardada');
+        }else if(key==='dv_cotizaciones'){
+            await syncArrayCollection('cotizaciones',value,true);
+        }else if(key==='dv_ventas'){
+            await syncArrayCollection('ventas',value,false);
+        }else if(key==='dv_clientes'){
+            await syncArrayCollection('clientes',value,false);
+        }else if(key==='dv_encabezados'){
+            await syncDestinos(value);
+        }
+    }catch(e){
+        console.error('[FS] error en pushToFirestore para',key,':',e);
+        alert('\u26A0 Error sincronizando con Firebase: '+e.message+'\n\nLos datos est\u00e1n en tu navegador pero no se guardaron en la nube. Revis\u00e1 tu conexi\u00f3n.');
     }
-    // TODO: otros keys en pasos siguientes
+}
+
+// Sincroniza una colección de tipo array (cotizaciones, ventas, clientes)
+async function syncArrayCollection(collName,newArray,hasImages){
+    const h=window.fbHelpers;const db=window.fbDb;
+    const newIdsSet=new Set();
+    const newArrayWithUrls=[]; // Para actualizar localStorage con URLs en lugar de dataUrls
+    for(const item of newArray){
+        const id=String(item.id);
+        newIdsSet.add(id);
+        let toWrite=item;
+        if(hasImages){
+            // Recorrer el objeto y subir dataUrls. Resultado tiene URLs de Storage.
+            toWrite=await uploadImagesInObject(item,`${collName}/${id}`);
+        }
+        await h.setDoc(h.doc(db,collName,id),toWrite);
+        newArrayWithUrls.push(toWrite);
+    }
+    // Borrar docs que ya no están en el array
+    for(const oldId of _fsDocIds[collName]){
+        if(!newIdsSet.has(oldId)){
+            await h.deleteDoc(h.doc(db,collName,oldId));
+        }
+    }
+    _fsDocIds[collName]=newIdsSet;
+    // Actualizar localStorage con URLs (para que las próximas lecturas no re-suban dataUrls ya subidos)
+    if(hasImages){
+        _fsSyncInProgress=true;
+        localStorage.setItem('dv_'+collName,JSON.stringify(newArrayWithUrls));
+        _fsSyncInProgress=false;
+    }
+    console.log(`[FS] ${collName} sincronizada (${newArrayWithUrls.length} items)`);
+}
+
+// Sincroniza destinos (objeto {pais: {ciudad: dataUrl|url}})
+async function syncDestinos(destObj){
+    const h=window.fbHelpers;const db=window.fbDb;
+    const newPaisesSet=new Set();
+    const newObjWithUrls={};
+    for(const pais in destObj){
+        newPaisesSet.add(pais);
+        const ciudades=destObj[pais]||{};
+        const newCiudades={};
+        for(const ciudad in ciudades){
+            const val=ciudades[ciudad];
+            if(val&&typeof val==='string'&&val.startsWith('data:')){
+                newCiudades[ciudad]=await uploadDataUrlToStorage(val,`destinos/${pais}_${ciudad}`);
+            }else{
+                newCiudades[ciudad]=val;
+            }
+        }
+        await h.setDoc(h.doc(db,'destinos',pais),{ciudades:newCiudades});
+        newObjWithUrls[pais]=newCiudades;
+    }
+    for(const oldPais of _fsDocIds.destinos){
+        if(!newPaisesSet.has(oldPais)){
+            await h.deleteDoc(h.doc(db,'destinos',oldPais));
+        }
+    }
+    _fsDocIds.destinos=newPaisesSet;
+    _fsSyncInProgress=true;
+    localStorage.setItem('dv_encabezados',JSON.stringify(newObjWithUrls));
+    _fsSyncInProgress=false;
+    console.log('[FS] destinos sincronizados');
 }
 
 async function loadAllFromFirestore(){
@@ -1132,11 +1252,28 @@ async function loadAllFromFirestore(){
         const cfgSnap=await h.getDoc(h.doc(db,'config','default'));
         if(cfgSnap.exists()){
             localStorage.setItem('dv_config',JSON.stringify(cfgSnap.data()));
-            console.log('[FS] config cargada desde Firestore');
-        }else{
-            console.log('[FS] config no existe en Firestore (primera vez)');
         }
-        // TODO: cargar cotizaciones, ventas, clientes, destinos en pasos siguientes
+        // cotizaciones
+        const cotSnap=await h.getDocs(h.collection(db,'cotizaciones'));
+        const cots=[];cotSnap.forEach(d=>{cots.push(d.data());_fsDocIds.cotizaciones.add(d.id);});
+        cots.sort((a,b)=>(b.fecha||'').localeCompare(a.fecha||''));
+        localStorage.setItem('dv_cotizaciones',JSON.stringify(cots));
+        // ventas
+        const vSnap=await h.getDocs(h.collection(db,'ventas'));
+        const ventas=[];vSnap.forEach(d=>{ventas.push(d.data());_fsDocIds.ventas.add(d.id);});
+        ventas.sort((a,b)=>(b.fechaCreacion||'').localeCompare(a.fechaCreacion||''));
+        localStorage.setItem('dv_ventas',JSON.stringify(ventas));
+        // clientes
+        const cSnap=await h.getDocs(h.collection(db,'clientes'));
+        const clientes=[];cSnap.forEach(d=>{clientes.push(d.data());_fsDocIds.clientes.add(d.id);});
+        clientes.sort((a,b)=>(b.fechaCreacion||'').localeCompare(a.fechaCreacion||''));
+        localStorage.setItem('dv_clientes',JSON.stringify(clientes));
+        // destinos
+        const dSnap=await h.getDocs(h.collection(db,'destinos'));
+        const destObj={};
+        dSnap.forEach(d=>{destObj[d.id]=d.data().ciudades||{};_fsDocIds.destinos.add(d.id);});
+        localStorage.setItem('dv_encabezados',JSON.stringify(destObj));
+        console.log(`[FS] datos cargados: ${cots.length} cotizaciones, ${ventas.length} ventas, ${clientes.length} clientes, ${Object.keys(destObj).length} pa\u00edses`);
     }catch(e){
         console.error('[FS] error cargando datos iniciales:',e);
         alert('No se pudieron cargar los datos desde Firebase: '+e.message+'\n\nRevise su conexi\u00f3n a internet.');
