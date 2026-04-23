@@ -689,8 +689,8 @@ body{font-family:'Open Sans',sans-serif;background:var(--bg);color:var(--text);m
 // ===== FIREBASE INIT =====
 import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js";
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, setPersistence, browserLocalPersistence } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js";
-import { getFirestore } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
-import { getStorage } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-storage.js";
+import { getFirestore, doc, setDoc, getDoc, getDocs, deleteDoc, collection } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
+import { getStorage, ref as storageRef, uploadString, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-storage.js";
 
 const firebaseConfig = {
     apiKey: "AIzaSyBzkZs3bGQGX10HoUY_12QDBcQOZu8nPgk",
@@ -712,6 +712,12 @@ window.fbDb = fbDb;
 window.fbStorage = fbStorage;
 window.fbSignIn = (email,pass) => signInWithEmailAndPassword(fbAuth,email,pass);
 window.fbSignOut = () => signOut(fbAuth);
+
+// Helpers de Firestore/Storage para la capa de sync
+window.fbHelpers = {
+    doc, setDoc, getDoc, getDocs, deleteDoc, collection,
+    storageRef, uploadString, getDownloadURL, deleteObject
+};
 
 // Persistir sesión (que no pida login cada vez)
 setPersistence(fbAuth, browserLocalPersistence);
@@ -1072,13 +1078,23 @@ const defaultPoliticasEuropa=['Precios sujetos a disponibilidad y cambio sin pre
 const defaultPoliticasCrucero=['Precios sujetos a disponibilidad y cambio sin previo aviso.','Esto es una cotizaci\u00f3n.','Todos los pasajeros deben verificar que la documentaci\u00f3n para el viaje se encuentre al d\u00eda (pasaporte, visa, pensiones alimenticias, permisos de salida de ni\u00f1os, seg\u00fan sea necesario). No nos hacemos responsables en caso de problemas migratorios.','El pasaporte debe tener vigencia de al menos 6 meses posteriores a la fecha de viaje.','El dep\u00f3sito de reserva es no reembolsable.','Cambios de nombre, fecha o barco pueden aplicar penalidades.','La naviera no acepta pasajeras que est\u00e9n de 23 semanas o m\u00e1s de embarazo en cualquier momento del crucero.','Los beb\u00e9s deben tener al menos 6 meses de edad el d\u00eda de inicio del crucero para poder viajar.','En cruceros saliendo de Estados Unidos y Alaska es requerido visa.'];
 const defaultChecklistItems=['Revisi\u00f3n de pasaporte','Pantallazo de la aerol\u00ednea','Confirmaci\u00f3n de hospedaje','Seguro de viaje contratado','Traslados confirmados','Pago completo recibido','Documentos enviados al cliente'];
 
-// ===== LOCALSTORAGE =====
+// ===== LOCALSTORAGE (con sync transparente a Firestore) =====
+// localStorage actúa como CACHE. Firestore es la fuente de verdad.
+// Las lecturas siguen siendo sync (desde el cache).
+// Las escrituras: se escriben a localStorage (sync) + push a Firestore (async fire-and-forget).
+let _fsEnabled=false; // true después de loadAllFromFirestore()
+let _fsSyncInProgress=false; // evita loops cuando la carga inicial escribe al cache
+
 function getLS(k){try{return JSON.parse(localStorage.getItem(k)||'[]');}catch(e){return[];}}
-function setLS(k,v){localStorage.setItem(k,JSON.stringify(v));}
+function setLS(k,v){
+    localStorage.setItem(k,JSON.stringify(v));
+    if(_fsEnabled&&!_fsSyncInProgress)pushToFirestore(k,v).catch(err=>console.error('[FS] push error:',k,err));
+}
 function getLSObj(k){try{return JSON.parse(localStorage.getItem(k)||'{}');}catch(e){return {};}}
 function setLSObj(k,v){
     try{
         localStorage.setItem(k,JSON.stringify(v));
+        if(_fsEnabled&&!_fsSyncInProgress)pushToFirestore(k,v).catch(err=>console.error('[FS] push error:',k,err));
         return true;
     }catch(e){
         if(e.name==='QuotaExceededError'||e.name==='NS_ERROR_DOM_QUOTA_REACHED'||(e.code&&(e.code===22||e.code===1014))){
@@ -1089,6 +1105,44 @@ function setLSObj(k,v){
             console.error(e);
         }
         return false;
+    }
+}
+
+// ===== FIRESTORE SYNC LAYER =====
+// Mapeo de keys de localStorage → estructura en Firestore
+// Por ahora (Paso 2a) solo sincronizamos dv_config (1 documento).
+// En pasos siguientes agregamos cotizaciones, ventas, clientes, destinos.
+async function pushToFirestore(key,value){
+    const h=window.fbHelpers;const db=window.fbDb;
+    if(!h||!db){console.warn('[FS] Firebase helpers no disponibles');return;}
+    if(key==='dv_config'){
+        // Un solo documento en la colección "config" con ID "default"
+        await h.setDoc(h.doc(db,'config','default'),value);
+        console.log('[FS] config guardada');
+    }
+    // TODO: otros keys en pasos siguientes
+}
+
+async function loadAllFromFirestore(){
+    const h=window.fbHelpers;const db=window.fbDb;
+    if(!h||!db){console.warn('[FS] Firebase helpers no disponibles');return;}
+    _fsSyncInProgress=true;
+    try{
+        // config/default
+        const cfgSnap=await h.getDoc(h.doc(db,'config','default'));
+        if(cfgSnap.exists()){
+            localStorage.setItem('dv_config',JSON.stringify(cfgSnap.data()));
+            console.log('[FS] config cargada desde Firestore');
+        }else{
+            console.log('[FS] config no existe en Firestore (primera vez)');
+        }
+        // TODO: cargar cotizaciones, ventas, clientes, destinos en pasos siguientes
+    }catch(e){
+        console.error('[FS] error cargando datos iniciales:',e);
+        alert('No se pudieron cargar los datos desde Firebase: '+e.message+'\n\nRevise su conexi\u00f3n a internet.');
+    }finally{
+        _fsSyncInProgress=false;
+        _fsEnabled=true;
     }
 }
 
@@ -3138,10 +3192,12 @@ window.addEventListener('afterprint',function(){
 // El init() se llama desde onAuthStateChanged (en el módulo Firebase del <head>)
 // Esto garantiza que el usuario esté autenticado antes de cargar la app.
 let appInitialized=false;
-window.onUserReady=function(user){
+window.onUserReady=async function(user){
     renderSidebarUser(user);
     if(!appInitialized){
         appInitialized=true;
+        // Cargar datos desde Firestore antes de inicializar la app
+        await loadAllFromFirestore();
         init();
     }
 };
