@@ -839,7 +839,7 @@ onAuthStateChanged(fbAuth, (user) => {
         <div class="form-group"><label>Pa&iacute;s</label><select id="paisSelect" onchange="onPaisChange()"><option value="">-- Seleccionar --</option></select></div>
         <div class="form-group"><label>Destino</label><div class="destino-selector"><select id="destinoSelect" onchange="onDestinoSelect()"><option value="">-- Seleccionar --</option><option value="__custom">Escribir manualmente...</option></select></div><input type="text" id="destino" placeholder="Ej: Canc&uacute;n" oninput="updatePreview()" style="display:none;"><div class="destino-selected-preview" id="destinoPreviewImg"><img id="destinoPreviewImgTag" src="" alt=""></div></div>
         <div class="form-row"><div class="form-group"><label>Fecha inicio</label><input type="date" id="fechaInicio" oninput="updatePreview()"></div><div class="form-group"><label>Fecha fin</label><input type="date" id="fechaFin" oninput="updatePreview()"></div></div>
-        <div class="form-group"><label>Alerta (opcional)</label><textarea id="alertaDestino" placeholder="Ej: Vacuna obligatoria..." oninput="updatePreview()"></textarea></div>
+        <div class="form-group"><label>Alerta (opcional)</label><select id="alertaPresetSelect" onchange="aplicarAlertaPreset(this)" style="margin-bottom:4px;"><option value="">-- Mensaje r&aacute;pido (opcional) --</option></select><textarea id="alertaDestino" placeholder="Ej: Vacuna obligatoria..." oninput="updatePreview()"></textarea></div>
         <div class="form-group"><label>Info adicional (opcional)</label><textarea id="infoDestino" placeholder="Informaci&oacute;n relevante..." oninput="updatePreview()"></textarea></div>
     </div></div>
     <!-- Hospedaje incluido -->
@@ -965,6 +965,7 @@ onAuthStateChanged(fbAuth, (user) => {
         <button class="config-tab" data-cfgtab="noincluye" onclick="switchConfigTab('noincluye')">No incluye</button>
         <button class="config-tab" data-cfgtab="cuentas" onclick="switchConfigTab('cuentas')">Cuentas bancarias</button>
         <button class="config-tab" data-cfgtab="checklist" onclick="switchConfigTab('checklist')">Checklist ventas</button>
+        <button class="config-tab" data-cfgtab="alertas" onclick="switchConfigTab('alertas')">Alertas</button>
         <button class="config-tab" data-cfgtab="fees" onclick="switchConfigTab('fees')">Fees calculadora</button>
     </div>
     <div class="config-panes">
@@ -975,6 +976,7 @@ onAuthStateChanged(fbAuth, (user) => {
         <div class="config-pane" id="cfgPane-noincluye"></div>
         <div class="config-pane" id="cfgPane-cuentas"></div>
         <div class="config-pane" id="cfgPane-checklist"></div>
+        <div class="config-pane" id="cfgPane-alertas"></div>
         <div class="config-pane" id="cfgPane-fees"></div>
     </div>
 </div>
@@ -1077,6 +1079,7 @@ const defaultNoIncluyeCrucero=['Excursiones en Tierra.','Restaurantes de Especia
 const defaultPoliticasEuropa=['Precios sujetos a disponibilidad y cambio sin previo aviso.','Esto es una cotizaci\u00f3n.','Todos los pasajeros deben verificar que la documentaci\u00f3n para el viaje se encuentre al d\u00eda (pasaporte, visa, pensiones alimenticias, permisos de salida de ni\u00f1os, seg\u00fan sea necesario). No nos hacemos responsables en caso de problemas migratorios.','Los hu\u00e9spedes deber\u00e1n presentar un documento de identificaci\u00f3n oficial en vigencia al momento del check-in y una tarjeta de cr\u00e9dito o dep\u00f3sito para gastos imprevistos durante su estancia.','Pasaporte con vigencia de al menos 6 meses posteriores a la fecha de viaje.','Los boletos a\u00e9reos una vez emitidos no son reembolsables ni transferibles, no se aceptan cambios en nombre. Aplican cargos por cambio de fecha.','Se recomienda el uso de caja de seguridad en el hotel, ya que no nos hacemos responsables por p\u00e9rdida o robo de objetos personales.','Dep\u00f3sito de garant\u00eda: Algunos hoteles solicitan tarjeta de cr\u00e9dito, como respaldo ante cualquier incidente.'];
 const defaultPoliticasCrucero=['Precios sujetos a disponibilidad y cambio sin previo aviso.','Esto es una cotizaci\u00f3n.','Todos los pasajeros deben verificar que la documentaci\u00f3n para el viaje se encuentre al d\u00eda (pasaporte, visa, pensiones alimenticias, permisos de salida de ni\u00f1os, seg\u00fan sea necesario). No nos hacemos responsables en caso de problemas migratorios.','El pasaporte debe tener vigencia de al menos 6 meses posteriores a la fecha de viaje.','El dep\u00f3sito de reserva es no reembolsable.','Cambios de nombre, fecha o barco pueden aplicar penalidades.','La naviera no acepta pasajeras que est\u00e9n de 23 semanas o m\u00e1s de embarazo en cualquier momento del crucero.','Los beb\u00e9s deben tener al menos 6 meses de edad el d\u00eda de inicio del crucero para poder viajar.','En cruceros saliendo de Estados Unidos y Alaska es requerido visa.'];
 const defaultChecklistItems=['Revisi\u00f3n de pasaporte','Pantallazo de la aerol\u00ednea','Confirmaci\u00f3n de hospedaje','Seguro de viaje contratado','Traslados confirmados','Pago completo recibido','Documentos enviados al cliente'];
+const defaultAlertas=['A partir del 11 de enero 2025 es obligatoria la vacuna de la fiebre amarilla para el ingreso a este pa\u00eds.'];
 
 // ===== LOCALSTORAGE (con sync transparente a Firestore) =====
 // localStorage actúa como CACHE. Firestore es la fuente de verdad.
@@ -1388,6 +1391,7 @@ function cfgGet(){
         },
         cuentas:   c.cuentas   || defaultCuentas,
         checklist: c.checklist || defaultChecklistItems,
+        alertas:   c.alertas   || defaultAlertas,
         fees:      c.fees      || defaultFees,
         agencyInfo: Object.assign({},defaultAgencyInfo,c.agencyInfo||{})
     };
@@ -1422,6 +1426,29 @@ function evalExpr(v){
         const r=Function('"use strict";return('+s+')')();
         return typeof r==='number'&&isFinite(r)?r:0;
     }catch(e){return num(s);}
+}
+
+// Pobla el select de alertas pre-cargadas desde config
+function populateAlertaPresets(){
+    const sel=document.getElementById('alertaPresetSelect');
+    if(!sel)return;
+    const cfg=cfgGet();
+    sel.innerHTML='<option value="">-- Mensaje r\u00e1pido (opcional) --</option>';
+    (cfg.alertas||[]).forEach(a=>{
+        const o=document.createElement('option');
+        o.value=a;
+        // Etiqueta truncada para mensajes largos
+        o.textContent=a.length>90?a.slice(0,87)+'\u2026':a;
+        sel.appendChild(o);
+    });
+}
+
+// Cuando se elige un preset, lo copia al textarea y resetea el select
+function aplicarAlertaPreset(sel){
+    if(!sel.value)return;
+    document.getElementById('alertaDestino').value=sel.value;
+    sel.value='';
+    updatePreview();
 }
 
 // Pobla el select de encargados desde config, preservando valor actual
@@ -1801,7 +1828,17 @@ function renderConfiguracion(){
     renderConfigNoIncluye();
     renderConfigCuentas();
     renderConfigChecklist();
+    renderConfigAlertas();
     renderConfigFees();
+}
+
+function renderConfigAlertas(){
+    const cfg=cfgGet();
+    const pane=document.getElementById('cfgPane-alertas');
+    pane.innerHTML=`<p class="config-hint">Mensajes de alerta pre-cargados que aparecen como "Mensaje r\u00e1pido" en el editor. Puede arrastrar para reordenar.</p>
+    <div id="cfgAlertasList">${(cfg.alertas||[]).map(s=>renderCfgListItem(s,true)).join('')}</div>
+    <button class="btn btn-sm btn-primary" onclick="document.getElementById('cfgAlertasList').insertAdjacentHTML('beforeend',renderCfgListItem('',true));initDrag(document.getElementById('cfgAlertasList'));" style="margin-top:8px;">+ Agregar mensaje</button>`;
+    initDrag(pane.querySelector('#cfgAlertasList'));
 }
 
 function renderConfigAgencia(){
@@ -1976,6 +2013,8 @@ function saveConfigFromUI(){
     });
     // Checklist
     c.checklist=collectConfigListFromDOM('cfgChecklistList',false);
+    // Alertas (textarea)
+    c.alertas=collectConfigListFromDOM('cfgAlertasList',true);
     // Fees
     c.fees={
         reserva_fee:num(document.getElementById('cfgFee-reserva').value),
@@ -1985,6 +2024,7 @@ function saveConfigFromUI(){
     };
     saveConfig(c);
     populateEncargadosSelect();
+    populateAlertaPresets();
     // Actualizar razón social y cédula en el editor si están vacíos (para no pisar si el usuario los cambió)
     const rs=document.getElementById('razonSocial');if(rs&&!rs.value)rs.value=c.agencyInfo.nombre;
     const ced=document.getElementById('cedulaEmpresa');if(ced&&!ced.value)ced.value=c.agencyInfo.cedula;
@@ -2003,7 +2043,7 @@ function resetConfigToDefaults(){
 // ===== INIT =====
 function init(){
     const cfg=cfgGet();
-    loadServicios(cfg.servicios.america);loadNoIncluye(cfg.noIncluye.america);loadPoliticas(cfg.politicas.america);loadCuentas(cfg.cuentas);populateEncargadosSelect();
+    loadServicios(cfg.servicios.america);loadNoIncluye(cfg.noIncluye.america);loadPoliticas(cfg.politicas.america);loadCuentas(cfg.cuentas);populateEncargadosSelect();populateAlertaPresets();
     // Pre-llenar razón social y cédula desde agencyInfo (razón social usa nombre legal si existe)
     const rsInit=cfg.agencyInfo.razonSocial||cfg.agencyInfo.nombre||'';
     if(rsInit)document.getElementById('razonSocial').value=rsInit;
