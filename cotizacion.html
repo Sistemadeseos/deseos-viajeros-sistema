@@ -898,7 +898,7 @@ onAuthStateChanged(fbAuth, (user) => {
     <div class="form-section"><div class="form-section-header collapsed" onclick="toggleSection(this)">Logo y Marca de agua<span class="toggle">&#9660;</span></div><div class="form-section-body collapsed">
         <div class="form-group"><label>Logo (header)</label><input type="file" id="logoInput" accept="image/*" onchange="handleLogoUpload(event)"></div>
         <div class="form-group"><label>Marca de agua</label><input type="file" id="watermarkInput" accept="image/*" onchange="handleWatermarkUpload(event)"></div>
-        <div id="watermarkPreviewThumb" style="display:none;text-align:center;margin-top:5px;"><img id="watermarkThumb" src="" style="max-height:50px;opacity:0.3;" alt=""><br><button class="btn btn-sm btn-danger" onclick="watermarkDataUrl=null;document.getElementById('watermarkPreviewThumb').style.display='none';updatePreview();" style="margin-top:3px;">Quitar</button></div>
+        <div id="watermarkPreviewThumb" style="display:none;text-align:center;margin-top:5px;"><img id="watermarkThumb" src="" style="max-height:50px;opacity:0.3;" alt=""><br><button class="btn btn-sm btn-danger" onclick="removeWatermark()" style="margin-top:3px;">Quitar</button></div>
     </div></div>
     <!-- Adjuntos -->
     <div class="form-section"><div class="form-section-header" onclick="toggleSection(this)">Adjuntos internos<span class="toggle">&#9660;</span></div><div class="form-section-body">
@@ -1162,7 +1162,16 @@ async function pushToFirestore(key,value){
     if(!h||!db){console.warn('[FS] Firebase helpers no disponibles');return;}
     try{
         if(key==='dv_config'){
-            await h.setDoc(h.doc(db,'config','default'),value);
+            // Subir logo/watermark a Storage si vinieron como dataUrl
+            const toWrite=await uploadImagesInObject(value,'config');
+            // Actualizar localStorage con las URLs (evita re-uploads)
+            _fsSyncInProgress=true;
+            localStorage.setItem('dv_config',JSON.stringify(toWrite));
+            _fsSyncInProgress=false;
+            // Sincronizar globales logoDataUrl y watermarkDataUrl con las URLs de Storage
+            if(toWrite.logo!==undefined)logoDataUrl=toWrite.logo||null;
+            if(toWrite.watermark!==undefined)watermarkDataUrl=toWrite.watermark||null;
+            await h.setDoc(h.doc(db,'config','default'),toWrite);
             console.log('[FS] config guardada');
         }else if(key==='dv_cotizaciones'){
             await syncArrayCollection('cotizaciones',value,true);
@@ -1932,6 +1941,18 @@ function init(){
     const rsInit=cfg.agencyInfo.razonSocial||cfg.agencyInfo.nombre||'';
     if(rsInit)document.getElementById('razonSocial').value=rsInit;
     if(cfg.agencyInfo.cedula)document.getElementById('cedulaEmpresa').value=cfg.agencyInfo.cedula;
+    // Restaurar logo y marca de agua desde config (persistidos en Firestore/Storage)
+    const rawCfg=getLSObj('dv_config');
+    if(rawCfg.logo){
+        logoDataUrl=rawCfg.logo;
+    }
+    if(rawCfg.watermark){
+        watermarkDataUrl=rawCfg.watermark;
+        const thumb=document.getElementById('watermarkThumb');
+        const thumbBox=document.getElementById('watermarkPreviewThumb');
+        if(thumb){thumb.src=watermarkDataUrl;}
+        if(thumbBox){thumbBox.style.display='';}
+    }
     addOpcion();populatePaisSelect();initAllDrag();initFormPanelResize();restoreFormPanelWidth();updatePreview();updateBadges();
 }
 
@@ -2448,11 +2469,21 @@ function addPuerto(fecha,puerto,llegada,salida,actividad){
 }
 
 // ===== LOGO / WATERMARK =====
+// Persiste logo y watermark en config/default (sincronizado con Firestore/Storage).
+// setLSObj dispara pushToFirestore que sube la imagen a Storage y guarda la URL.
+function persistLogoWatermark(){
+    const cfg=getLSObj('dv_config');
+    cfg.logo=logoDataUrl||null;
+    cfg.watermark=watermarkDataUrl||null;
+    setLSObj('dv_config',cfg);
+}
 function handleLogoUpload(e){
     const f=e.target.files[0];if(!f)return;
-    // Logo pequeño (200×200) con alta calidad
+    // Logo pequeño (300×300) con alta calidad
     compressImage(f,300,300,0.9).then(dataUrl=>{
-        logoDataUrl=dataUrl;updatePreview();
+        logoDataUrl=dataUrl;
+        persistLogoWatermark();
+        updatePreview();
     }).catch(err=>alert('No se pudo procesar la imagen: '+err.message));
 }
 function handleWatermarkUpload(e){
@@ -2462,8 +2493,15 @@ function handleWatermarkUpload(e){
         watermarkDataUrl=dataUrl;
         document.getElementById('watermarkThumb').src=watermarkDataUrl;
         document.getElementById('watermarkPreviewThumb').style.display='';
+        persistLogoWatermark();
         updatePreview();
     }).catch(err=>alert('No se pudo procesar la imagen: '+err.message));
+}
+function removeWatermark(){
+    watermarkDataUrl=null;
+    document.getElementById('watermarkPreviewThumb').style.display='none';
+    persistLogoWatermark();
+    updatePreview();
 }
 
 // ===== ADJUNTOS =====
