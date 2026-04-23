@@ -1439,6 +1439,21 @@ const EMAIL_ENCARGADO_OVERRIDES={
     'reservas@deseosviajeros.com':'Xavier Castro'
 };
 
+// Emails que NO pueden cambiar el encargado manualmente (campo bloqueado).
+// Estos usuarios quedan fijos al encargado que les corresponde segun su email.
+const EMAIL_ENCARGADO_BLOQUEADO=new Set([
+    'brendagomez@deseosviajeros.com',
+    'miladyzuniga@deseosviajeros.com',
+    'susanacastro@deseosviajeros.com'
+]);
+
+// Devuelve true si el usuario actual tiene el campo "Encargado" bloqueado
+function usuarioTieneEncargadoBloqueado(){
+    const email=window.currentUser&&window.currentUser.email;
+    if(!email)return false;
+    return EMAIL_ENCARGADO_BLOQUEADO.has(email.toLowerCase().trim());
+}
+
 // Dado un email, busca en la lista de encargados el que mejor coincida.
 // Primero revisa overrides explícitos, luego match por nombre.
 // Ejemplo: "susanacastro@deseosviajeros.com" → "Susana Castro"
@@ -1480,6 +1495,18 @@ function populateEncargadosSelect(){
         const email=window.currentUser&&window.currentUser.email;
         const match=matchEncargadoDesdeEmail(email,cfg.encargados);
         if(match)sel.value=match;
+    }
+    // Bloquear el campo si el usuario no puede cambiar el encargado manualmente
+    if(usuarioTieneEncargadoBloqueado()){
+        sel.disabled=true;
+        sel.dataset.encargadoLocked='1'; // marca que el bloqueo es permanente
+        sel.title='Este campo est\u00e1 asignado autom\u00e1ticamente seg\u00fan tu usuario';
+    }else{
+        if(sel.dataset.encargadoLocked){
+            delete sel.dataset.encargadoLocked;
+            sel.disabled=false;
+            sel.removeAttribute('title');
+        }
     }
 }
 
@@ -2850,6 +2877,8 @@ function setEditorReadOnly(readOnly){
     fp.querySelectorAll('input,select,textarea,button').forEach(el=>{
         // No deshabilitar los botones de "colapsar sección" para que pueda navegar
         if(el.closest('.form-section-header'))return;
+        // No tocar elementos con bloqueo permanente (ej: encargado para Brenda/Milady/Susana)
+        if(el.dataset&&el.dataset.encargadoLocked==='1')return;
         if(readOnly){
             el.setAttribute('data-ro-disabled','1');
             el.disabled=true;
