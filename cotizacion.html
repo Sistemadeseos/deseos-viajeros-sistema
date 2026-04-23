@@ -1432,11 +1432,24 @@ function normalizarParaMatch(s){
         .replace(/[^a-z0-9]/g,''); // quita espacios, puntos, guiones, etc.
 }
 
+// Overrides explícitos: emails genéricos que se asignan a un encargado específico.
+// Se aplica ANTES de la lógica de match por nombre.
+const EMAIL_ENCARGADO_OVERRIDES={
+    'operaciones@deseosviajeros.com':'Maria Perez',
+    'reservas@deseosviajeros.com':'Xavier Castro'
+};
+
 // Dado un email, busca en la lista de encargados el que mejor coincida.
+// Primero revisa overrides explícitos, luego match por nombre.
 // Ejemplo: "susanacastro@deseosviajeros.com" → "Susana Castro"
 function matchEncargadoDesdeEmail(email,encargados){
     if(!email||!encargados||!encargados.length)return '';
-    const prefix=email.split('@')[0];
+    const emailLower=email.toLowerCase().trim();
+    // 1. Override explícito
+    const override=EMAIL_ENCARGADO_OVERRIDES[emailLower];
+    if(override&&encargados.includes(override))return override;
+    // 2. Match por nombre (prefijo del email vs nombre del encargado)
+    const prefix=emailLower.split('@')[0];
     const normPrefix=normalizarParaMatch(prefix);
     if(!normPrefix)return '';
     for(const e of encargados){
