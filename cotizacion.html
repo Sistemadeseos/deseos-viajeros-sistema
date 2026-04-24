@@ -684,6 +684,26 @@ body{font-family:'Open Sans',sans-serif;background:var(--bg);color:var(--text);m
 .sidebar-user .user-email{color:rgba(255,255,255,0.55);font-size:0.68rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .sidebar-user .logout-btn{background:transparent;border:1px solid rgba(255,255,255,0.2);color:rgba(255,255,255,0.7);border-radius:6px;padding:5px 8px;font-size:0.7rem;cursor:pointer;transition:all 0.15s}
 .sidebar-user .logout-btn:hover{background:rgba(255,255,255,0.1);color:white}
+
+/* ===== PIPELINE DE CONTACTOS ===== */
+.pipeline-bar{display:flex;gap:3px;margin:12px 0 14px;flex-wrap:wrap}
+.pipeline-step{flex:1;min-width:80px;padding:8px 6px;text-align:center;border-radius:4px;font-size:0.72rem;font-weight:700;cursor:pointer;background:var(--bg);color:var(--text-light);border:1px solid var(--border);transition:all 0.15s;user-select:none;position:relative}
+.pipeline-step:hover{border-color:var(--primary);color:var(--primary-dark)}
+.pipeline-step.active{color:white;border-color:transparent;box-shadow:0 2px 6px rgba(0,0,0,0.15)}
+.pipeline-step.st-nuevo.active{background:#3498db}
+.pipeline-step.st-contactado.active{background:#00D6D4}
+.pipeline-step.st-cotizado.active{background:#429D9D}
+.pipeline-step.st-negociacion.active{background:#e8941a}
+.pipeline-step.st-cliente.active{background:#27ae60}
+.pipeline-step.st-perdido.active{background:#e74c3c}
+/* Badge de estado en lista */
+.estado-badge{display:inline-block;font-size:0.65rem;padding:2px 8px;border-radius:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:white}
+.estado-badge.st-nuevo{background:#3498db}
+.estado-badge.st-contactado{background:#00D6D4}
+.estado-badge.st-cotizado{background:#429D9D}
+.estado-badge.st-negociacion{background:#e8941a}
+.estado-badge.st-cliente{background:#27ae60}
+.estado-badge.st-perdido{background:#e74c3c}
 </style>
 <script type="module">
 // ===== FIREBASE INIT =====
@@ -782,7 +802,7 @@ onAuthStateChanged(fbAuth, (user) => {
     <div class="sidebar-section">
         <div class="sidebar-section-label">Gesti&oacute;n</div>
         <div class="sidebar-item" onclick="nav('ventas')"><span class="si-icon">&#128176;</span>Ventas<span class="si-badge" id="badgeVentas"></span></div>
-        <div class="sidebar-item" onclick="nav('clientes')"><span class="si-icon">&#128101;</span>Clientes<span class="si-badge" id="badgeClientes"></span></div>
+        <div class="sidebar-item" onclick="nav('clientes')"><span class="si-icon">&#128101;</span>Contactos<span class="si-badge" id="badgeClientes"></span></div>
         <div class="sidebar-item" onclick="nav('configuracion')"><span class="si-icon">&#9881;</span>Configuraci&oacute;n</div>
     </div>
 </div>
@@ -943,7 +963,7 @@ onAuthStateChanged(fbAuth, (user) => {
 
 <!-- VIEW: CLIENTES -->
 <div class="app-view view-list" id="viewClientes">
-    <div class="list-header"><h2>Clientes</h2><button class="btn btn-primary" onclick="openClienteModal()">+ Nuevo Cliente</button></div>
+    <div class="list-header"><h2>Contactos</h2><button class="btn btn-primary" onclick="openClienteModal()">+ Nuevo Contacto</button></div>
     <div class="list-search"><input type="text" id="clientesSearch" placeholder="Buscar por nombre, email, documento..." oninput="renderClientes()"></div>
     <div class="list-view" id="clientesGrid"></div>
 </div>
@@ -997,8 +1017,15 @@ onAuthStateChanged(fbAuth, (user) => {
 </div><!-- app-layout -->
 
 <!-- MODAL: Cliente -->
-<div class="modal-overlay" id="modalCliente"><div class="modal" style="max-width:650px;"><div class="modal-header"><h3 id="modalClienteTitulo">Nuevo Cliente</h3><button class="modal-close" onclick="closeModal('modalCliente')">&times;</button></div><div class="modal-body">
+<div class="modal-overlay" id="modalCliente"><div class="modal" style="max-width:700px;"><div class="modal-header"><h3 id="modalClienteTitulo">Nuevo Contacto</h3><button class="modal-close" onclick="closeModal('modalCliente')">&times;</button></div><div class="modal-body">
     <input type="hidden" id="mcId">
+    <p style="font-size:0.7rem;color:var(--text-light);text-transform:uppercase;font-weight:700;letter-spacing:1px;margin-bottom:4px;">Estado del contacto</p>
+    <div class="pipeline-bar" id="mcPipelineBar"></div>
+    <div class="form-row">
+        <div class="form-group"><label>Origen</label><select id="mcOrigen"><option value="">-- Seleccionar --</option></select></div>
+        <div class="form-group"><label>Asignado a</label><input type="text" id="mcAsignadoA" placeholder="Email del encargado"></div>
+    </div>
+    <div id="mcCapturaInfo" style="font-size:0.7rem;color:var(--text-light);margin-bottom:10px;"></div>
     <p style="font-size:0.7rem;color:var(--text-light);text-transform:uppercase;font-weight:700;letter-spacing:1px;margin-bottom:8px;">Datos Personales</p>
     <div class="form-group"><label>Nombre completo</label><input type="text" id="mcNombre"></div>
     <div class="form-row"><div class="form-group"><label>Tipo documento</label><select id="mcTipoDoc"><option value="cedula">C&eacute;dula</option><option value="pasaporte">Pasaporte</option><option value="otro">Otro</option></select></div><div class="form-group"><label>N&uacute;mero documento</label><input type="text" id="mcNumDoc"></div></div>
@@ -1012,7 +1039,7 @@ onAuthStateChanged(fbAuth, (user) => {
     <div class="form-row"><div class="form-group"><label>Programa viajero - Aerol&iacute;nea</label><input type="text" id="mcVFAerolinea"></div><div class="form-group"><label>N&ordm; viajero frecuente</label><input type="text" id="mcVFNumero"></div></div>
     <p style="font-size:0.7rem;color:var(--text-light);text-transform:uppercase;font-weight:700;letter-spacing:1px;margin:12px 0 8px;">Notas</p>
     <div class="form-group"><textarea id="mcNotas" placeholder="Notas generales sobre el cliente..." style="min-height:60px;"></textarea></div>
-</div><div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modalCliente')">Cancelar</button><button class="btn btn-success" onclick="guardarCliente()">Guardar Cliente</button></div></div></div>
+</div><div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modalCliente')">Cancelar</button><button class="btn btn-success" onclick="guardarCliente()">Guardar Contacto</button></div></div></div>
 
 <!-- LIGHTBOX: Imagen ampliada -->
 <div class="img-lightbox" id="imgLightbox" onclick="closeImgLightbox(event)">
@@ -1080,6 +1107,23 @@ const defaultPoliticasEuropa=['Precios sujetos a disponibilidad y cambio sin pre
 const defaultPoliticasCrucero=['Precios sujetos a disponibilidad y cambio sin previo aviso.','Esto es una cotizaci\u00f3n.','Todos los pasajeros deben verificar que la documentaci\u00f3n para el viaje se encuentre al d\u00eda (pasaporte, visa, pensiones alimenticias, permisos de salida de ni\u00f1os, seg\u00fan sea necesario). No nos hacemos responsables en caso de problemas migratorios.','El pasaporte debe tener vigencia de al menos 6 meses posteriores a la fecha de viaje.','El dep\u00f3sito de reserva es no reembolsable.','Cambios de nombre, fecha o barco pueden aplicar penalidades.','La naviera no acepta pasajeras que est\u00e9n de 23 semanas o m\u00e1s de embarazo en cualquier momento del crucero.','Los beb\u00e9s deben tener al menos 6 meses de edad el d\u00eda de inicio del crucero para poder viajar.','En cruceros saliendo de Estados Unidos y Alaska es requerido visa.'];
 const defaultChecklistItems=['Revisi\u00f3n de pasaporte','Pantallazo de la aerol\u00ednea','Confirmaci\u00f3n de hospedaje','Seguro de viaje contratado','Traslados confirmados','Pago completo recibido','Documentos enviados al cliente'];
 const defaultAlertas=['A partir del 11 de enero 2025 es obligatoria la vacuna de la fiebre amarilla para el ingreso a este pa\u00eds.'];
+
+// ===== ESTADOS Y ORIGENES DEL PIPELINE DE CONTACTOS =====
+const CONTACTO_ESTADOS=[
+    {id:'nuevo',label:'Nuevo'},
+    {id:'contactado',label:'Contactado'},
+    {id:'cotizado',label:'Cotizado'},
+    {id:'negociacion',label:'Negociaci\u00f3n'},
+    {id:'cliente',label:'Cliente'},
+    {id:'perdido',label:'Perdido'}
+];
+const CONTACTO_ORIGENES=[
+    {id:'presencial',label:'Presencial'},
+    {id:'telefono',label:'Tel\u00e9fono'},
+    {id:'whatsapp',label:'WhatsApp'},
+    {id:'referido',label:'Referido'},
+    {id:'web',label:'Web'}
+];
 
 // ===== LOCALSTORAGE (con sync transparente a Firestore) =====
 // localStorage actúa como CACHE. Firestore es la fuente de verdad.
@@ -1544,11 +1588,11 @@ function nav(view){
     const map={dashboard:0,editor:1,historial:2,encabezados:3,ventas:4,clientes:5,configuracion:6};
     if(map[view]!==undefined)items[map[view]].classList.add('active');
     document.querySelectorAll('.app-view').forEach(v=>v.classList.remove('active'));
-    const titles={dashboard:'Dashboard',editor:'Editor de Cotizaci\u00f3n',historial:'Historial de Cotizaciones',encabezados:'Destinos',ventas:'Ventas',clientes:'Clientes',configuracion:'Configuraci\u00f3n',documento:'Documento'};
+    const titles={dashboard:'Dashboard',editor:'Editor de Cotizaci\u00f3n',historial:'Historial de Cotizaciones',encabezados:'Destinos',ventas:'Ventas',clientes:'Contactos',configuracion:'Configuraci\u00f3n',documento:'Documento'};
     document.getElementById('headerTitle').textContent=titles[view]||'';
     const ha=document.getElementById('headerActions');
     if(view==='editor')ha.innerHTML='<button class="btn btn-outline" onclick="resetForm()">&#128260; Nueva</button><button class="btn btn-accent" onclick="window.print()">&#128424; Exportar PDF</button>';
-    else if(view==='clientes')ha.innerHTML='<button class="btn btn-accent" onclick="openClienteModal()">+ Nuevo Cliente</button>';
+    else if(view==='clientes')ha.innerHTML='<button class="btn btn-accent" onclick="openClienteModal()">+ Nuevo Contacto</button>';
     else if(view==='dashboard')ha.innerHTML='<button class="btn btn-outline" onclick="renderDashboard()">&#8635; Actualizar</button>';
     else ha.innerHTML='';
     const viewIds={dashboard:'viewDashboard',editor:'viewEditor',historial:'viewHistorial',encabezados:'viewEncabezados',ventas:'viewVentas',clientes:'viewClientes',configuracion:'viewConfiguracion',documento:'viewDocumento'};
@@ -2938,7 +2982,31 @@ function setEditorReadOnly(readOnly){
     }
 }
 
-function toggleAceptada(id){const hist=getHistorial();const entry=hist.find(h=>h.id===id);if(!entry)return;if(entry.aceptada){if(!confirm('\u00bfDesmarcar esta cotizaci\u00f3n como aceptada? Se eliminar\u00e1 la venta asociada.'))return;entry.aceptada=false;const ventas=getVentas().filter(v=>v.cotizacionId!==id);saveVentas(ventas);}else{entry.aceptada=true;crearVenta(entry);}saveHistorial(hist);renderHistorial();updateBadges();}
+function toggleAceptada(id){
+    const hist=getHistorial();
+    const entry=hist.find(h=>h.id===id);
+    if(!entry)return;
+    if(entry.aceptada){
+        if(!confirm('\u00bfDesmarcar esta cotizaci\u00f3n como aceptada? Se eliminar\u00e1 la venta asociada.'))return;
+        entry.aceptada=false;
+        const ventas=getVentas().filter(v=>v.cotizacionId!==id);
+        saveVentas(ventas);
+    }else{
+        entry.aceptada=true;
+        crearVenta(entry);
+        // Al aceptar una cotizacion, el contacto pasa a estado "cliente"
+        if(entry.clienteId){
+            const clientes=getClientes();
+            const c=clientes.find(x=>x.id===entry.clienteId);
+            if(c&&c.estado!=='cliente'){
+                c.estado='cliente';
+                c.fechaActualizacion=new Date().toISOString();
+                saveClientes(clientes);
+            }
+        }
+    }
+    saveHistorial(hist);renderHistorial();updateBadges();
+}
 
 function renderHistorial(){
 const hist=getHistorial();
@@ -3358,28 +3426,61 @@ function renderDocumento(tipo,ventaId,pagoId){
 }
 
 // ===== CLIENTES =====
-function autoCreateCliente(data){const nombre=data.tipoCliente==='empresa'?(data.empresaContacto||data.empresaNombre||''):(data.clienteNombre||'');const email=data.tipoCliente==='empresa'?(data.empresaEmail||''):(data.clienteEmail||'');const telefono=data.tipoCliente==='empresa'?(data.empresaTelefono||''):(data.clienteTelefono||'');if(!nombre&&!email)return null;
-const clientes=getClientes();let found=null;if(email)found=clientes.find(c=>c.email&&c.email.toLowerCase()===email.toLowerCase());if(!found&&nombre)found=clientes.find(c=>c.nombreCompleto&&c.nombreCompleto.toLowerCase()===nombre.toLowerCase());
-if(found){if(telefono&&telefono!==found.telefono)found.telefono=telefono;if(email&&email!==found.email)found.email=email;found.fechaActualizacion=new Date().toISOString();saveClientes(clientes);updateBadges();return found.id;}
-const nuevo={id:Date.now().toString(),nombreCompleto:nombre,tipoDocumento:'cedula',numeroDocumento:'',nacionalidad:'',fechaNacimiento:'',telefono,email,direccion:'',empresa:data.tipoCliente==='empresa'?data.empresaNombre:'',numeroPasaporte:'',vencimientoPasaporte:'',viajeroProgramaAerolinea:'',viajeroProgramaNumero:'',notas:'',fechaCreacion:new Date().toISOString(),fechaActualizacion:new Date().toISOString()};clientes.unshift(nuevo);saveClientes(clientes);updateBadges();return nuevo.id;}
+function autoCreateCliente(data){
+    const nombre=data.tipoCliente==='empresa'?(data.empresaContacto||data.empresaNombre||''):(data.clienteNombre||'');
+    const email=data.tipoCliente==='empresa'?(data.empresaEmail||''):(data.clienteEmail||'');
+    const telefono=data.tipoCliente==='empresa'?(data.empresaTelefono||''):(data.clienteTelefono||'');
+    if(!nombre&&!email)return null;
+    const clientes=getClientes();
+    const ahora=new Date().toISOString();
+    const usuarioEmail=(window.currentUser&&window.currentUser.email)||'';
+    let found=null;
+    if(email)found=clientes.find(c=>c.email&&c.email.toLowerCase()===email.toLowerCase());
+    if(!found&&nombre)found=clientes.find(c=>c.nombreCompleto&&c.nombreCompleto.toLowerCase()===nombre.toLowerCase());
+    if(found){
+        if(telefono&&telefono!==found.telefono)found.telefono=telefono;
+        if(email&&email!==found.email)found.email=email;
+        // Si el contacto ya existia y era "nuevo" o "contactado", al generar cotizacion pasa a "cotizado"
+        if(!found.estado||found.estado==='nuevo'||found.estado==='contactado')found.estado='cotizado';
+        found.fechaActualizacion=ahora;
+        saveClientes(clientes);updateBadges();return found.id;
+    }
+    const nuevo={
+        id:Date.now().toString(),nombreCompleto:nombre,tipoDocumento:'cedula',numeroDocumento:'',nacionalidad:'',
+        fechaNacimiento:'',telefono,email,direccion:'',empresa:data.tipoCliente==='empresa'?data.empresaNombre:'',
+        numeroPasaporte:'',vencimientoPasaporte:'',viajeroProgramaAerolinea:'',viajeroProgramaNumero:'',notas:'',
+        // Campos de pipeline CRM (Fase 1)
+        estado:'cotizado', // creado desde una cotizacion -> estado cotizado
+        origen:'',
+        asignadoA:usuarioEmail,
+        fechaCaptura:ahora,
+        fechaCreacion:ahora,fechaActualizacion:ahora
+    };
+    clientes.unshift(nuevo);saveClientes(clientes);updateBadges();return nuevo.id;
+}
 
 function renderClientes(){
     const clientes=getClientes();
     const grid=document.getElementById('clientesGrid');
     const search=document.getElementById('clientesSearch').value.toLowerCase();
-    const filtered=clientes.filter(c=>{const text=[c.nombreCompleto,c.email,c.telefono,c.numeroDocumento,c.empresa].join(' ').toLowerCase();return!search||text.includes(search);});
-    if(!filtered.length){grid.innerHTML=`<div class="grid-empty"><h3>${search?'Sin resultados':'Sin clientes'}</h3><p>Los clientes se crean al guardar cotizaciones o manualmente.</p></div>`;return;}
+    const filtered=clientes.filter(c=>{const text=[c.nombreCompleto,c.email,c.telefono,c.numeroDocumento,c.empresa,c.estado,c.origen].join(' ').toLowerCase();return!search||text.includes(search);});
+    if(!filtered.length){grid.innerHTML=`<div class="grid-empty"><h3>${search?'Sin resultados':'Sin contactos'}</h3><p>Los contactos se crean al guardar cotizaciones o manualmente.</p></div>`;return;}
     const hist=getHistorial();
     const ventas=getVentas();
+    const estadoLabels=Object.fromEntries(CONTACTO_ESTADOS.map(s=>[s.id,s.label]));
+    const origenLabels=Object.fromEntries(CONTACTO_ORIGENES.map(o=>[o.id,o.label]));
     const rows=filtered.map(c=>{
         const numCots=hist.filter(h=>h.clienteId===c.id).length;
         const numVentas=ventas.filter(v=>v.clienteId===c.id).length;
+        const estado=c.estado||'nuevo';
+        const estadoBadge=`<span class="estado-badge st-${estado}">${esc(estadoLabels[estado]||estado)}</span>`;
+        const origenTxt=c.origen&&origenLabels[c.origen]?esc(origenLabels[c.origen]):'<span style="color:var(--text-light);">-</span>';
         return`<tr>
-        <td><div class="lt-nombre">${esc(c.nombreCompleto||'-')}</div></td>
-        <td>${c.tipoDocumento?'<span style="text-transform:capitalize;color:var(--text-light);font-size:0.7rem;">'+esc(c.tipoDocumento)+'</span> ':''}${esc(c.numeroDocumento||'-')}</td>
+        <td><div class="lt-nombre">${esc(c.nombreCompleto||'-')}</div>${c.asignadoA?`<div class="lt-secondary">Asignado: ${esc(c.asignadoA)}</div>`:''}</td>
+        <td>${estadoBadge}</td>
+        <td>${origenTxt}</td>
         <td>${c.email?esc(c.email):'<span style="color:var(--text-light);">-</span>'}</td>
         <td>${c.telefono?esc(c.telefono):'<span style="color:var(--text-light);">-</span>'}</td>
-        <td>${c.empresa?esc(c.empresa):'<span style="color:var(--text-light);">-</span>'}</td>
         <td>${c.numeroPasaporte?esc(c.numeroPasaporte):'<span style="color:var(--text-light);">-</span>'}${c.vencimientoPasaporte?`<div class="lt-secondary">vence ${esc(c.vencimientoPasaporte)}</div>`:''}</td>
         <td><span class="lt-badge" style="background:var(--primary-light);color:var(--primary-dark);">${numCots} cot.</span> <span class="lt-badge" style="background:var(--accent-light);color:#d4830f;">${numVentas} ventas</span></td>
         <td><div class="lt-actions"><button class="btn btn-sm btn-primary" onclick="openClienteModal('${c.id}')">Editar</button><button class="btn btn-sm btn-danger" onclick="eliminarCliente('${c.id}')">&times;</button></div></td>
@@ -3387,11 +3488,11 @@ function renderClientes(){
     }).join('');
     grid.innerHTML=`<table class="list-table">
         <thead><tr>
-            <th>Nombre completo</th>
-            <th>Documento</th>
+            <th>Nombre</th>
+            <th>Estado</th>
+            <th>Origen</th>
             <th>Email</th>
             <th>Tel&eacute;fono</th>
-            <th>Empresa</th>
             <th>Pasaporte</th>
             <th>Actividad</th>
             <th>Acciones</th>
@@ -3400,13 +3501,136 @@ function renderClientes(){
     </table>`;
 }
 
-function openClienteModal(id){const modal=document.getElementById('modalCliente');const titulo=document.getElementById('modalClienteTitulo');if(id){const clientes=getClientes();const c=clientes.find(x=>x.id===id);if(!c)return;titulo.textContent='Editar Cliente';document.getElementById('mcId').value=id;document.getElementById('mcNombre').value=c.nombreCompleto||'';document.getElementById('mcTipoDoc').value=c.tipoDocumento||'cedula';document.getElementById('mcNumDoc').value=c.numeroDocumento||'';document.getElementById('mcNacionalidad').value=c.nacionalidad||'';document.getElementById('mcFechaNac').value=c.fechaNacimiento||'';document.getElementById('mcTelefono').value=c.telefono||'';document.getElementById('mcEmail').value=c.email||'';document.getElementById('mcDireccion').value=c.direccion||'';document.getElementById('mcEmpresa').value=c.empresa||'';document.getElementById('mcPasaporte').value=c.numeroPasaporte||'';document.getElementById('mcPasaporteVenc').value=c.vencimientoPasaporte||'';document.getElementById('mcVFAerolinea').value=c.viajeroProgramaAerolinea||'';document.getElementById('mcVFNumero').value=c.viajeroProgramaNumero||'';document.getElementById('mcNotas').value=c.notas||'';}else{titulo.textContent='Nuevo Cliente';document.getElementById('mcId').value='';['mcNombre','mcNumDoc','mcNacionalidad','mcFechaNac','mcTelefono','mcEmail','mcDireccion','mcEmpresa','mcPasaporte','mcPasaporteVenc','mcVFAerolinea','mcVFNumero','mcNotas'].forEach(id=>document.getElementById(id).value='');document.getElementById('mcTipoDoc').value='cedula';}modal.classList.add('open');}
+// ===== PIPELINE HELPERS =====
+// Renderiza la barra de pipeline en el modal, marcando el estado actual
+function renderPipelineBar(estadoActual){
+    const bar=document.getElementById('mcPipelineBar');
+    if(!bar)return;
+    bar.innerHTML=CONTACTO_ESTADOS.map(s=>{
+        const active=s.id===estadoActual?'active':'';
+        return`<div class="pipeline-step st-${s.id} ${active}" data-estado="${s.id}" onclick="seleccionarEstado('${s.id}')">${esc(s.label)}</div>`;
+    }).join('');
+}
 
-function guardarCliente(){const id=document.getElementById('mcId').value;const nombre=document.getElementById('mcNombre').value.trim();if(!nombre){alert('Ingrese el nombre.');return;}const clientes=getClientes();const obj={id:id||Date.now().toString(),nombreCompleto:nombre,tipoDocumento:document.getElementById('mcTipoDoc').value,numeroDocumento:document.getElementById('mcNumDoc').value,nacionalidad:document.getElementById('mcNacionalidad').value,fechaNacimiento:document.getElementById('mcFechaNac').value,telefono:document.getElementById('mcTelefono').value,email:document.getElementById('mcEmail').value,direccion:document.getElementById('mcDireccion').value,empresa:document.getElementById('mcEmpresa').value,numeroPasaporte:document.getElementById('mcPasaporte').value,vencimientoPasaporte:document.getElementById('mcPasaporteVenc').value,viajeroProgramaAerolinea:document.getElementById('mcVFAerolinea').value,viajeroProgramaNumero:document.getElementById('mcVFNumero').value,notas:document.getElementById('mcNotas').value,fechaCreacion:new Date().toISOString(),fechaActualizacion:new Date().toISOString()};
-if(id){const idx=clientes.findIndex(c=>c.id===id);if(idx>=0){obj.fechaCreacion=clientes[idx].fechaCreacion;clientes[idx]=obj;}else clientes.unshift(obj);}else{clientes.unshift(obj);}
-saveClientes(clientes);closeModal('modalCliente');renderClientes();updateBadges();}
+// Cambia el estado visualmente (no persiste hasta que se guarda el contacto)
+let _estadoActualModal='nuevo';
+function seleccionarEstado(id){
+    _estadoActualModal=id;
+    renderPipelineBar(id);
+}
 
-function eliminarCliente(id){if(!confirm('\u00bfEliminar este cliente?'))return;saveClientes(getClientes().filter(c=>c.id!==id));renderClientes();updateBadges();}
+// Pobla el select de Origen con las opciones estándar
+function populateOrigenSelect(current){
+    const sel=document.getElementById('mcOrigen');
+    if(!sel)return;
+    sel.innerHTML='<option value="">-- Seleccionar --</option>';
+    CONTACTO_ORIGENES.forEach(o=>{
+        const opt=document.createElement('option');
+        opt.value=o.id;opt.textContent=o.label;
+        sel.appendChild(opt);
+    });
+    if(current)sel.value=current;
+}
+
+function openClienteModal(id){
+    const modal=document.getElementById('modalCliente');
+    const titulo=document.getElementById('modalClienteTitulo');
+    const ahora=new Date().toISOString();
+    const usuarioEmail=(window.currentUser&&window.currentUser.email)||'';
+    const editFields=['mcNombre','mcNumDoc','mcNacionalidad','mcFechaNac','mcTelefono','mcEmail','mcDireccion','mcEmpresa','mcPasaporte','mcPasaporteVenc','mcVFAerolinea','mcVFNumero','mcNotas','mcAsignadoA'];
+    if(id){
+        const clientes=getClientes();
+        const c=clientes.find(x=>x.id===id);
+        if(!c)return;
+        titulo.textContent='Editar Contacto';
+        document.getElementById('mcId').value=id;
+        document.getElementById('mcNombre').value=c.nombreCompleto||'';
+        document.getElementById('mcTipoDoc').value=c.tipoDocumento||'cedula';
+        document.getElementById('mcNumDoc').value=c.numeroDocumento||'';
+        document.getElementById('mcNacionalidad').value=c.nacionalidad||'';
+        document.getElementById('mcFechaNac').value=c.fechaNacimiento||'';
+        document.getElementById('mcTelefono').value=c.telefono||'';
+        document.getElementById('mcEmail').value=c.email||'';
+        document.getElementById('mcDireccion').value=c.direccion||'';
+        document.getElementById('mcEmpresa').value=c.empresa||'';
+        document.getElementById('mcPasaporte').value=c.numeroPasaporte||'';
+        document.getElementById('mcPasaporteVenc').value=c.vencimientoPasaporte||'';
+        document.getElementById('mcVFAerolinea').value=c.viajeroProgramaAerolinea||'';
+        document.getElementById('mcVFNumero').value=c.viajeroProgramaNumero||'';
+        document.getElementById('mcNotas').value=c.notas||'';
+        document.getElementById('mcAsignadoA').value=c.asignadoA||'';
+        // Pipeline + origen
+        _estadoActualModal=c.estado||'nuevo';
+        renderPipelineBar(_estadoActualModal);
+        populateOrigenSelect(c.origen||'');
+        // Info de captura
+        const infoBox=document.getElementById('mcCapturaInfo');
+        if(c.fechaCaptura){
+            const fc=new Date(c.fechaCaptura).toLocaleString('es-CR',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'});
+            infoBox.textContent='Capturado el '+fc+(c.asignadoA?' por '+c.asignadoA:'');
+        }else{
+            infoBox.textContent='';
+        }
+    }else{
+        titulo.textContent='Nuevo Contacto';
+        document.getElementById('mcId').value='';
+        editFields.forEach(fid=>{document.getElementById(fid).value='';});
+        document.getElementById('mcTipoDoc').value='cedula';
+        // Auto-asignar al usuario actual al crear uno nuevo
+        document.getElementById('mcAsignadoA').value=usuarioEmail;
+        // Pipeline inicial: Nuevo
+        _estadoActualModal='nuevo';
+        renderPipelineBar('nuevo');
+        populateOrigenSelect('');
+        document.getElementById('mcCapturaInfo').textContent='Se capturar\u00e1 ahora'+(usuarioEmail?' por '+usuarioEmail:'');
+    }
+    modal.classList.add('open');
+}
+
+function guardarCliente(){
+    const id=document.getElementById('mcId').value;
+    const nombre=document.getElementById('mcNombre').value.trim();
+    if(!nombre){alert('Ingrese el nombre.');return;}
+    const clientes=getClientes();
+    const ahora=new Date().toISOString();
+    const usuarioEmail=(window.currentUser&&window.currentUser.email)||'';
+    const obj={
+        id:id||Date.now().toString(),
+        nombreCompleto:nombre,
+        tipoDocumento:document.getElementById('mcTipoDoc').value,
+        numeroDocumento:document.getElementById('mcNumDoc').value,
+        nacionalidad:document.getElementById('mcNacionalidad').value,
+        fechaNacimiento:document.getElementById('mcFechaNac').value,
+        telefono:document.getElementById('mcTelefono').value,
+        email:document.getElementById('mcEmail').value,
+        direccion:document.getElementById('mcDireccion').value,
+        empresa:document.getElementById('mcEmpresa').value,
+        numeroPasaporte:document.getElementById('mcPasaporte').value,
+        vencimientoPasaporte:document.getElementById('mcPasaporteVenc').value,
+        viajeroProgramaAerolinea:document.getElementById('mcVFAerolinea').value,
+        viajeroProgramaNumero:document.getElementById('mcVFNumero').value,
+        notas:document.getElementById('mcNotas').value,
+        estado:_estadoActualModal||'nuevo',
+        origen:document.getElementById('mcOrigen').value||'',
+        asignadoA:document.getElementById('mcAsignadoA').value||usuarioEmail,
+        fechaCreacion:ahora,
+        fechaActualizacion:ahora
+    };
+    if(id){
+        const idx=clientes.findIndex(c=>c.id===id);
+        if(idx>=0){
+            obj.fechaCreacion=clientes[idx].fechaCreacion||ahora;
+            obj.fechaCaptura=clientes[idx].fechaCaptura||clientes[idx].fechaCreacion||ahora;
+            clientes[idx]=obj;
+        }else clientes.unshift(obj);
+    }else{
+        obj.fechaCaptura=ahora;
+        clientes.unshift(obj);
+    }
+    saveClientes(clientes);closeModal('modalCliente');renderClientes();updateBadges();
+}
+
+function eliminarCliente(id){if(!confirm('\u00bfEliminar este contacto?'))return;saveClientes(getClientes().filter(c=>c.id!==id));renderClientes();updateBadges();}
 
 // ===== MODALS =====
 function closeModal(id){document.getElementById(id).classList.remove('open');}
