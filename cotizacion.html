@@ -714,6 +714,14 @@ body{font-family:'Open Sans',sans-serif;background:var(--bg);color:var(--text);m
 .mc-section summary:hover{background:var(--primary-light);color:var(--primary-dark)}
 .mc-section[open]>summary{border-bottom:1px solid var(--border);background:var(--primary-light);color:var(--primary-dark)}
 .mc-section-body{padding:10px 12px}
+
+/* ===== ETIQUETAS / TAGS ===== */
+.tag-input-container{border:1px solid var(--border);border-radius:6px;padding:4px 6px;display:flex;flex-wrap:wrap;gap:4px;align-items:center;min-height:36px;background:white;transition:border-color 0.15s}
+.tag-input-container:focus-within{border-color:var(--primary);box-shadow:0 0 0 3px rgba(10,126,140,0.1)}
+.tag-chip{display:inline-flex;align-items:center;gap:4px;background:var(--primary-light);color:var(--primary-dark);padding:3px 4px 3px 10px;border-radius:12px;font-size:0.78rem;font-weight:600;white-space:nowrap}
+.tag-chip button{background:rgba(2,117,132,0.1);border:none;color:var(--primary-dark);cursor:pointer;padding:0;width:18px;height:18px;border-radius:50%;font-size:0.72rem;line-height:1;display:inline-flex;align-items:center;justify-content:center;transition:background 0.15s}
+.tag-chip button:hover{background:var(--danger);color:white}
+.tag-input-container input.tag-input-field{flex:1;min-width:120px;border:none;outline:none;padding:3px;font-size:0.82rem;background:transparent;box-shadow:none!important}
 </style>
 <script type="module">
 // ===== FIREBASE INIT =====
@@ -1051,9 +1059,13 @@ onAuthStateChanged(fbAuth, (user) => {
         <div class="form-row"><div class="form-group"><label>N&ordm; pasaporte</label><input type="text" id="mcPasaporte"></div><div class="form-group"><label>Vencimiento pasaporte</label><input type="date" id="mcPasaporteVenc"></div></div>
         <div class="form-row"><div class="form-group"><label>Programa viajero - Aerol&iacute;nea</label><input type="text" id="mcVFAerolinea"></div><div class="form-group"><label>N&ordm; viajero frecuente</label><input type="text" id="mcVFNumero"></div></div>
     </div></details>
-    <details class="mc-section"><summary>Notas</summary><div class="mc-section-body">
-        <div class="form-group" style="margin-bottom:0;"><textarea id="mcNotas" placeholder="Notas generales sobre el contacto..." style="min-height:60px;"></textarea></div>
-    </div></details>
+    <div class="form-group" style="margin-top:10px;"><label>Etiquetas</label>
+        <div class="tag-input-container" id="mcEtiquetasContainer" onclick="document.getElementById('mcEtiquetasInput').focus()">
+            <input type="text" class="tag-input-field" id="mcEtiquetasInput" placeholder="Ej: Grupal Finlandia, Luna de miel, VIP..." onkeydown="handleEtiquetaKey(event)">
+        </div>
+        <small style="font-size:0.7rem;color:var(--text-light);">Presione <strong>Enter</strong> o <strong>,</strong> para agregar una etiqueta. Click en &times; para quitarla.</small>
+    </div>
+    <div class="form-group"><label>Notas</label><textarea id="mcNotas" placeholder="Notas generales sobre el contacto..." style="min-height:60px;"></textarea></div>
 </div><div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modalCliente')">Cancelar</button><button class="btn btn-success" onclick="guardarCliente()">Guardar Contacto</button></div></div></div>
 
 <!-- LIGHTBOX: Imagen ampliada -->
@@ -3478,7 +3490,7 @@ function renderClientes(){
     const clientes=getClientes();
     const grid=document.getElementById('clientesGrid');
     const search=document.getElementById('clientesSearch').value.toLowerCase();
-    const filtered=clientes.filter(c=>{const text=[c.nombreCompleto,c.email,c.telefono,c.numeroDocumento,c.empresa,c.estado,c.origen].join(' ').toLowerCase();return!search||text.includes(search);});
+    const filtered=clientes.filter(c=>{const text=[c.nombreCompleto,c.email,c.telefono,c.numeroDocumento,c.empresa,c.estado,c.origen,(c.etiquetas||[]).join(' ')].join(' ').toLowerCase();return!search||text.includes(search);});
     if(!filtered.length){grid.innerHTML=`<div class="grid-empty"><h3>${search?'Sin resultados':'Sin contactos'}</h3><p>Los contactos se crean al guardar cotizaciones o manualmente.</p></div>`;return;}
     const hist=getHistorial();
     const ventas=getVentas();
@@ -3490,8 +3502,9 @@ function renderClientes(){
         const estado=c.estado||'nuevo';
         const estadoBadge=`<span class="estado-badge st-${estado}">${esc(estadoLabels[estado]||estado)}</span>`;
         const origenTxt=c.origen&&origenLabels[c.origen]?esc(origenLabels[c.origen]):'<span style="color:var(--text-light);">-</span>';
+        const etiquetasHtml=Array.isArray(c.etiquetas)&&c.etiquetas.length?`<div style="margin-top:3px;display:flex;flex-wrap:wrap;gap:3px;">${c.etiquetas.map(t=>`<span style="font-size:0.62rem;padding:1px 7px;border-radius:10px;background:var(--primary-light);color:var(--primary-dark);font-weight:600;">${esc(t)}</span>`).join('')}</div>`:'';
         return`<tr>
-        <td><div class="lt-nombre">${esc(c.nombreCompleto||'-')}</div>${c.asignadoA?`<div class="lt-secondary">Asignado: ${esc(c.asignadoA)}</div>`:''}</td>
+        <td><div class="lt-nombre">${esc(c.nombreCompleto||'-')}</div>${c.asignadoA?`<div class="lt-secondary">Asignado: ${esc(c.asignadoA)}</div>`:''}${etiquetasHtml}</td>
         <td>${estadoBadge}</td>
         <td>${origenTxt}</td>
         <td>${c.email?esc(c.email):'<span style="color:var(--text-light);">-</span>'}</td>
@@ -3514,6 +3527,51 @@ function renderClientes(){
         </tr></thead>
         <tbody>${rows}</tbody>
     </table>`;
+}
+
+// ===== ETIQUETAS DEL CONTACTO (chips) =====
+let _mcEtiquetas=[];
+
+function renderEtiquetasChips(){
+    const cont=document.getElementById('mcEtiquetasContainer');
+    if(!cont)return;
+    const input=document.getElementById('mcEtiquetasInput');
+    // Quitar chips previos (todo excepto el input)
+    Array.from(cont.querySelectorAll('.tag-chip')).forEach(c=>c.remove());
+    // Agregar chips antes del input
+    _mcEtiquetas.forEach((t,idx)=>{
+        const chip=document.createElement('span');
+        chip.className='tag-chip';
+        chip.innerHTML=`${esc(t)}<button type="button" onclick="removeEtiqueta(${idx})" title="Quitar">&times;</button>`;
+        cont.insertBefore(chip,input);
+    });
+}
+
+function addEtiqueta(texto){
+    const t=String(texto||'').trim().replace(/,+$/,'');
+    if(!t)return;
+    // Evitar duplicados (case-insensitive)
+    if(_mcEtiquetas.some(e=>e.toLowerCase()===t.toLowerCase()))return;
+    _mcEtiquetas.push(t);
+    renderEtiquetasChips();
+}
+
+function removeEtiqueta(idx){
+    _mcEtiquetas.splice(idx,1);
+    renderEtiquetasChips();
+}
+
+function handleEtiquetaKey(e){
+    const input=e.target;
+    // Enter o coma -> agregar
+    if(e.key==='Enter'||e.key===','){
+        e.preventDefault();
+        addEtiqueta(input.value);
+        input.value='';
+    }else if(e.key==='Backspace'&&!input.value&&_mcEtiquetas.length){
+        // Backspace en input vacío -> quita la última etiqueta
+        removeEtiqueta(_mcEtiquetas.length-1);
+    }
 }
 
 // ===== PIPELINE HELPERS =====
@@ -3574,6 +3632,10 @@ function openClienteModal(id){
         document.getElementById('mcVFNumero').value=c.viajeroProgramaNumero||'';
         document.getElementById('mcNotas').value=c.notas||'';
         document.getElementById('mcAsignadoA').value=c.asignadoA||'';
+        // Etiquetas
+        _mcEtiquetas=Array.isArray(c.etiquetas)?c.etiquetas.slice():[];
+        document.getElementById('mcEtiquetasInput').value='';
+        renderEtiquetasChips();
         // Pipeline + origen
         _estadoActualModal=c.estado||'nuevo';
         renderPipelineBar(_estadoActualModal);
@@ -3593,6 +3655,10 @@ function openClienteModal(id){
         document.getElementById('mcTipoDoc').value='cedula';
         // Auto-asignar al usuario actual al crear uno nuevo
         document.getElementById('mcAsignadoA').value=usuarioEmail;
+        // Etiquetas: resetear
+        _mcEtiquetas=[];
+        document.getElementById('mcEtiquetasInput').value='';
+        renderEtiquetasChips();
         // Pipeline inicial: Nuevo
         _estadoActualModal='nuevo';
         renderPipelineBar('nuevo');
@@ -3609,6 +3675,12 @@ function guardarCliente(){
     const clientes=getClientes();
     const ahora=new Date().toISOString();
     const usuarioEmail=(window.currentUser&&window.currentUser.email)||'';
+    // Si hay texto pendiente en el input de etiquetas, lo agregamos antes de guardar
+    const etiInput=document.getElementById('mcEtiquetasInput');
+    if(etiInput&&etiInput.value.trim()){
+        addEtiqueta(etiInput.value);
+        etiInput.value='';
+    }
     const obj={
         id:id||Date.now().toString(),
         nombreCompleto:nombre,
@@ -3625,6 +3697,7 @@ function guardarCliente(){
         viajeroProgramaAerolinea:document.getElementById('mcVFAerolinea').value,
         viajeroProgramaNumero:document.getElementById('mcVFNumero').value,
         notas:document.getElementById('mcNotas').value,
+        etiquetas:_mcEtiquetas.slice(),
         estado:_estadoActualModal||'nuevo',
         origen:document.getElementById('mcOrigen').value||'',
         asignadoA:document.getElementById('mcAsignadoA').value||usuarioEmail,
