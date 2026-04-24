@@ -704,6 +704,16 @@ body{font-family:'Open Sans',sans-serif;background:var(--bg);color:var(--text);m
 .estado-badge.st-negociacion{background:#e8941a}
 .estado-badge.st-cliente{background:#27ae60}
 .estado-badge.st-perdido{background:#e74c3c}
+
+/* ===== MODAL CONTACTO: SECCIONES COLAPSABLES ===== */
+.mc-section{border:1px solid var(--border);border-radius:6px;margin-bottom:6px;overflow:hidden;background:white}
+.mc-section summary{padding:7px 12px;background:var(--bg);cursor:pointer;font-weight:700;font-size:0.72rem;color:var(--text-light);user-select:none;text-transform:uppercase;letter-spacing:0.8px;list-style:none;display:flex;align-items:center;gap:6px}
+.mc-section summary::-webkit-details-marker{display:none}
+.mc-section summary::before{content:'\25B8';font-size:0.7rem;transition:transform 0.15s;display:inline-block;color:var(--primary)}
+.mc-section[open]>summary::before{transform:rotate(90deg)}
+.mc-section summary:hover{background:var(--primary-light);color:var(--primary-dark)}
+.mc-section[open]>summary{border-bottom:1px solid var(--border);background:var(--primary-light);color:var(--primary-dark)}
+.mc-section-body{padding:10px 12px}
 </style>
 <script type="module">
 // ===== FIREBASE INIT =====
@@ -1028,17 +1038,22 @@ onAuthStateChanged(fbAuth, (user) => {
     <div id="mcCapturaInfo" style="font-size:0.7rem;color:var(--text-light);margin-bottom:10px;"></div>
     <p style="font-size:0.7rem;color:var(--text-light);text-transform:uppercase;font-weight:700;letter-spacing:1px;margin-bottom:8px;">Datos Personales</p>
     <div class="form-group"><label>Nombre completo</label><input type="text" id="mcNombre"></div>
-    <div class="form-row"><div class="form-group"><label>Tipo documento</label><select id="mcTipoDoc"><option value="cedula">C&eacute;dula</option><option value="pasaporte">Pasaporte</option><option value="otro">Otro</option></select></div><div class="form-group"><label>N&uacute;mero documento</label><input type="text" id="mcNumDoc"></div></div>
-    <div class="form-row"><div class="form-group"><label>Nacionalidad</label><input type="text" id="mcNacionalidad"></div><div class="form-group"><label>Fecha nacimiento</label><input type="date" id="mcFechaNac"></div></div>
-    <p style="font-size:0.7rem;color:var(--text-light);text-transform:uppercase;font-weight:700;letter-spacing:1px;margin:12px 0 8px;">Contacto</p>
-    <div class="form-row"><div class="form-group"><label>Tel&eacute;fono</label><input type="text" id="mcTelefono"></div><div class="form-group"><label>Email</label><input type="email" id="mcEmail"></div></div>
-    <div class="form-group"><label>Direcci&oacute;n</label><input type="text" id="mcDireccion"></div>
-    <div class="form-group"><label>Empresa (opcional)</label><input type="text" id="mcEmpresa"></div>
-    <p style="font-size:0.7rem;color:var(--text-light);text-transform:uppercase;font-weight:700;letter-spacing:1px;margin:12px 0 8px;">Documentos de Viaje</p>
-    <div class="form-row"><div class="form-group"><label>N&ordm; pasaporte</label><input type="text" id="mcPasaporte"></div><div class="form-group"><label>Vencimiento pasaporte</label><input type="date" id="mcPasaporteVenc"></div></div>
-    <div class="form-row"><div class="form-group"><label>Programa viajero - Aerol&iacute;nea</label><input type="text" id="mcVFAerolinea"></div><div class="form-group"><label>N&ordm; viajero frecuente</label><input type="text" id="mcVFNumero"></div></div>
-    <p style="font-size:0.7rem;color:var(--text-light);text-transform:uppercase;font-weight:700;letter-spacing:1px;margin:12px 0 8px;">Notas</p>
-    <div class="form-group"><textarea id="mcNotas" placeholder="Notas generales sobre el cliente..." style="min-height:60px;"></textarea></div>
+    <details class="mc-section"><summary>Documento e identificaci&oacute;n</summary><div class="mc-section-body">
+        <div class="form-row"><div class="form-group"><label>Tipo documento</label><select id="mcTipoDoc"><option value="cedula">C&eacute;dula</option><option value="pasaporte">Pasaporte</option><option value="otro">Otro</option></select></div><div class="form-group"><label>N&uacute;mero documento</label><input type="text" id="mcNumDoc"></div></div>
+        <div class="form-row"><div class="form-group"><label>Nacionalidad</label><input type="text" id="mcNacionalidad"></div><div class="form-group"><label>Fecha nacimiento</label><input type="date" id="mcFechaNac"></div></div>
+    </div></details>
+    <details class="mc-section"><summary>Contacto</summary><div class="mc-section-body">
+        <div class="form-row"><div class="form-group"><label>Tel&eacute;fono</label><input type="text" id="mcTelefono"></div><div class="form-group"><label>Email</label><input type="email" id="mcEmail"></div></div>
+        <div class="form-group"><label>Direcci&oacute;n</label><input type="text" id="mcDireccion"></div>
+        <div class="form-group"><label>Empresa (opcional)</label><input type="text" id="mcEmpresa"></div>
+    </div></details>
+    <details class="mc-section"><summary>Documentos de viaje</summary><div class="mc-section-body">
+        <div class="form-row"><div class="form-group"><label>N&ordm; pasaporte</label><input type="text" id="mcPasaporte"></div><div class="form-group"><label>Vencimiento pasaporte</label><input type="date" id="mcPasaporteVenc"></div></div>
+        <div class="form-row"><div class="form-group"><label>Programa viajero - Aerol&iacute;nea</label><input type="text" id="mcVFAerolinea"></div><div class="form-group"><label>N&ordm; viajero frecuente</label><input type="text" id="mcVFNumero"></div></div>
+    </div></details>
+    <details class="mc-section"><summary>Notas</summary><div class="mc-section-body">
+        <div class="form-group" style="margin-bottom:0;"><textarea id="mcNotas" placeholder="Notas generales sobre el contacto..." style="min-height:60px;"></textarea></div>
+    </div></details>
 </div><div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modalCliente')">Cancelar</button><button class="btn btn-success" onclick="guardarCliente()">Guardar Contacto</button></div></div></div>
 
 <!-- LIGHTBOX: Imagen ampliada -->
