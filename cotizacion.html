@@ -722,6 +722,15 @@ body{font-family:'Open Sans',sans-serif;background:var(--bg);color:var(--text);m
 .tag-chip button{background:rgba(2,117,132,0.1);border:none;color:var(--primary-dark);cursor:pointer;padding:0;width:18px;height:18px;border-radius:50%;font-size:0.72rem;line-height:1;display:inline-flex;align-items:center;justify-content:center;transition:background 0.15s}
 .tag-chip button:hover{background:var(--danger);color:white}
 .tag-input-container input.tag-input-field{flex:1;min-width:120px;border:none;outline:none;padding:3px;font-size:0.82rem;background:transparent;box-shadow:none!important}
+
+/* ===== FAB (Captura Rapida) ===== */
+.fab-captura{position:fixed;bottom:24px;right:24px;height:52px;padding:0 20px;border-radius:26px;background:linear-gradient(135deg,var(--accent) 0%,var(--accent-dark) 100%);color:white;border:none;font-family:'Open Sans',sans-serif;font-size:0.88rem;font-weight:700;cursor:pointer;box-shadow:0 4px 18px rgba(232,148,26,0.45);z-index:90;display:flex;align-items:center;gap:8px;transition:all 0.15s;letter-spacing:0.3px}
+.fab-captura:hover{transform:translateY(-2px);box-shadow:0 6px 24px rgba(232,148,26,0.55)}
+.fab-captura:active{transform:translateY(0)}
+.fab-captura .fab-icon{font-size:1.2rem;line-height:1}
+.fab-captura.hidden{display:none}
+@media (max-width:768px){.fab-captura{bottom:16px;right:16px;height:48px;padding:0 16px;font-size:0.82rem}.fab-captura .fab-label{display:none}}
+@media print{.fab-captura{display:none!important}}
 </style>
 <script type="module">
 // ===== FIREBASE INIT =====
@@ -763,12 +772,15 @@ setPersistence(fbAuth, browserLocalPersistence);
 // Estado de auth: mostrar/ocultar login + cargar app
 onAuthStateChanged(fbAuth, (user) => {
     const overlay = document.getElementById('loginOverlay');
+    const fab = document.getElementById('fabCaptura');
     if(user){
         if(overlay) overlay.classList.add('hidden');
+        if(fab) fab.classList.remove('hidden');
         window.currentUser = user;
         if(typeof window.onUserReady === 'function') window.onUserReady(user);
     }else{
         if(overlay) overlay.classList.remove('hidden');
+        if(fab) fab.classList.add('hidden');
         window.currentUser = null;
     }
 });
@@ -1067,6 +1079,21 @@ onAuthStateChanged(fbAuth, (user) => {
     </div>
     <div class="form-group"><label>Notas</label><textarea id="mcNotas" placeholder="Notas generales sobre el contacto..." style="min-height:60px;"></textarea></div>
 </div><div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modalCliente')">Cancelar</button><button class="btn btn-success" onclick="guardarCliente()">Guardar Contacto</button></div></div></div>
+
+<!-- FAB: Captura rapida (boton flotante) -->
+<button class="fab-captura hidden" id="fabCaptura" onclick="openCapturaRapida()" title="Captura r&aacute;pida de contacto (llamada/WhatsApp)">
+    <span class="fab-icon">&#9889;</span><span class="fab-label">Captura r&aacute;pida</span>
+</button>
+
+<!-- MODAL: Captura Rapida -->
+<div class="modal-overlay" id="modalCapturaRapida"><div class="modal" style="max-width:480px;"><div class="modal-header"><h3>&#9889; Captura r&aacute;pida</h3><button class="modal-close" onclick="closeModal('modalCapturaRapida')">&times;</button></div><div class="modal-body">
+    <p style="font-size:0.78rem;color:var(--text-light);margin-bottom:12px;">Registro m&iacute;nimo en 15 segundos. Los detalles se completan despu&eacute;s desde el contacto.</p>
+    <div class="form-group"><label>Nombre *</label><input type="text" id="crNombre" placeholder="Nombre del candidato"></div>
+    <div class="form-row"><div class="form-group"><label>Tel&eacute;fono</label><input type="text" id="crTelefono" placeholder="8888-8888"></div><div class="form-group"><label>Email</label><input type="email" id="crEmail" placeholder="correo@ejemplo.com"></div></div>
+    <div class="form-group"><label>Origen *</label><select id="crOrigen"></select></div>
+    <div class="form-group" style="margin-bottom:0;"><label>Nota r&aacute;pida</label><textarea id="crNota" placeholder="Ej: Pregunta por paquete Finlandia, urge fecha antes de junio" style="min-height:50px;"></textarea></div>
+    <p style="font-size:0.72rem;color:var(--text-light);margin-top:8px;"><em>*Campos obligatorios. Se requiere tel&eacute;fono o email.</em></p>
+</div><div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modalCapturaRapida')">Cancelar</button><button class="btn btn-success" onclick="guardarCapturaRapida()">Guardar contacto</button></div></div></div>
 
 <!-- LIGHTBOX: Imagen ampliada -->
 <div class="img-lightbox" id="imgLightbox" onclick="closeImgLightbox(event)">
@@ -3527,6 +3554,60 @@ function renderClientes(){
         </tr></thead>
         <tbody>${rows}</tbody>
     </table>`;
+}
+
+// ===== CAPTURA RAPIDA (FAB) =====
+function openCapturaRapida(){
+    ['crNombre','crTelefono','crEmail','crNota'].forEach(id=>{
+        const el=document.getElementById(id);if(el)el.value='';
+    });
+    // Poblar select de origen
+    const sel=document.getElementById('crOrigen');
+    if(sel){
+        sel.innerHTML='<option value="">-- Seleccionar --</option>';
+        CONTACTO_ORIGENES.forEach(o=>{
+            const opt=document.createElement('option');opt.value=o.id;opt.textContent=o.label;
+            sel.appendChild(opt);
+        });
+    }
+    document.getElementById('modalCapturaRapida').classList.add('open');
+    setTimeout(()=>{const n=document.getElementById('crNombre');if(n)n.focus();},120);
+}
+
+function guardarCapturaRapida(){
+    const nombre=document.getElementById('crNombre').value.trim();
+    const telefono=document.getElementById('crTelefono').value.trim();
+    const email=document.getElementById('crEmail').value.trim();
+    const origen=document.getElementById('crOrigen').value;
+    const nota=document.getElementById('crNota').value.trim();
+    if(!nombre){alert('Ingrese el nombre.');return;}
+    if(!telefono&&!email){alert('Ingrese al menos tel\u00e9fono o email.');return;}
+    if(!origen){alert('Seleccione el origen del contacto.');return;}
+    const clientes=getClientes();
+    const ahora=new Date().toISOString();
+    const usuarioEmail=(window.currentUser&&window.currentUser.email)||'';
+    const nuevo={
+        id:Date.now().toString(),
+        nombreCompleto:nombre,
+        tipoDocumento:'cedula',numeroDocumento:'',nacionalidad:'',fechaNacimiento:'',
+        telefono,email,
+        direccion:'',empresa:'',
+        numeroPasaporte:'',vencimientoPasaporte:'',viajeroProgramaAerolinea:'',viajeroProgramaNumero:'',
+        notas:nota,
+        etiquetas:[],
+        estado:'nuevo',
+        origen,
+        asignadoA:usuarioEmail,
+        fechaCaptura:ahora,
+        fechaCreacion:ahora,
+        fechaActualizacion:ahora
+    };
+    clientes.unshift(nuevo);
+    saveClientes(clientes);
+    closeModal('modalCapturaRapida');
+    if(document.getElementById('viewClientes').classList.contains('active'))renderClientes();
+    updateBadges();
+    alert('\u2705 Contacto "'+nombre+'" guardado en estado Nuevo.');
 }
 
 // ===== ETIQUETAS DEL CONTACTO (chips) =====
