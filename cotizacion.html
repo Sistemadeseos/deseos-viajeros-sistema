@@ -1365,6 +1365,48 @@ function setLSObj(k,v){
 // Tracking de IDs que ya subimos a Firestore (para poder detectar eliminaciones)
 const _fsDocIds={cotizaciones:new Set(),ventas:new Set(),clientes:new Set(),destinos:new Set()};
 
+// ===== METADATA (timestamp + autor en cada save) =====
+// Agrega _lastModifiedAt y _lastModifiedBy a un objeto antes de guardarlo.
+// Permite auditoria y detectar conflictos en escrituras concurrentes.
+function addMetadataToSave(obj){
+    const email=(window.currentUser&&window.currentUser.email)||'unknown';
+    if(obj==null||typeof obj!=='object')return obj;
+    return Object.assign({},obj,{
+        _lastModifiedAt:Date.now(),
+        _lastModifiedBy:email
+    });
+}
+
+// ===== SNAPSHOTS DE RESPALDO AUTOMATICOS =====
+// Guarda una copia completa del estado local antes de operaciones masivas.
+// Permite recuperacion manual en caso de incidente. Mantiene solo los ultimos 3.
+function guardarSnapshotRespaldo(motivo){
+    try{
+        const key='dv_snapshot_'+Date.now();
+        const snap={
+            motivo:motivo||'manual',
+            fecha:new Date().toISOString(),
+            usuario:(window.currentUser&&window.currentUser.email)||'unknown',
+            cotizaciones:getLS('dv_cotizaciones'),
+            ventas:getLS('dv_ventas'),
+            clientes:getLS('dv_clientes'),
+            encabezados:getLSObj('dv_encabezados'),
+            config:getLSObj('dv_config')
+        };
+        localStorage.setItem(key,JSON.stringify(snap));
+        // Conservar solo los ultimos 3 snapshots
+        const keys=Object.keys(localStorage).filter(k=>k.startsWith('dv_snapshot_')).sort();
+        while(keys.length>3){
+            const old=keys.shift();
+            localStorage.removeItem(old);
+        }
+        console.log('[FS] Snapshot de respaldo guardado ('+motivo+')');
+    }catch(e){
+        // No bloquear: si falla (quota), seguir con la operacion
+        console.warn('[FS] No se pudo guardar snapshot de respaldo:',e&&e.message);
+    }
+}
+
 // Sube un dataUrl a Storage y devuelve la URL pública. Si ya es URL http, la devuelve tal cual.
 async function uploadDataUrlToStorage(dataUrl,pathHint){
     if(!dataUrl||typeof dataUrl!=='string')return dataUrl;
@@ -1414,7 +1456,8 @@ async function pushToFirestore(key,value){
             // Sincronizar globales logoDataUrl y watermarkDataUrl con las URLs de Storage
             if(toWrite.logo!==undefined)logoDataUrl=toWrite.logo||null;
             if(toWrite.watermark!==undefined)watermarkDataUrl=toWrite.watermark||null;
-            await h.setDoc(h.doc(db,'config','default'),toWrite);
+            // Agregar metadata de auditoria y guardar
+            await h.setDoc(h.doc(db,'config','default'),addMetadataToSave(toWrite));
             console.log('[FS] config guardada');
         }else if(key==='dv_cotizaciones'){
             await syncArrayCollection('cotizaciones',value,true);
@@ -1444,7 +1487,8 @@ async function syncArrayCollection(collName,newArray,hasImages){
             // Recorrer el objeto y subir dataUrls. Resultado tiene URLs de Storage.
             toWrite=await uploadImagesInObject(item,`${collName}/${id}`);
         }
-        await h.setDoc(h.doc(db,collName,id),toWrite);
+        // Agregar metadata de auditoria antes de guardar
+        await h.setDoc(h.doc(db,collName,id),addMetadataToSave(toWrite));
         newArrayWithUrls.push(toWrite);
     }
     // Borrar docs que ya no están en el array
@@ -1480,7 +1524,7 @@ async function syncDestinos(destObj){
                 newCiudades[ciudad]=val;
             }
         }
-        await h.setDoc(h.doc(db,'destinos',pais),{ciudades:newCiudades});
+        await h.setDoc(h.doc(db,'destinos',pais),addMetadataToSave({ciudades:newCiudades}));
         newObjWithUrls[pais]=newCiudades;
     }
     for(const oldPais of _fsDocIds.destinos){
@@ -1495,40 +1539,114 @@ async function syncDestinos(destObj){
     console.log('[FS] destinos sincronizados');
 }
 
+// Helper: merge defensivo para colecciones tipo array.
+// Si server tiene menos items que local, preserva locales faltantes y marca el array
+// para re-subirse. Evita perder datos cuando una carga devuelve resultados parciales.
+function mergeArrayDefensivo(collName,serverItems,localItems,idKey){
+    idKey=idKey||'id';
+    if(!Array.isArray(localItems)||localItems.length===0)return {merged:serverItems,recovered:0};
+    // Si server vino vacio pero local tenia datos -> algo sospechoso, preservar TODO local
+    if(serverItems.length===0&&localItems.length>0){
+        console.warn('[FS] '+collName+': server vino vacio pero local tiene '+localItems.length+' items. Preservando local.');
+        return {merged:localItems.slice(),recovered:localItems.length};
+    }
+    // Si server tiene menos items que local, agregamos los faltantes desde local
+    if(serverItems.length<localItems.length){
+        const serverIds=new Set(serverItems.map(it=>String(it[idKey])));
+        const faltantes=localItems.filter(it=>!serverIds.has(String(it[idKey])));
+        if(faltantes.length>0){
+            console.warn('[FS] '+collName+': server tiene '+serverItems.length+' items, local '+localItems.length+'. Preservando '+faltantes.length+' items faltantes.');
+            return {merged:serverItems.concat(faltantes),recovered:faltantes.length};
+        }
+    }
+    return {merged:serverItems,recovered:0};
+}
+
 async function loadAllFromFirestore(){
     const h=window.fbHelpers;const db=window.fbDb;
     if(!h||!db){console.warn('[FS] Firebase helpers no disponibles');return;}
+
+    // === MEJORA 3: Snapshot de respaldo ANTES de tocar nada ===
+    guardarSnapshotRespaldo('pre_load');
+
+    // === MEJORA 2: Leer localStorage como baseline ANTES de la carga ===
+    const localCots=getLS('dv_cotizaciones');
+    const localVentas=getLS('dv_ventas');
+    const localClientes=getLS('dv_clientes');
+    const localDest=getLSObj('dv_encabezados');
+    const localConfig=getLSObj('dv_config');
+
     _fsSyncInProgress=true;
+    let recuperadosTotal=0;
+
     try{
         // config/default
         const cfgSnap=await h.getDoc(h.doc(db,'config','default'));
         if(cfgSnap.exists()){
             localStorage.setItem('dv_config',JSON.stringify(cfgSnap.data()));
+        }else if(Object.keys(localConfig).length>0){
+            // Server no tiene config pero local si -> marcar para re-subir
+            console.warn('[FS] config no existe en server pero local si. Marcando para re-subir.');
+            setTimeout(()=>{if(_fsEnabled)pushToFirestore('dv_config',localConfig).catch(e=>console.error(e));},3000);
         }
         // cotizaciones
         const cotSnap=await h.getDocs(h.collection(db,'cotizaciones'));
-        const cots=[];cotSnap.forEach(d=>{cots.push(d.data());_fsDocIds.cotizaciones.add(d.id);});
+        let cots=[];cotSnap.forEach(d=>{cots.push(d.data());_fsDocIds.cotizaciones.add(d.id);});
         cots.sort((a,b)=>(b.fecha||'').localeCompare(a.fecha||''));
+        const mergedCots=mergeArrayDefensivo('cotizaciones',cots,localCots);
+        cots=mergedCots.merged;recuperadosTotal+=mergedCots.recovered;
         localStorage.setItem('dv_cotizaciones',JSON.stringify(cots));
+        if(mergedCots.recovered>0)setTimeout(()=>{if(_fsEnabled)pushToFirestore('dv_cotizaciones',cots).catch(e=>console.error(e));},4000);
         // ventas
         const vSnap=await h.getDocs(h.collection(db,'ventas'));
-        const ventas=[];vSnap.forEach(d=>{ventas.push(d.data());_fsDocIds.ventas.add(d.id);});
+        let ventas=[];vSnap.forEach(d=>{ventas.push(d.data());_fsDocIds.ventas.add(d.id);});
         ventas.sort((a,b)=>(b.fechaCreacion||'').localeCompare(a.fechaCreacion||''));
+        const mergedV=mergeArrayDefensivo('ventas',ventas,localVentas);
+        ventas=mergedV.merged;recuperadosTotal+=mergedV.recovered;
         localStorage.setItem('dv_ventas',JSON.stringify(ventas));
+        if(mergedV.recovered>0)setTimeout(()=>{if(_fsEnabled)pushToFirestore('dv_ventas',ventas).catch(e=>console.error(e));},5000);
         // clientes
         const cSnap=await h.getDocs(h.collection(db,'clientes'));
-        const clientes=[];cSnap.forEach(d=>{clientes.push(d.data());_fsDocIds.clientes.add(d.id);});
+        let clientes=[];cSnap.forEach(d=>{clientes.push(d.data());_fsDocIds.clientes.add(d.id);});
         clientes.sort((a,b)=>(b.fechaCreacion||'').localeCompare(a.fechaCreacion||''));
+        const mergedC=mergeArrayDefensivo('clientes',clientes,localClientes);
+        clientes=mergedC.merged;recuperadosTotal+=mergedC.recovered;
         localStorage.setItem('dv_clientes',JSON.stringify(clientes));
-        // destinos
+        if(mergedC.recovered>0)setTimeout(()=>{if(_fsEnabled)pushToFirestore('dv_clientes',clientes).catch(e=>console.error(e));},6000);
+        // destinos: objeto { pais: { ciudades } }, merge por pais
         const dSnap=await h.getDocs(h.collection(db,'destinos'));
         const destObj={};
         dSnap.forEach(d=>{destObj[d.id]=d.data().ciudades||{};_fsDocIds.destinos.add(d.id);});
+        // Defensiva: si local tiene paises que no vinieron del server, preservarlos
+        const localPaises=Object.keys(localDest||{});
+        const serverPaises=Object.keys(destObj);
+        if(localPaises.length>0&&serverPaises.length<localPaises.length){
+            const faltantes=localPaises.filter(p=>!destObj[p]);
+            if(faltantes.length>0){
+                console.warn('[FS] destinos: server tiene '+serverPaises.length+' pa\u00edses, local '+localPaises.length+'. Preservando '+faltantes.length+' pa\u00edses faltantes.');
+                faltantes.forEach(p=>{destObj[p]=localDest[p];});
+                recuperadosTotal+=faltantes.length;
+                setTimeout(()=>{if(_fsEnabled)pushToFirestore('dv_encabezados',destObj).catch(e=>console.error(e));},7000);
+            }
+        }
         localStorage.setItem('dv_encabezados',JSON.stringify(destObj));
-        console.log(`[FS] datos cargados: ${cots.length} cotizaciones, ${ventas.length} ventas, ${clientes.length} clientes, ${Object.keys(destObj).length} pa\u00edses`);
+        console.log(`[FS] datos cargados: ${cots.length} cotizaciones, ${ventas.length} ventas, ${clientes.length} clientes, ${Object.keys(destObj).length} pa\u00edses${recuperadosTotal>0?' ('+recuperadosTotal+' items recuperados de localStorage)':''}`);
+        if(recuperadosTotal>0){
+            setTimeout(()=>{
+                alert('\u26A0 Se recuperaron '+recuperadosTotal+' item(s) desde el respaldo local que faltaban en el servidor. Se re-subir\u00e1n autom\u00e1ticamente.');
+            },500);
+        }
     }catch(e){
+        // === MEJORA 2: Si falla la carga, NO pisar localStorage ===
+        // Los datos ya cargados parcialmente quedan en localStorage pero no ejecutamos
+        // setItem destructivo. El usuario sigue viendo lo que tenia.
         console.error('[FS] error cargando datos iniciales:',e);
-        alert('No se pudieron cargar los datos desde Firebase: '+e.message+'\n\nRevise su conexi\u00f3n a internet.');
+        const hayDatosLocales=(localCots&&localCots.length)||(localVentas&&localVentas.length)||(localClientes&&localClientes.length);
+        if(hayDatosLocales){
+            alert('\u26A0 No se pudieron cargar datos desde Firebase.\n\nSe usar\u00e1n los datos guardados localmente en tu navegador.\n\nRevise su conexi\u00f3n a internet y refresque la p\u00e1gina.');
+        }else{
+            alert('No se pudieron cargar los datos desde Firebase: '+e.message+'\n\nRevise su conexi\u00f3n a internet.');
+        }
     }finally{
         _fsSyncInProgress=false;
         _fsEnabled=true;
