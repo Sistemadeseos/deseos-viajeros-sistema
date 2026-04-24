@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover">
 <meta name="theme-color" content="#027584">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -789,6 +789,24 @@ body{font-family:'Open Sans',sans-serif;background:var(--bg);color:var(--text);m
 .fab-captura.hidden{display:none}
 @media (max-width:768px){.fab-captura{bottom:16px;right:16px;height:48px;padding:0 16px;font-size:0.82rem}.fab-captura .fab-label{display:none}}
 @media print{.fab-captura{display:none!important}}
+
+/* ===== SAFE AREAS (notch de iPhone / barra de estado iOS y Android) ===== */
+@supports (padding:env(safe-area-inset-top)){
+    /* Header superior: empuja el contenido debajo del notch / status bar */
+    .app-header{padding-top:max(10px,calc(env(safe-area-inset-top) + 4px));padding-left:max(25px,env(safe-area-inset-left));padding-right:max(25px,env(safe-area-inset-right))}
+    /* Sidebar: en mobile queda fixed, su logo tambien necesita espacio */
+    .app-sidebar .sidebar-logo{padding-top:max(18px,calc(env(safe-area-inset-top) + 10px))}
+    /* Boton flotante "Captura rapida": safe-area inferior y derecha */
+    .fab-captura{bottom:max(24px,calc(env(safe-area-inset-bottom) + 12px));right:max(24px,calc(env(safe-area-inset-right) + 12px))}
+    /* Pantalla de login: respetar safe-area vertical */
+    #loginOverlay{padding-top:max(20px,env(safe-area-inset-top));padding-bottom:max(20px,env(safe-area-inset-bottom))}
+    @media (max-width:768px){
+        /* En mobile el sidebar es off-canvas; cuando se abre, tambien respeta notch */
+        .app-sidebar{padding-bottom:env(safe-area-inset-bottom)}
+        /* El FAB en mobile queda mas cerca del borde, pero siempre arriba del home indicator */
+        .fab-captura{bottom:max(16px,calc(env(safe-area-inset-bottom) + 8px));right:max(16px,env(safe-area-inset-right))}
+    }
+}
 </style>
 <script type="module">
 // ===== FIREBASE INIT =====
