@@ -1038,14 +1038,14 @@ onAuthStateChanged(fbAuth, (user) => {
     <div id="mcCapturaInfo" style="font-size:0.7rem;color:var(--text-light);margin-bottom:10px;"></div>
     <p style="font-size:0.7rem;color:var(--text-light);text-transform:uppercase;font-weight:700;letter-spacing:1px;margin-bottom:8px;">Datos Personales</p>
     <div class="form-group"><label>Nombre completo</label><input type="text" id="mcNombre"></div>
+    <div class="form-row"><div class="form-group"><label>Tel&eacute;fono</label><input type="text" id="mcTelefono"></div><div class="form-group"><label>Email</label><input type="email" id="mcEmail"></div></div>
     <details class="mc-section"><summary>Documento e identificaci&oacute;n</summary><div class="mc-section-body">
         <div class="form-row"><div class="form-group"><label>Tipo documento</label><select id="mcTipoDoc"><option value="cedula">C&eacute;dula</option><option value="pasaporte">Pasaporte</option><option value="otro">Otro</option></select></div><div class="form-group"><label>N&uacute;mero documento</label><input type="text" id="mcNumDoc"></div></div>
         <div class="form-row"><div class="form-group"><label>Nacionalidad</label><input type="text" id="mcNacionalidad"></div><div class="form-group"><label>Fecha nacimiento</label><input type="date" id="mcFechaNac"></div></div>
     </div></details>
-    <details class="mc-section"><summary>Contacto</summary><div class="mc-section-body">
-        <div class="form-row"><div class="form-group"><label>Tel&eacute;fono</label><input type="text" id="mcTelefono"></div><div class="form-group"><label>Email</label><input type="email" id="mcEmail"></div></div>
+    <details class="mc-section"><summary>Direcci&oacute;n y empresa</summary><div class="mc-section-body">
         <div class="form-group"><label>Direcci&oacute;n</label><input type="text" id="mcDireccion"></div>
-        <div class="form-group"><label>Empresa (opcional)</label><input type="text" id="mcEmpresa"></div>
+        <div class="form-group" style="margin-bottom:0;"><label>Empresa (opcional)</label><input type="text" id="mcEmpresa"></div>
     </div></details>
     <details class="mc-section"><summary>Documentos de viaje</summary><div class="mc-section-body">
         <div class="form-row"><div class="form-group"><label>N&ordm; pasaporte</label><input type="text" id="mcPasaporte"></div><div class="form-group"><label>Vencimiento pasaporte</label><input type="date" id="mcPasaporteVenc"></div></div>
