@@ -715,6 +715,21 @@ body{font-family:'Open Sans',sans-serif;background:var(--bg);color:var(--text);m
 .mc-section[open]>summary{border-bottom:1px solid var(--border);background:var(--primary-light);color:var(--primary-dark)}
 .mc-section-body{padding:10px 12px}
 
+/* ===== WIZARD (3 pasos del contacto) ===== */
+.wizard-tabs{display:flex;gap:4px;margin:10px 0 14px;padding:4px;background:var(--bg);border-radius:8px}
+.wizard-tab{flex:1;padding:8px 6px;text-align:center;border-radius:6px;font-size:0.76rem;font-weight:700;color:var(--text-light);cursor:pointer;user-select:none;transition:all 0.15s;line-height:1.25}
+.wizard-tab .tab-num{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:rgba(102,102,102,0.15);color:var(--text-light);font-size:0.68rem;margin-right:4px;font-weight:700}
+.wizard-tab:hover:not(.active){background:white;color:var(--primary-dark)}
+.wizard-tab.active{background:var(--primary);color:white;box-shadow:0 2px 6px rgba(10,126,140,0.3)}
+.wizard-tab.active .tab-num{background:rgba(255,255,255,0.25);color:white}
+.wizard-step{display:none}
+.wizard-step.active{display:block}
+.wizard-nav{display:flex;justify-content:space-between;align-items:center;margin:6px 0 14px;gap:8px}
+.wizard-nav .btn{flex:0 0 auto}
+.wizard-nav .wizard-hint{font-size:0.72rem;color:var(--text-light);flex:1;text-align:center}
+.wizard-divider{border:none;border-top:1px dashed var(--border);margin:16px 0 10px}
+.wizard-divider-label{font-size:0.68rem;color:var(--text-light);text-transform:uppercase;letter-spacing:1px;font-weight:700;margin-bottom:10px;text-align:center}
+
 /* ===== ETIQUETAS / TAGS ===== */
 .tag-input-container{border:1px solid var(--border);border-radius:6px;padding:4px 6px;display:flex;flex-wrap:wrap;gap:4px;align-items:center;min-height:36px;background:white;transition:border-color 0.15s}
 .tag-input-container:focus-within{border-color:var(--primary);box-shadow:0 0 0 3px rgba(10,126,140,0.1)}
@@ -1051,14 +1066,46 @@ onAuthStateChanged(fbAuth, (user) => {
     <input type="hidden" id="mcId">
     <p style="font-size:0.7rem;color:var(--text-light);text-transform:uppercase;font-weight:700;letter-spacing:1px;margin-bottom:4px;">Estado del contacto</p>
     <div class="pipeline-bar" id="mcPipelineBar"></div>
-    <div class="form-row">
-        <div class="form-group"><label>Origen</label><select id="mcOrigen"><option value="">-- Seleccionar --</option></select></div>
-        <div class="form-group"><label>Asignado a</label><input type="text" id="mcAsignadoA" placeholder="Email del encargado"></div>
+
+    <!-- Wizard de 3 pasos -->
+    <div class="wizard-tabs">
+        <div class="wizard-tab active" data-step="1" onclick="goWizardStep(1)"><span class="tab-num">1</span>Identificaci&oacute;n</div>
+        <div class="wizard-tab" data-step="2" onclick="goWizardStep(2)"><span class="tab-num">2</span>Necesidad</div>
+        <div class="wizard-tab" data-step="3" onclick="goWizardStep(3)"><span class="tab-num">3</span>Viaje so&ntilde;ado</div>
     </div>
+
+    <!-- Paso 1: Identificación -->
+    <div class="wizard-step active" data-step="1">
+        <div class="form-group"><label>Nombre completo *</label><input type="text" id="mcNombre" placeholder="Nombre completo del contacto"></div>
+        <div class="form-row"><div class="form-group"><label>Tel&eacute;fono</label><input type="text" id="mcTelefono" placeholder="8888-8888"></div><div class="form-group"><label>Email</label><input type="email" id="mcEmail" placeholder="correo@ejemplo.com"></div></div>
+        <div class="form-group"><label>C&oacute;mo nos encontr&oacute; (origen)</label><select id="mcOrigen"><option value="">-- Seleccionar --</option></select></div>
+    </div>
+
+    <!-- Paso 2: Necesidad -->
+    <div class="wizard-step" data-step="2">
+        <div class="form-group"><label>Servicio de inter&eacute;s</label><select id="mcServicio"><option value="">-- Seleccionar --</option></select></div>
+        <div class="form-group"><label>Urgencia</label><select id="mcUrgencia"><option value="">-- Seleccionar --</option></select></div>
+        <div class="form-group" style="margin-bottom:0;"><label>Notas sobre la necesidad</label><textarea id="mcNecesidadNotas" placeholder="Ej: Viaja con esposa e hija de 8 a&ntilde;os. Presupuesto flexible." style="min-height:50px;"></textarea></div>
+    </div>
+
+    <!-- Paso 3: Viaje soñado -->
+    <div class="wizard-step" data-step="3">
+        <div class="form-group"><label>Destinos tentativos</label><textarea id="mcDestinosTentativos" placeholder="Ej: Finlandia, Laponia, Islandia..." style="min-height:50px;"></textarea></div>
+        <div class="form-group" style="margin-bottom:0;"><label>Fechas tentativas</label><input type="text" id="mcFechasTentativas" placeholder="Ej: Diciembre 2026, Semana Santa, Julio..."></div>
+    </div>
+
+    <!-- Nav del wizard -->
+    <div class="wizard-nav">
+        <button type="button" class="btn btn-ghost btn-sm" id="mcWizardPrev" onclick="wizardPrev()">&larr; Anterior</button>
+        <div class="wizard-hint">Solo el paso 1 es obligatorio para guardar</div>
+        <button type="button" class="btn btn-primary btn-sm" id="mcWizardNext" onclick="wizardNext()">Siguiente &rarr;</button>
+    </div>
+
+    <hr class="wizard-divider">
+    <div class="wizard-divider-label">Datos adicionales y asignaci&oacute;n</div>
+
+    <div class="form-group"><label>Asignado a</label><input type="text" id="mcAsignadoA" placeholder="Email del encargado"></div>
     <div id="mcCapturaInfo" style="font-size:0.7rem;color:var(--text-light);margin-bottom:10px;"></div>
-    <p style="font-size:0.7rem;color:var(--text-light);text-transform:uppercase;font-weight:700;letter-spacing:1px;margin-bottom:8px;">Datos Personales</p>
-    <div class="form-group"><label>Nombre completo</label><input type="text" id="mcNombre"></div>
-    <div class="form-row"><div class="form-group"><label>Tel&eacute;fono</label><input type="text" id="mcTelefono"></div><div class="form-group"><label>Email</label><input type="email" id="mcEmail"></div></div>
     <details class="mc-section"><summary>Documento e identificaci&oacute;n</summary><div class="mc-section-body">
         <div class="form-row"><div class="form-group"><label>Tipo documento</label><select id="mcTipoDoc"><option value="cedula">C&eacute;dula</option><option value="pasaporte">Pasaporte</option><option value="otro">Otro</option></select></div><div class="form-group"><label>N&uacute;mero documento</label><input type="text" id="mcNumDoc"></div></div>
         <div class="form-row"><div class="form-group"><label>Nacionalidad</label><input type="text" id="mcNacionalidad"></div><div class="form-group"><label>Fecha nacimiento</label><input type="date" id="mcFechaNac"></div></div>
@@ -1183,6 +1230,24 @@ const CONTACTO_ORIGENES=[
     {id:'whatsapp',label:'WhatsApp'},
     {id:'referido',label:'Referido'},
     {id:'web',label:'Web'}
+];
+const CONTACTO_SERVICIOS=[
+    {id:'paquete',label:'Paquete completo'},
+    {id:'crucero',label:'Crucero'},
+    {id:'vuelos',label:'Vuelos'},
+    {id:'hoteles',label:'Hoteles'},
+    {id:'tours',label:'Tours'},
+    {id:'luna_miel',label:'Luna de miel'},
+    {id:'grupal',label:'Viaje grupal'},
+    {id:'corporativo',label:'Corporativo'},
+    {id:'otro',label:'Otro'}
+];
+const CONTACTO_URGENCIAS=[
+    {id:'inmediata',label:'Inmediata (pr\u00f3ximos 30 d\u00edas)'},
+    {id:'corto',label:'Corto plazo (1 a 3 meses)'},
+    {id:'mediano',label:'Mediano plazo (3 a 6 meses)'},
+    {id:'largo',label:'Largo plazo (6+ meses)'},
+    {id:'info',label:'Solo pidiendo informaci\u00f3n'}
 ];
 
 // ===== LOCALSTORAGE (con sync transparente a Firestore) =====
@@ -3709,6 +3774,36 @@ function handleEtiquetaKey(e){
     }
 }
 
+// ===== WIZARD 3 PASOS =====
+let _wizardStep=1;
+function goWizardStep(n){
+    _wizardStep=Math.max(1,Math.min(3,Number(n)||1));
+    document.querySelectorAll('#modalCliente .wizard-tab').forEach(t=>{
+        t.classList.toggle('active',Number(t.dataset.step)===_wizardStep);
+    });
+    document.querySelectorAll('#modalCliente .wizard-step').forEach(s=>{
+        s.classList.toggle('active',Number(s.dataset.step)===_wizardStep);
+    });
+    const btnPrev=document.getElementById('mcWizardPrev');
+    const btnNext=document.getElementById('mcWizardNext');
+    if(btnPrev)btnPrev.style.visibility=_wizardStep===1?'hidden':'visible';
+    if(btnNext)btnNext.style.visibility=_wizardStep===3?'hidden':'visible';
+}
+function wizardNext(){if(_wizardStep<3)goWizardStep(_wizardStep+1);}
+function wizardPrev(){if(_wizardStep>1)goWizardStep(_wizardStep-1);}
+
+function populateSelectConstante(selectId,constArr,currentValue){
+    const sel=document.getElementById(selectId);
+    if(!sel)return;
+    sel.innerHTML='<option value="">-- Seleccionar --</option>';
+    constArr.forEach(o=>{
+        const opt=document.createElement('option');
+        opt.value=o.id;opt.textContent=o.label;
+        sel.appendChild(opt);
+    });
+    if(currentValue)sel.value=currentValue;
+}
+
 // ===== PIPELINE HELPERS =====
 // Renderiza la barra de pipeline en el modal, marcando el estado actual
 function renderPipelineBar(estadoActual){
@@ -3727,17 +3822,9 @@ function seleccionarEstado(id){
     renderPipelineBar(id);
 }
 
-// Pobla el select de Origen con las opciones estándar
+// Pobla el select de Origen con las opciones estándar (wrapper retro-compatible)
 function populateOrigenSelect(current){
-    const sel=document.getElementById('mcOrigen');
-    if(!sel)return;
-    sel.innerHTML='<option value="">-- Seleccionar --</option>';
-    CONTACTO_ORIGENES.forEach(o=>{
-        const opt=document.createElement('option');
-        opt.value=o.id;opt.textContent=o.label;
-        sel.appendChild(opt);
-    });
-    if(current)sel.value=current;
+    populateSelectConstante('mcOrigen',CONTACTO_ORIGENES,current);
 }
 
 function openClienteModal(id){
@@ -3745,7 +3832,7 @@ function openClienteModal(id){
     const titulo=document.getElementById('modalClienteTitulo');
     const ahora=new Date().toISOString();
     const usuarioEmail=(window.currentUser&&window.currentUser.email)||'';
-    const editFields=['mcNombre','mcNumDoc','mcNacionalidad','mcFechaNac','mcTelefono','mcEmail','mcDireccion','mcEmpresa','mcPasaporte','mcPasaporteVenc','mcVFAerolinea','mcVFNumero','mcNotas','mcAsignadoA'];
+    const editFields=['mcNombre','mcNumDoc','mcNacionalidad','mcFechaNac','mcTelefono','mcEmail','mcDireccion','mcEmpresa','mcPasaporte','mcPasaporteVenc','mcVFAerolinea','mcVFNumero','mcNotas','mcAsignadoA','mcNecesidadNotas','mcDestinosTentativos','mcFechasTentativas'];
     if(id){
         const clientes=getClientes();
         const c=clientes.find(x=>x.id===id);
@@ -3767,14 +3854,21 @@ function openClienteModal(id){
         document.getElementById('mcVFNumero').value=c.viajeroProgramaNumero||'';
         document.getElementById('mcNotas').value=c.notas||'';
         document.getElementById('mcAsignadoA').value=c.asignadoA||'';
+        // Campos del wizard (pasos 2 y 3)
+        document.getElementById('mcNecesidadNotas').value=c.necesidadNotas||'';
+        document.getElementById('mcDestinosTentativos').value=c.destinosTentativos||'';
+        document.getElementById('mcFechasTentativas').value=c.fechasTentativas||'';
         // Etiquetas
         _mcEtiquetas=Array.isArray(c.etiquetas)?c.etiquetas.slice():[];
         document.getElementById('mcEtiquetasInput').value='';
         renderEtiquetasChips();
-        // Pipeline + origen
+        // Pipeline + origen + servicio + urgencia
         _estadoActualModal=c.estado||'nuevo';
         renderPipelineBar(_estadoActualModal);
-        populateOrigenSelect(c.origen||'');
+        populateSelectConstante('mcOrigen',CONTACTO_ORIGENES,c.origen||'');
+        populateSelectConstante('mcServicio',CONTACTO_SERVICIOS,c.servicio||'');
+        populateSelectConstante('mcUrgencia',CONTACTO_URGENCIAS,c.urgencia||'');
+        goWizardStep(1); // siempre abrir en paso 1
         // Info de captura
         const infoBox=document.getElementById('mcCapturaInfo');
         if(c.fechaCaptura){
@@ -3797,8 +3891,11 @@ function openClienteModal(id){
         // Pipeline inicial: Nuevo
         _estadoActualModal='nuevo';
         renderPipelineBar('nuevo');
-        populateOrigenSelect('');
+        populateSelectConstante('mcOrigen',CONTACTO_ORIGENES,'');
+        populateSelectConstante('mcServicio',CONTACTO_SERVICIOS,'');
+        populateSelectConstante('mcUrgencia',CONTACTO_URGENCIAS,'');
         document.getElementById('mcCapturaInfo').textContent='Se capturar\u00e1 ahora'+(usuarioEmail?' por '+usuarioEmail:'');
+        goWizardStep(1); // iniciar en paso 1
     }
     modal.classList.add('open');
 }
@@ -3835,6 +3932,11 @@ function guardarCliente(){
         etiquetas:_mcEtiquetas.slice(),
         estado:_estadoActualModal||'nuevo',
         origen:document.getElementById('mcOrigen').value||'',
+        servicio:document.getElementById('mcServicio').value||'',
+        urgencia:document.getElementById('mcUrgencia').value||'',
+        necesidadNotas:document.getElementById('mcNecesidadNotas').value||'',
+        destinosTentativos:document.getElementById('mcDestinosTentativos').value||'',
+        fechasTentativas:document.getElementById('mcFechasTentativas').value||'',
         asignadoA:document.getElementById('mcAsignadoA').value||usuarioEmail,
         fechaCreacion:ahora,
         fechaActualizacion:ahora
