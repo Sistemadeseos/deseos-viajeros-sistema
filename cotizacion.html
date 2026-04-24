@@ -743,6 +743,36 @@ body{font-family:'Open Sans',sans-serif;background:var(--bg);color:var(--text);m
 .dup-item .btn-open-dup{white-space:nowrap;font-size:0.72rem;padding:4px 10px;background:var(--primary);color:white;border:none;border-radius:4px;cursor:pointer;font-weight:600;flex-shrink:0}
 .dup-item .btn-open-dup:hover{background:var(--primary-dark)}
 
+/* ===== BITACORA / TIMELINE ===== */
+.bitacora-section{margin-top:14px}
+.bitacora-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+.bitacora-header h4{font-family:'Playfair Display',serif;color:var(--primary-dark);font-size:0.95rem}
+.bitacora-header .bita-count{font-size:0.7rem;color:var(--text-light);font-weight:600;margin-left:6px}
+.bitacora-add-form{background:var(--primary-light);padding:10px 12px;border-radius:8px;margin-bottom:10px;display:none}
+.bitacora-add-form.open{display:block}
+.bitacora-timeline{margin-top:10px;border-left:2px solid var(--border);padding-left:16px;margin-left:8px}
+.bitacora-empty{text-align:center;padding:14px;color:var(--text-light);font-size:0.8rem;font-style:italic;background:var(--bg);border-radius:6px}
+.bitacora-item{position:relative;margin-bottom:12px;padding:8px 12px;background:var(--bg);border-radius:6px;font-size:0.8rem}
+.bitacora-item::before{content:'';position:absolute;left:-22px;top:12px;width:12px;height:12px;border-radius:50%;background:var(--primary);border:2px solid white;box-shadow:0 0 0 2px var(--primary)}
+.bitacora-item.bita-llamada::before{background:#3498db;box-shadow:0 0 0 2px #3498db}
+.bitacora-item.bita-whatsapp::before{background:#25d366;box-shadow:0 0 0 2px #25d366}
+.bitacora-item.bita-email::before{background:#e74c3c;box-shadow:0 0 0 2px #e74c3c}
+.bitacora-item.bita-reunion::before{background:#9b59b6;box-shadow:0 0 0 2px #9b59b6}
+.bitacora-item.bita-nota::before{background:var(--text-light);box-shadow:0 0 0 2px var(--text-light)}
+.bitacora-item.bita-captura::before{background:var(--primary-vivid);box-shadow:0 0 0 2px var(--primary-vivid)}
+.bitacora-item.bita-estado_cambio::before{background:var(--accent);box-shadow:0 0 0 2px var(--accent)}
+.bitacora-item.bita-cotizacion::before{background:var(--primary);box-shadow:0 0 0 2px var(--primary)}
+.bitacora-item.bita-cotizacion_aceptada::before{background:var(--success);box-shadow:0 0 0 2px var(--success)}
+.bitacora-item.automatico{opacity:0.85;background:rgba(10,126,140,0.04)}
+.bitacora-item-header{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:3px}
+.bitacora-item-title{font-weight:700;color:var(--primary-dark);font-size:0.82rem;display:flex;align-items:center;gap:6px}
+.bitacora-item-time{font-size:0.68rem;color:var(--text-light);white-space:nowrap;flex-shrink:0}
+.bitacora-item-desc{color:var(--text);font-size:0.8rem;line-height:1.4;margin-bottom:3px;white-space:pre-wrap}
+.bitacora-item-user{font-size:0.68rem;color:var(--text-light);font-style:italic}
+.bitacora-item-user .auto-tag{background:rgba(10,126,140,0.15);color:var(--primary-dark);padding:1px 6px;border-radius:8px;font-size:0.62rem;font-style:normal;font-weight:700;margin-left:4px;text-transform:uppercase;letter-spacing:0.5px}
+.bita-load-more{display:block;margin:12px auto 0;background:transparent;border:1px solid var(--border);color:var(--text-light);padding:6px 16px;border-radius:6px;font-size:0.78rem;cursor:pointer;font-weight:600}
+.bita-load-more:hover{border-color:var(--primary);color:var(--primary-dark)}
+
 /* ===== ETIQUETAS / TAGS ===== */
 .tag-input-container{border:1px solid var(--border);border-radius:6px;padding:4px 6px;display:flex;flex-wrap:wrap;gap:4px;align-items:center;min-height:36px;background:white;transition:border-color 0.15s}
 .tag-input-container:focus-within{border-color:var(--primary);box-shadow:0 0 0 3px rgba(10,126,140,0.1)}
@@ -1139,6 +1169,32 @@ onAuthStateChanged(fbAuth, (user) => {
         <small style="font-size:0.7rem;color:var(--text-light);">Presione <strong>Enter</strong> o <strong>,</strong> para agregar una etiqueta. Click en &times; para quitarla.</small>
     </div>
     <div class="form-group"><label>Notas</label><textarea id="mcNotas" placeholder="Notas generales sobre el contacto..." style="min-height:60px;"></textarea></div>
+
+    <!-- Bitacora / Timeline (solo visible en modo edicion) -->
+    <div class="bitacora-section" id="mcBitacoraSection" style="display:none;">
+        <hr class="wizard-divider">
+        <div class="bitacora-header">
+            <h4>Bit&aacute;cora del contacto<span class="bita-count" id="mcBitacoraCount"></span></h4>
+            <button type="button" class="btn btn-sm btn-primary" onclick="toggleBitacoraForm()">+ Nueva interacci&oacute;n</button>
+        </div>
+        <div class="bitacora-add-form" id="mcBitacoraForm">
+            <div class="form-row">
+                <div class="form-group"><label>Tipo</label><select id="bitaTipo">
+                    <option value="llamada">&#128222; Llamada</option>
+                    <option value="whatsapp">&#128172; WhatsApp</option>
+                    <option value="email">&#9993; Email</option>
+                    <option value="reunion">&#129309; Reuni&oacute;n / Visita</option>
+                    <option value="nota">&#128204; Nota interna</option>
+                </select></div>
+            </div>
+            <div class="form-group"><label>Descripci&oacute;n</label><textarea id="bitaDescripcion" placeholder="Ej: Pregunt&oacute; por paquete Finlandia para diciembre..." style="min-height:55px;"></textarea></div>
+            <div style="display:flex;gap:6px;justify-content:flex-end;">
+                <button type="button" class="btn btn-sm btn-ghost" onclick="toggleBitacoraForm()">Cancelar</button>
+                <button type="button" class="btn btn-sm btn-success" onclick="guardarBitacoraEntry()">Registrar</button>
+            </div>
+        </div>
+        <div class="bitacora-timeline" id="mcBitacoraTimeline"></div>
+    </div>
 </div><div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modalCliente')">Cancelar</button><button class="btn btn-success" onclick="guardarCliente()">Guardar Contacto</button></div></div></div>
 
 <!-- FAB: Captura rapida (boton flotante) -->
@@ -3138,8 +3194,16 @@ function toggleAceptada(id){
         if(entry.clienteId){
             const clientes=getClientes();
             const c=clientes.find(x=>x.id===entry.clienteId);
-            if(c&&c.estado!=='cliente'){
-                c.estado='cliente';
+            if(c){
+                const destinoTxt=(entry.data&&entry.data.destino)||'el viaje';
+                if(!Array.isArray(c.bitacora))c.bitacora=[];
+                c.bitacora.push(makeBitacoraEntry('cotizacion_aceptada','Cotizaci\u00f3n de '+destinoTxt+' aceptada \u2014 pas\u00f3 a venta',{automatico:true,refId:entry.id}));
+                if(c.estado!=='cliente'){
+                    const estadoAnt=c.estado||'cotizado';
+                    const lblAnt=(CONTACTO_ESTADOS.find(s=>s.id===estadoAnt)||{}).label||estadoAnt;
+                    c.bitacora.push(makeBitacoraEntry('estado_cambio',`Estado cambi\u00f3 de "${lblAnt}" a "Cliente"`,{automatico:true}));
+                    c.estado='cliente';
+                }
                 c.fechaActualizacion=new Date().toISOString();
                 saveClientes(clientes);
             }
@@ -3577,12 +3641,22 @@ function autoCreateCliente(data){
     let found=null;
     if(email)found=clientes.find(c=>c.email&&c.email.toLowerCase()===email.toLowerCase());
     if(!found&&nombre)found=clientes.find(c=>c.nombreCompleto&&c.nombreCompleto.toLowerCase()===nombre.toLowerCase());
+    const destinoTxt=data.destino||'sin destino';
     if(found){
         if(telefono&&telefono!==found.telefono)found.telefono=telefono;
         if(email&&email!==found.email)found.email=email;
         // Si el contacto ya existia y era "nuevo" o "contactado", al generar cotizacion pasa a "cotizado"
+        const estadoAnt=found.estado||'nuevo';
         if(!found.estado||found.estado==='nuevo'||found.estado==='contactado')found.estado='cotizado';
         found.fechaActualizacion=ahora;
+        // Bitacora
+        if(!Array.isArray(found.bitacora))found.bitacora=[];
+        found.bitacora.push(makeBitacoraEntry('cotizacion','Cotizaci\u00f3n generada para '+destinoTxt,{automatico:true}));
+        if(estadoAnt!==found.estado){
+            const lblAnt=(CONTACTO_ESTADOS.find(s=>s.id===estadoAnt)||{}).label||estadoAnt;
+            const lblNew=(CONTACTO_ESTADOS.find(s=>s.id===found.estado)||{}).label||found.estado;
+            found.bitacora.push(makeBitacoraEntry('estado_cambio',`Estado cambi\u00f3 de "${lblAnt}" a "${lblNew}"`,{automatico:true}));
+        }
         saveClientes(clientes);updateBadges();return found.id;
     }
     const nuevo={
@@ -3594,7 +3668,12 @@ function autoCreateCliente(data){
         origen:'',
         asignadoA:usuarioEmail,
         fechaCaptura:ahora,
-        fechaCreacion:ahora,fechaActualizacion:ahora
+        fechaCreacion:ahora,fechaActualizacion:ahora,
+        // Bitacora: captura inicial + cotizacion
+        bitacora:[
+            makeBitacoraEntry('captura','Contacto creado autom\u00e1ticamente al guardar cotizaci\u00f3n',{automatico:true}),
+            makeBitacoraEntry('cotizacion','Cotizaci\u00f3n generada para '+destinoTxt,{automatico:true})
+        ]
     };
     clientes.unshift(nuevo);saveClientes(clientes);updateBadges();return nuevo.id;
 }
@@ -3722,6 +3801,7 @@ function guardarCapturaRapida(){
     const clientes=getClientes();
     const ahora=new Date().toISOString();
     const usuarioEmail=(window.currentUser&&window.currentUser.email)||'';
+    const origenLabel=(CONTACTO_ORIGENES.find(o=>o.id===origen)||{}).label||origen;
     const nuevo={
         id:Date.now().toString(),
         nombreCompleto:nombre,
@@ -3736,7 +3816,8 @@ function guardarCapturaRapida(){
         asignadoA:usuarioEmail,
         fechaCaptura:ahora,
         fechaCreacion:ahora,
-        fechaActualizacion:ahora
+        fechaActualizacion:ahora,
+        bitacora:[makeBitacoraEntry('captura','Captura r\u00e1pida. Origen: '+origenLabel+(nota?'. Nota: '+nota:''),{automatico:true})]
     };
     clientes.unshift(nuevo);
     saveClientes(clientes);
@@ -3789,6 +3870,125 @@ function handleEtiquetaKey(e){
         // Backspace en input vacío -> quita la última etiqueta
         removeEtiqueta(_mcEtiquetas.length-1);
     }
+}
+
+// ===== BITACORA / TIMELINE DEL CONTACTO =====
+const BITACORA_TIPOS={
+    llamada:{label:'Llamada',icon:'\u260E\uFE0F'},
+    whatsapp:{label:'WhatsApp',icon:'\u{1F4AC}'},
+    email:{label:'Email',icon:'\u2709\uFE0F'},
+    reunion:{label:'Reuni\u00f3n / Visita',icon:'\u{1F91D}'},
+    nota:{label:'Nota interna',icon:'\u{1F4CC}'},
+    captura:{label:'Captura inicial',icon:'\u26A1'},
+    estado_cambio:{label:'Cambio de estado',icon:'\u{1F504}'},
+    cotizacion:{label:'Cotizaci\u00f3n generada',icon:'\u{1F4C4}'},
+    cotizacion_aceptada:{label:'Cotizaci\u00f3n aceptada',icon:'\u2705'}
+};
+
+let _bitaVisibles=20; // cuantos items mostrar (para "cargar mas")
+
+function makeBitacoraEntry(tipo,descripcion,opts){
+    opts=opts||{};
+    return {
+        id:'b_'+Date.now()+'_'+Math.random().toString(36).slice(2,7),
+        tipo,
+        descripcion:descripcion||'',
+        fecha:new Date().toISOString(),
+        usuarioEmail:(window.currentUser&&window.currentUser.email)||'',
+        automatico:!!opts.automatico,
+        refId:opts.refId||null
+    };
+}
+
+// Agrega una entrada a la bitacora del contacto (persistido)
+function agregarBitacoraAContacto(contactoId,tipo,descripcion,opts){
+    if(!contactoId)return;
+    const clientes=getClientes();
+    const idx=clientes.findIndex(c=>c.id===contactoId);
+    if(idx<0)return;
+    const c=clientes[idx];
+    if(!Array.isArray(c.bitacora))c.bitacora=[];
+    c.bitacora.push(makeBitacoraEntry(tipo,descripcion,opts));
+    c.fechaActualizacion=new Date().toISOString();
+    clientes[idx]=c;
+    saveClientes(clientes);
+}
+
+function formatTiempoRelativo(iso){
+    if(!iso)return '';
+    const ahora=new Date();
+    const fecha=new Date(iso);
+    const diffMs=ahora-fecha;
+    if(diffMs<0)return 'en el futuro';
+    const diffMin=Math.floor(diffMs/60000);
+    const diffHr=Math.floor(diffMs/3600000);
+    const diffDay=Math.floor(diffMs/86400000);
+    if(diffMin<1)return 'reci\u00e9n';
+    if(diffMin<60)return 'hace '+diffMin+' min';
+    if(diffHr<24)return 'hace '+diffHr+' h';
+    if(diffDay<7)return 'hace '+diffDay+' d\u00eda'+(diffDay!==1?'s':'');
+    if(diffDay<30)return 'hace '+Math.floor(diffDay/7)+' sem';
+    if(diffDay<365){const m=Math.floor(diffDay/30);return 'hace '+m+' mes'+(m!==1?'es':'');}
+    const a=Math.floor(diffDay/365);return 'hace '+a+' a\u00f1o'+(a!==1?'s':'');
+}
+
+function toggleBitacoraForm(){
+    const f=document.getElementById('mcBitacoraForm');
+    if(!f)return;
+    f.classList.toggle('open');
+    if(f.classList.contains('open')){
+        document.getElementById('bitaDescripcion').value='';
+        document.getElementById('bitaTipo').value='llamada';
+        setTimeout(()=>document.getElementById('bitaDescripcion').focus(),100);
+    }
+}
+
+function guardarBitacoraEntry(){
+    const contactoId=document.getElementById('mcId').value;
+    if(!contactoId){alert('Gu\u00e1rde el contacto antes de agregar bit\u00e1cora.');return;}
+    const tipo=document.getElementById('bitaTipo').value;
+    const descripcion=document.getElementById('bitaDescripcion').value.trim();
+    if(!descripcion){alert('Escriba una descripci\u00f3n.');return;}
+    agregarBitacoraAContacto(contactoId,tipo,descripcion,{automatico:false});
+    toggleBitacoraForm();
+    renderBitacoraTimeline(contactoId);
+}
+
+function renderBitacoraTimeline(contactoId){
+    const tl=document.getElementById('mcBitacoraTimeline');
+    const countEl=document.getElementById('mcBitacoraCount');
+    if(!tl)return;
+    const clientes=getClientes();
+    const c=clientes.find(x=>x.id===contactoId);
+    const bita=Array.isArray(c&&c.bitacora)?c.bitacora:[];
+    if(countEl)countEl.textContent=bita.length?` (${bita.length})`:'';
+    if(!bita.length){
+        tl.innerHTML='<div class="bitacora-empty">Sin interacciones registradas. Agregue la primera arriba &#8593;</div>';
+        return;
+    }
+    // Ordenar de mas reciente a mas viejo
+    const sorted=bita.slice().sort((a,b)=>(b.fecha||'').localeCompare(a.fecha||''));
+    const visibles=sorted.slice(0,_bitaVisibles);
+    const hayMas=sorted.length>_bitaVisibles;
+    tl.innerHTML=visibles.map(e=>{
+        const tipo=BITACORA_TIPOS[e.tipo]||{label:e.tipo,icon:'\u2022'};
+        const autoTag=e.automatico?'<span class="auto-tag">Auto</span>':'';
+        const usuario=e.usuarioEmail?esc(e.usuarioEmail):(e.automatico?'sistema':'');
+        return`<div class="bitacora-item bita-${esc(e.tipo)} ${e.automatico?'automatico':''}">
+            <div class="bitacora-item-header">
+                <div class="bitacora-item-title">${tipo.icon} ${esc(tipo.label)}</div>
+                <div class="bitacora-item-time" title="${esc(new Date(e.fecha).toLocaleString('es-CR'))}">${formatTiempoRelativo(e.fecha)}</div>
+            </div>
+            ${e.descripcion?`<div class="bitacora-item-desc">${esc(e.descripcion)}</div>`:''}
+            ${usuario?`<div class="bitacora-item-user">por ${usuario}${autoTag}</div>`:''}
+        </div>`;
+    }).join('')
+    +(hayMas?`<button type="button" class="bita-load-more" onclick="cargarMasBitacora('${contactoId}')">Cargar m\u00e1s (${sorted.length-_bitaVisibles} restantes)</button>`:'');
+}
+
+function cargarMasBitacora(contactoId){
+    _bitaVisibles+=20;
+    renderBitacoraTimeline(contactoId);
 }
 
 // ===== DETECCION DE DUPLICADOS =====
@@ -3991,6 +4191,19 @@ function openClienteModal(id){
     }
     // Reset del aviso de duplicados (tanto para nuevo como edicion)
     const dw=document.getElementById('mcDupWarning');if(dw)dw.classList.remove('show');
+    // Bitacora: solo visible en modo edicion
+    const bitaSection=document.getElementById('mcBitacoraSection');
+    const bitaForm=document.getElementById('mcBitacoraForm');
+    if(bitaForm)bitaForm.classList.remove('open');
+    if(bitaSection){
+        if(id){
+            bitaSection.style.display='';
+            _bitaVisibles=20; // resetear paginacion
+            renderBitacoraTimeline(id);
+        }else{
+            bitaSection.style.display='none';
+        }
+    }
     modal.classList.add('open');
 }
 
@@ -4038,12 +4251,24 @@ function guardarCliente(){
     if(id){
         const idx=clientes.findIndex(c=>c.id===id);
         if(idx>=0){
-            obj.fechaCreacion=clientes[idx].fechaCreacion||ahora;
-            obj.fechaCaptura=clientes[idx].fechaCaptura||clientes[idx].fechaCreacion||ahora;
+            const existing=clientes[idx];
+            obj.fechaCreacion=existing.fechaCreacion||ahora;
+            obj.fechaCaptura=existing.fechaCaptura||existing.fechaCreacion||ahora;
+            // Preservar bitacora existente
+            obj.bitacora=Array.isArray(existing.bitacora)?existing.bitacora.slice():[];
+            // Auto-registro si cambio el estado
+            const estadoAnterior=existing.estado||'nuevo';
+            if(estadoAnterior!==obj.estado){
+                const lblAnt=(CONTACTO_ESTADOS.find(s=>s.id===estadoAnterior)||{}).label||estadoAnterior;
+                const lblNew=(CONTACTO_ESTADOS.find(s=>s.id===obj.estado)||{}).label||obj.estado;
+                obj.bitacora.push(makeBitacoraEntry('estado_cambio',`Estado cambi\u00f3 de "${lblAnt}" a "${lblNew}"`,{automatico:true}));
+            }
             clientes[idx]=obj;
         }else clientes.unshift(obj);
     }else{
         obj.fechaCaptura=ahora;
+        // Auto-registro: captura inicial
+        obj.bitacora=[makeBitacoraEntry('captura','Contacto creado desde el formulario completo',{automatico:true})];
         clientes.unshift(obj);
     }
     saveClientes(clientes);closeModal('modalCliente');renderClientes();updateBadges();
