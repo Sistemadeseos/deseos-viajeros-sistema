@@ -1091,6 +1091,12 @@ onAuthStateChanged(fbAuth, (user) => {
     <div class="form-group"><label>Nombre *</label><input type="text" id="crNombre" placeholder="Nombre del candidato"></div>
     <div class="form-row"><div class="form-group"><label>Tel&eacute;fono</label><input type="text" id="crTelefono" placeholder="8888-8888"></div><div class="form-group"><label>Email</label><input type="email" id="crEmail" placeholder="correo@ejemplo.com"></div></div>
     <div class="form-group"><label>Origen *</label><select id="crOrigen"></select></div>
+    <div class="form-group"><label>Etiquetas</label>
+        <div class="tag-input-container" id="crEtiquetasContainer" onclick="document.getElementById('crEtiquetasInput').focus()">
+            <input type="text" class="tag-input-field" id="crEtiquetasInput" placeholder="Ej: Grupal Finlandia, VIP..." onkeydown="handleEtiquetaCRKey(event)">
+        </div>
+        <small style="font-size:0.7rem;color:var(--text-light);">Enter o <strong>,</strong> para agregar.</small>
+    </div>
     <div class="form-group" style="margin-bottom:0;"><label>Nota r&aacute;pida</label><textarea id="crNota" placeholder="Ej: Pregunta por paquete Finlandia, urge fecha antes de junio" style="min-height:50px;"></textarea></div>
     <p style="font-size:0.72rem;color:var(--text-light);margin-top:8px;"><em>*Campos obligatorios. Se requiere tel&eacute;fono o email.</em></p>
 </div><div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modalCapturaRapida')">Cancelar</button><button class="btn btn-success" onclick="guardarCapturaRapida()">Guardar contacto</button></div></div></div>
@@ -3557,10 +3563,52 @@ function renderClientes(){
 }
 
 // ===== CAPTURA RAPIDA (FAB) =====
+let _crEtiquetas=[];
+
+function renderEtiquetasChipsCR(){
+    const cont=document.getElementById('crEtiquetasContainer');
+    if(!cont)return;
+    const input=document.getElementById('crEtiquetasInput');
+    Array.from(cont.querySelectorAll('.tag-chip')).forEach(c=>c.remove());
+    _crEtiquetas.forEach((t,idx)=>{
+        const chip=document.createElement('span');
+        chip.className='tag-chip';
+        chip.innerHTML=`${esc(t)}<button type="button" onclick="removeEtiquetaCR(${idx})" title="Quitar">&times;</button>`;
+        cont.insertBefore(chip,input);
+    });
+}
+
+function addEtiquetaCR(texto){
+    const t=String(texto||'').trim().replace(/,+$/,'');
+    if(!t)return;
+    if(_crEtiquetas.some(e=>e.toLowerCase()===t.toLowerCase()))return;
+    _crEtiquetas.push(t);
+    renderEtiquetasChipsCR();
+}
+
+function removeEtiquetaCR(idx){
+    _crEtiquetas.splice(idx,1);
+    renderEtiquetasChipsCR();
+}
+
+function handleEtiquetaCRKey(e){
+    const input=e.target;
+    if(e.key==='Enter'||e.key===','){
+        e.preventDefault();
+        addEtiquetaCR(input.value);
+        input.value='';
+    }else if(e.key==='Backspace'&&!input.value&&_crEtiquetas.length){
+        removeEtiquetaCR(_crEtiquetas.length-1);
+    }
+}
+
 function openCapturaRapida(){
-    ['crNombre','crTelefono','crEmail','crNota'].forEach(id=>{
+    ['crNombre','crTelefono','crEmail','crNota','crEtiquetasInput'].forEach(id=>{
         const el=document.getElementById(id);if(el)el.value='';
     });
+    // Reset etiquetas
+    _crEtiquetas=[];
+    renderEtiquetasChipsCR();
     // Poblar select de origen
     const sel=document.getElementById('crOrigen');
     if(sel){
@@ -3583,6 +3631,12 @@ function guardarCapturaRapida(){
     if(!nombre){alert('Ingrese el nombre.');return;}
     if(!telefono&&!email){alert('Ingrese al menos tel\u00e9fono o email.');return;}
     if(!origen){alert('Seleccione el origen del contacto.');return;}
+    // Si hay texto pendiente en el input de etiquetas, lo agregamos antes de guardar
+    const etiInput=document.getElementById('crEtiquetasInput');
+    if(etiInput&&etiInput.value.trim()){
+        addEtiquetaCR(etiInput.value);
+        etiInput.value='';
+    }
     const clientes=getClientes();
     const ahora=new Date().toISOString();
     const usuarioEmail=(window.currentUser&&window.currentUser.email)||'';
@@ -3594,7 +3648,7 @@ function guardarCapturaRapida(){
         direccion:'',empresa:'',
         numeroPasaporte:'',vencimientoPasaporte:'',viajeroProgramaAerolinea:'',viajeroProgramaNumero:'',
         notas:nota,
-        etiquetas:[],
+        etiquetas:_crEtiquetas.slice(),
         estado:'nuevo',
         origen,
         asignadoA:usuarioEmail,
