@@ -730,6 +730,19 @@ body{font-family:'Open Sans',sans-serif;background:var(--bg);color:var(--text);m
 .wizard-divider{border:none;border-top:1px dashed var(--border);margin:16px 0 10px}
 .wizard-divider-label{font-size:0.68rem;color:var(--text-light);text-transform:uppercase;letter-spacing:1px;font-weight:700;margin-bottom:10px;text-align:center}
 
+/* ===== DETECCION DE DUPLICADOS ===== */
+.dup-warning{background:#fff3cd;border:1px solid #ffd966;border-radius:8px;padding:10px 12px;margin:8px 0 12px;display:none}
+.dup-warning.show{display:block}
+.dup-warning-header{font-weight:700;color:#856404;font-size:0.78rem;margin-bottom:8px;display:flex;align-items:center;gap:6px}
+.dup-warning-list{display:flex;flex-direction:column;gap:5px}
+.dup-item{background:white;padding:7px 10px;border-radius:6px;display:flex;justify-content:space-between;align-items:center;border:1px solid #ffd966;gap:8px}
+.dup-item-info{flex:1;min-width:0;font-size:0.76rem;line-height:1.3}
+.dup-item-info .dup-nombre{font-weight:700;color:var(--primary-dark);font-size:0.82rem}
+.dup-item-info .dup-contacto{color:var(--text-light);font-size:0.72rem;margin-top:1px}
+.dup-item-info .dup-match{display:inline-flex;align-items:center;gap:4px;font-size:0.68rem;color:#856404;margin-top:3px}
+.dup-item .btn-open-dup{white-space:nowrap;font-size:0.72rem;padding:4px 10px;background:var(--primary);color:white;border:none;border-radius:4px;cursor:pointer;font-weight:600;flex-shrink:0}
+.dup-item .btn-open-dup:hover{background:var(--primary-dark)}
+
 /* ===== ETIQUETAS / TAGS ===== */
 .tag-input-container{border:1px solid var(--border);border-radius:6px;padding:4px 6px;display:flex;flex-wrap:wrap;gap:4px;align-items:center;min-height:36px;background:white;transition:border-color 0.15s}
 .tag-input-container:focus-within{border-color:var(--primary);box-shadow:0 0 0 3px rgba(10,126,140,0.1)}
@@ -1077,7 +1090,8 @@ onAuthStateChanged(fbAuth, (user) => {
     <!-- Paso 1: Identificación -->
     <div class="wizard-step active" data-step="1">
         <div class="form-group"><label>Nombre completo *</label><input type="text" id="mcNombre" placeholder="Nombre completo del contacto"></div>
-        <div class="form-row"><div class="form-group"><label>Tel&eacute;fono</label><input type="text" id="mcTelefono" placeholder="8888-8888"></div><div class="form-group"><label>Email</label><input type="email" id="mcEmail" placeholder="correo@ejemplo.com"></div></div>
+        <div class="form-row"><div class="form-group"><label>Tel&eacute;fono</label><input type="text" id="mcTelefono" placeholder="8888-8888" oninput="checkDuplicates('mc')"></div><div class="form-group"><label>Email</label><input type="email" id="mcEmail" placeholder="correo@ejemplo.com" oninput="checkDuplicates('mc')"></div></div>
+        <div class="dup-warning" id="mcDupWarning"><div class="dup-warning-header">&#9888; Posibles contactos ya existentes</div><div class="dup-warning-list" id="mcDupList"></div></div>
         <div class="form-group"><label>C&oacute;mo nos encontr&oacute; (origen)</label><select id="mcOrigen"><option value="">-- Seleccionar --</option></select></div>
     </div>
 
@@ -1136,7 +1150,8 @@ onAuthStateChanged(fbAuth, (user) => {
 <div class="modal-overlay" id="modalCapturaRapida"><div class="modal" style="max-width:480px;"><div class="modal-header"><h3>&#9889; Captura r&aacute;pida</h3><button class="modal-close" onclick="closeModal('modalCapturaRapida')">&times;</button></div><div class="modal-body">
     <p style="font-size:0.78rem;color:var(--text-light);margin-bottom:12px;">Registro m&iacute;nimo en 15 segundos. Los detalles se completan despu&eacute;s desde el contacto.</p>
     <div class="form-group"><label>Nombre *</label><input type="text" id="crNombre" placeholder="Nombre del candidato"></div>
-    <div class="form-row"><div class="form-group"><label>Tel&eacute;fono</label><input type="text" id="crTelefono" placeholder="8888-8888"></div><div class="form-group"><label>Email</label><input type="email" id="crEmail" placeholder="correo@ejemplo.com"></div></div>
+    <div class="form-row"><div class="form-group"><label>Tel&eacute;fono</label><input type="text" id="crTelefono" placeholder="8888-8888" oninput="checkDuplicates('cr')"></div><div class="form-group"><label>Email</label><input type="email" id="crEmail" placeholder="correo@ejemplo.com" oninput="checkDuplicates('cr')"></div></div>
+    <div class="dup-warning" id="crDupWarning"><div class="dup-warning-header">&#9888; Posibles contactos ya existentes</div><div class="dup-warning-list" id="crDupList"></div></div>
     <div class="form-group"><label>Origen *</label><select id="crOrigen"></select></div>
     <div class="form-group"><label>Etiquetas</label>
         <div class="tag-input-container" id="crEtiquetasContainer" onclick="document.getElementById('crEtiquetasInput').focus()">
@@ -3674,6 +3689,8 @@ function openCapturaRapida(){
     // Reset etiquetas
     _crEtiquetas=[];
     renderEtiquetasChipsCR();
+    // Reset aviso de duplicados
+    const dw=document.getElementById('crDupWarning');if(dw)dw.classList.remove('show');
     // Poblar select de origen
     const sel=document.getElementById('crOrigen');
     if(sel){
@@ -3772,6 +3789,81 @@ function handleEtiquetaKey(e){
         // Backspace en input vacío -> quita la última etiqueta
         removeEtiqueta(_mcEtiquetas.length-1);
     }
+}
+
+// ===== DETECCION DE DUPLICADOS =====
+// Normaliza telefono: solo digitos
+function normalizarTelefono(t){return String(t||'').replace(/\D/g,'');}
+
+// Busca contactos similares por telefono o email
+function findSimilarContacts(telefono,email,excludeId){
+    const telNorm=normalizarTelefono(telefono);
+    const emailLower=String(email||'').trim().toLowerCase();
+    // Requiere al menos 5 digitos de telefono o un email con minimo 5 chars y "@"
+    const telOk=telNorm.length>=5;
+    const emailOk=emailLower.length>=5&&emailLower.includes('@');
+    if(!telOk&&!emailOk)return [];
+    const clientes=getClientes();
+    const matches=[];
+    clientes.forEach(c=>{
+        if(excludeId&&c.id===excludeId)return;
+        let razon='';
+        if(telOk&&c.telefono){
+            const cTelNorm=normalizarTelefono(c.telefono);
+            if(cTelNorm&&(cTelNorm===telNorm||cTelNorm.endsWith(telNorm)||telNorm.endsWith(cTelNorm))){
+                razon='tel\u00e9fono';
+            }
+        }
+        if(!razon&&emailOk&&c.email){
+            const cEmail=String(c.email).toLowerCase();
+            if(cEmail===emailLower)razon='email exacto';
+            else if(cEmail.includes(emailLower)||emailLower.includes(cEmail))razon='email similar';
+        }
+        if(razon)matches.push(Object.assign({},c,{_matchReason:razon}));
+    });
+    return matches.slice(0,5);
+}
+
+let _dupDebounceTimer=null;
+function checkDuplicates(tipo){
+    clearTimeout(_dupDebounceTimer);
+    _dupDebounceTimer=setTimeout(()=>renderDuplicateWarning(tipo),300);
+}
+
+function renderDuplicateWarning(tipo){
+    const prefix=tipo==='mc'?'mc':'cr';
+    const warningEl=document.getElementById(prefix+'DupWarning');
+    const listEl=document.getElementById(prefix+'DupList');
+    if(!warningEl||!listEl)return;
+    // No mostrar en modo edicion del modal completo
+    const isEdit=tipo==='mc'&&!!document.getElementById('mcId').value;
+    if(isEdit){warningEl.classList.remove('show');return;}
+    const phone=document.getElementById(prefix+'Telefono').value;
+    const email=document.getElementById(prefix+'Email').value;
+    const matches=findSimilarContacts(phone,email,'');
+    if(!matches.length){warningEl.classList.remove('show');return;}
+    const estadoLabels=Object.fromEntries(CONTACTO_ESTADOS.map(s=>[s.id,s.label]));
+    warningEl.classList.add('show');
+    listEl.innerHTML=matches.map(c=>{
+        const estado=c.estado||'nuevo';
+        const telStr=c.telefono?esc(c.telefono):'';
+        const emailStr=c.email?esc(c.email):'';
+        const contactoStr=[telStr,emailStr].filter(Boolean).join(' &middot; ');
+        return`<div class="dup-item">
+            <div class="dup-item-info">
+                <div class="dup-nombre">${esc(c.nombreCompleto||'(sin nombre)')}</div>
+                ${contactoStr?`<div class="dup-contacto">${contactoStr}</div>`:''}
+                <div class="dup-match"><span class="estado-badge st-${estado}">${esc(estadoLabels[estado]||estado)}</span> coincide por ${esc(c._matchReason)}</div>
+            </div>
+            <button type="button" class="btn-open-dup" onclick="abrirContactoDesdeDuplicado('${c.id}','${tipo}')">Abrir</button>
+        </div>`;
+    }).join('');
+}
+
+function abrirContactoDesdeDuplicado(id,tipoOrigen){
+    // Cerrar el modal actual y abrir el contacto existente
+    closeModal(tipoOrigen==='mc'?'modalCliente':'modalCapturaRapida');
+    setTimeout(()=>openClienteModal(id),150);
 }
 
 // ===== WIZARD 3 PASOS =====
@@ -3897,6 +3989,8 @@ function openClienteModal(id){
         document.getElementById('mcCapturaInfo').textContent='Se capturar\u00e1 ahora'+(usuarioEmail?' por '+usuarioEmail:'');
         goWizardStep(1); // iniciar en paso 1
     }
+    // Reset del aviso de duplicados (tanto para nuevo como edicion)
+    const dw=document.getElementById('mcDupWarning');if(dw)dw.classList.remove('show');
     modal.classList.add('open');
 }
 
