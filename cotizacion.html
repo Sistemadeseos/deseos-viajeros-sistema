@@ -1104,6 +1104,7 @@ onAuthStateChanged(fbAuth, (user) => {
         <button class="config-tab" data-cfgtab="checklist" onclick="switchConfigTab('checklist')">Checklist ventas</button>
         <button class="config-tab" data-cfgtab="alertas" onclick="switchConfigTab('alertas')">Alertas</button>
         <button class="config-tab" data-cfgtab="fees" onclick="switchConfigTab('fees')">Fees calculadora</button>
+        <button class="config-tab" data-cfgtab="recibo" onclick="switchConfigTab('recibo')">Recibo de pago</button>
     </div>
     <div class="config-panes">
         <div class="config-pane active" id="cfgPane-agencia"></div>
@@ -1115,6 +1116,7 @@ onAuthStateChanged(fbAuth, (user) => {
         <div class="config-pane" id="cfgPane-checklist"></div>
         <div class="config-pane" id="cfgPane-alertas"></div>
         <div class="config-pane" id="cfgPane-fees"></div>
+        <div class="config-pane" id="cfgPane-recibo"></div>
     </div>
 </div>
 
@@ -2217,6 +2219,45 @@ function renderConfiguracion(){
     renderConfigChecklist();
     renderConfigAlertas();
     renderConfigFees();
+    renderConfigRecibo();
+}
+
+function renderConfigRecibo(){
+    const rawCfg=getLSObj('dv_config');
+    const img=rawCfg.reciboHeader||'';
+    const pane=document.getElementById('cfgPane-recibo');
+    pane.innerHTML=`<p class="config-hint">Imagen fija que aparece como encabezado en los <strong>recibos de pago</strong> y <strong>estados de cuenta</strong>. Se ajusta al ancho del documento. Recomendado: imagen horizontal (proporción aprox. 5:1, mínimo 1200px de ancho).</p>
+    <div class="form-group"><label>Imagen de encabezado</label><input type="file" id="reciboHeaderInput" accept="image/*" onchange="handleReciboHeaderUpload(event)"></div>
+    <div id="reciboHeaderPreview" style="display:${img?'block':'none'};text-align:center;margin-top:10px;border:1px solid var(--border);border-radius:8px;padding:10px;background:#fafafa;">
+        <p style="font-size:0.72rem;color:var(--text-light);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.6px;">Vista previa actual</p>
+        <img id="reciboHeaderThumb" src="${img||''}" style="max-width:100%;max-height:180px;border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,0.1);" alt="">
+        <div style="margin-top:8px;"><button class="btn btn-sm btn-danger" onclick="removeReciboHeader()">Quitar imagen</button></div>
+    </div>`;
+}
+
+function handleReciboHeaderUpload(e){
+    const f=e.target.files[0];if(!f)return;
+    // Encabezado: ancho generoso y calidad alta porque se ve grande
+    compressImage(f,1600,600,0.9).then(dataUrl=>{
+        const cfg=getLSObj('dv_config');
+        cfg.reciboHeader=dataUrl;
+        setLSObj('dv_config',cfg);
+        const thumb=document.getElementById('reciboHeaderThumb');
+        const box=document.getElementById('reciboHeaderPreview');
+        if(thumb)thumb.src=dataUrl;
+        if(box)box.style.display='block';
+    }).catch(err=>alert('No se pudo procesar la imagen: '+err.message));
+}
+
+function removeReciboHeader(){
+    if(!confirm('¿Quitar la imagen de encabezado del recibo?'))return;
+    const cfg=getLSObj('dv_config');
+    delete cfg.reciboHeader;
+    setLSObj('dv_config',cfg);
+    const box=document.getElementById('reciboHeaderPreview');
+    if(box)box.style.display='none';
+    const inp=document.getElementById('reciboHeaderInput');
+    if(inp)inp.value='';
 }
 
 function renderConfigAlertas(){
@@ -3704,13 +3745,9 @@ function renderDocumento(tipo,ventaId,pagoId){
     const clienteDoc=cli?(cli.tipoDocumento+' '+cli.numeroDocumento):'';
     const clienteEmail=cli?cli.email:'';
     const clienteTel=cli?cli.telefono:'';
-    // Buscar imagen del destino (la misma que usa la cotización que origina)
-    let headerImg=null;
-    if(cot&&cot.data){
-        const paisDat=cot.data.pais;
-        const destDat=cot.data.destinoSelect&&cot.data.destinoSelect!=='__custom'?cot.data.destinoSelect:cot.data.destino;
-        if(paisDat&&destDat)headerImg=getDestinoImage(paisDat,destDat);
-    }
+    // Encabezado fijo configurado en Configuración → Recibo de pago
+    const rawCfgRec=getLSObj('dv_config');
+    const headerImg=rawCfgRec.reciboHeader||null;
     // Header: si hay imagen del destino, úsala; si no, fallback con gradiente + info agencia
     const headerHtmlRecibo=headerImg
         ?`<div class="recibo-header has-image"><img class="header-bg-img" src="${headerImg}" alt=""></div>`
