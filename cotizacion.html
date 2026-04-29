@@ -1105,6 +1105,7 @@ onAuthStateChanged(fbAuth, (user) => {
         <button class="config-tab" data-cfgtab="alertas" onclick="switchConfigTab('alertas')">Alertas</button>
         <button class="config-tab" data-cfgtab="fees" onclick="switchConfigTab('fees')">Fees calculadora</button>
         <button class="config-tab" data-cfgtab="recibo" onclick="switchConfigTab('recibo')">Recibo de pago</button>
+        <button class="config-tab" data-cfgtab="edc" onclick="switchConfigTab('edc')">Estado de cuenta</button>
     </div>
     <div class="config-panes">
         <div class="config-pane active" id="cfgPane-agencia"></div>
@@ -1117,6 +1118,7 @@ onAuthStateChanged(fbAuth, (user) => {
         <div class="config-pane" id="cfgPane-alertas"></div>
         <div class="config-pane" id="cfgPane-fees"></div>
         <div class="config-pane" id="cfgPane-recibo"></div>
+        <div class="config-pane" id="cfgPane-edc"></div>
     </div>
 </div>
 
@@ -2220,6 +2222,7 @@ function renderConfiguracion(){
     renderConfigAlertas();
     renderConfigFees();
     renderConfigRecibo();
+    renderConfigEDC();
 }
 
 function renderConfigRecibo(){
@@ -2257,6 +2260,43 @@ function removeReciboHeader(){
     const box=document.getElementById('reciboHeaderPreview');
     if(box)box.style.display='none';
     const inp=document.getElementById('reciboHeaderInput');
+    if(inp)inp.value='';
+}
+
+function renderConfigEDC(){
+    const rawCfg=getLSObj('dv_config');
+    const img=rawCfg.edcHeader||'';
+    const pane=document.getElementById('cfgPane-edc');
+    pane.innerHTML=`<p class="config-hint">Imagen fija que aparece como encabezado en los <strong>estados de cuenta</strong>. Se ajusta al ancho del documento. Recomendado: imagen horizontal (proporción aprox. 5:1, mínimo 1200px de ancho).</p>
+    <div class="form-group"><label>Imagen de encabezado</label><input type="file" id="edcHeaderInput" accept="image/*" onchange="handleEdcHeaderUpload(event)"></div>
+    <div id="edcHeaderPreview" style="display:${img?'block':'none'};text-align:center;margin-top:10px;border:1px solid var(--border);border-radius:8px;padding:10px;background:#fafafa;">
+        <p style="font-size:0.72rem;color:var(--text-light);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.6px;">Vista previa actual</p>
+        <img id="edcHeaderThumb" src="${img||''}" style="max-width:100%;max-height:180px;border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,0.1);" alt="">
+        <div style="margin-top:8px;"><button class="btn btn-sm btn-danger" onclick="removeEdcHeader()">Quitar imagen</button></div>
+    </div>`;
+}
+
+function handleEdcHeaderUpload(e){
+    const f=e.target.files[0];if(!f)return;
+    compressImage(f,1600,600,0.9).then(dataUrl=>{
+        const cfg=getLSObj('dv_config');
+        cfg.edcHeader=dataUrl;
+        setLSObj('dv_config',cfg);
+        const thumb=document.getElementById('edcHeaderThumb');
+        const box=document.getElementById('edcHeaderPreview');
+        if(thumb)thumb.src=dataUrl;
+        if(box)box.style.display='block';
+    }).catch(err=>alert('No se pudo procesar la imagen: '+err.message));
+}
+
+function removeEdcHeader(){
+    if(!confirm('¿Quitar la imagen de encabezado del estado de cuenta?'))return;
+    const cfg=getLSObj('dv_config');
+    delete cfg.edcHeader;
+    setLSObj('dv_config',cfg);
+    const box=document.getElementById('edcHeaderPreview');
+    if(box)box.style.display='none';
+    const inp=document.getElementById('edcHeaderInput');
     if(inp)inp.value='';
 }
 
@@ -3745,9 +3785,9 @@ function renderDocumento(tipo,ventaId,pagoId){
     const clienteDoc=cli?(cli.tipoDocumento+' '+cli.numeroDocumento):'';
     const clienteEmail=cli?cli.email:'';
     const clienteTel=cli?cli.telefono:'';
-    // Encabezado fijo configurado en Configuración → Recibo de pago
+    // Encabezado fijo configurado en Configuración (imagen distinta para recibo vs estado de cuenta)
     const rawCfgRec=getLSObj('dv_config');
-    const headerImg=rawCfgRec.reciboHeader||null;
+    const headerImg=tipo==='recibo'?(rawCfgRec.reciboHeader||null):(rawCfgRec.edcHeader||null);
     // Header: si hay imagen del destino, úsala; si no, fallback con gradiente + info agencia
     const headerHtmlRecibo=headerImg
         ?`<div class="recibo-header has-image"><img class="header-bg-img" src="${headerImg}" alt=""></div>`
