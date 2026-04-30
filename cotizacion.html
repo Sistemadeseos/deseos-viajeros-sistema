@@ -2544,11 +2544,8 @@ document.querySelectorAll('.format-tab').forEach(t=>t.classList.remove('active')
 document.querySelector(`[data-format="${f}"]`).classList.add('active');
 // Show/hide format-specific sections
 document.getElementById('cruceroSection').style.display=f==='crucero'?'':'none';
-// Hospedaje y Tours: ocultos por defecto. Solo se muestran si la cotizacion cargada los usa (compat hacia atras).
-const hospHasData=document.getElementById('hospedajeContainer').children.length>0;
-const toursHasData=document.getElementById('toursContainer').children.length>0;
-document.getElementById('hospedajeSection').style.display=(f!=='crucero'&&hospHasData)?'':'none';
-document.getElementById('toursSection').style.display=(f!=='crucero'&&toursHasData)?'':'none';
+document.getElementById('hospedajeSection').style.display=f!=='crucero'?'':'none';
+document.getElementById('toursSection').style.display=f!=='crucero'?'':'none';
 document.getElementById('itinerarioSection').style.display=f==='europa'?'':'none';
 // Column headers
 document.getElementById('colNombreHeader').textContent=f==='crucero'?'Tipo de Cabina':'Paquete / Hotel';
