@@ -653,7 +653,7 @@ body{font-family:'Open Sans',sans-serif;background:var(--bg);color:var(--text);m
 @media print{
     *{print-color-adjust:exact!important;-webkit-print-color-adjust:exact!important}
     html,body{margin:0!important;padding:0!important;overflow:visible!important;background:white!important;width:100%!important;height:auto!important}
-    .app-sidebar,.form-panel,.form-panel-splitter,.app-header,.cot-adjuntos-page,.modal-overlay,.img-lightbox,#viewDashboard,#viewConfiguracion,#viewHistorial,#viewEncabezados,#viewVentas,#viewClientes{display:none!important}
+    .app-sidebar,.form-panel,.form-panel-splitter,.app-header,.cot-adjuntos-page,.modal-overlay,.img-lightbox,#viewDashboard,#viewConfiguracion,#viewHistorial,#viewEncabezados,#viewVentas,#viewClientes,#viewClientesVentas{display:none!important}
     .app-layout,.app-main,.main-views{display:block!important;height:auto!important;overflow:visible!important;width:100%!important}
 
     /* Modo imprimir COTIZACI\u00d3N: solo se ve el editor */
@@ -942,6 +942,7 @@ onAuthStateChanged(fbAuth, (user) => {
         <div class="sidebar-section-label">Gesti&oacute;n</div>
         <div class="sidebar-item" onclick="nav('ventas')"><span class="si-icon">&#128176;</span>Ventas<span class="si-badge" id="badgeVentas"></span></div>
         <div class="sidebar-item" onclick="nav('clientes')"><span class="si-icon">&#128101;</span>Contactos<span class="si-badge" id="badgeClientes"></span></div>
+        <div class="sidebar-item" onclick="nav('clientesventas')"><span class="si-icon">&#127881;</span>Clientes<span class="si-badge" id="badgeClientesVentas"></span></div>
         <div class="sidebar-item" onclick="nav('configuracion')"><span class="si-icon">&#9881;</span>Configuraci&oacute;n</div>
     </div>
 </div>
@@ -1097,10 +1098,16 @@ onAuthStateChanged(fbAuth, (user) => {
     <div class="list-view" id="ventasGrid"></div>
 </div>
 
-<!-- VIEW: CLIENTES -->
+<!-- VIEW: CONTACTOS (sin ventas) -->
 <div class="app-view view-list" id="viewClientes">
     <div class="list-search"><input type="text" id="clientesSearch" placeholder="Buscar por nombre, email, documento..." oninput="renderClientes()"></div>
     <div class="list-view" id="clientesGrid"></div>
+</div>
+
+<!-- VIEW: CLIENTES (contactos con al menos una venta) -->
+<div class="app-view view-list" id="viewClientesVentas">
+    <div class="list-search"><input type="text" id="clientesVentasSearch" placeholder="Buscar por nombre, email, documento..." oninput="renderClientesVentas()"></div>
+    <div class="list-view" id="clientesVentasGrid"></div>
 </div>
 
 <!-- VIEW: CONFIGURACION -->
@@ -1986,23 +1993,25 @@ function populateEncargadosSelect(){
 function nav(view){
     document.querySelectorAll('.sidebar-item').forEach(el=>el.classList.remove('active'));
     const items=document.querySelectorAll('.sidebar-item');
-    const map={dashboard:0,editor:1,historial:2,encabezados:3,ventas:4,clientes:5,configuracion:6};
+    const map={dashboard:0,editor:1,historial:2,encabezados:3,ventas:4,clientes:5,clientesventas:6,configuracion:7};
     if(map[view]!==undefined)items[map[view]].classList.add('active');
     document.querySelectorAll('.app-view').forEach(v=>v.classList.remove('active'));
-    const titles={dashboard:'Dashboard',editor:'Editor de Cotizaci\u00f3n',historial:'Historial de Cotizaciones',encabezados:'Destinos',ventas:'Ventas',clientes:'Contactos',configuracion:'Configuraci\u00f3n',documento:'Documento'};
+    const titles={dashboard:'Dashboard',editor:'Editor de Cotizaci\u00f3n',historial:'Historial de Cotizaciones',encabezados:'Destinos',ventas:'Ventas',clientes:'Contactos',clientesventas:'Clientes',configuracion:'Configuraci\u00f3n',documento:'Documento'};
     document.getElementById('headerTitle').textContent=titles[view]||'';
     const ha=document.getElementById('headerActions');
     if(view==='editor')ha.innerHTML='<button class="btn btn-outline" onclick="resetForm()">&#128260; Nueva</button><button class="btn btn-accent" onclick="window.print()">&#128424; Exportar PDF</button>';
     else if(view==='clientes')ha.innerHTML='<button class="btn btn-accent" onclick="openClienteModal()">+ Nuevo Contacto</button>';
+    else if(view==='clientesventas')ha.innerHTML='';
     else if(view==='dashboard')ha.innerHTML='<button class="btn btn-outline" onclick="renderDashboard()">&#8635; Actualizar</button>';
     else ha.innerHTML='';
-    const viewIds={dashboard:'viewDashboard',editor:'viewEditor',historial:'viewHistorial',encabezados:'viewEncabezados',ventas:'viewVentas',clientes:'viewClientes',configuracion:'viewConfiguracion',documento:'viewDocumento'};
+    const viewIds={dashboard:'viewDashboard',editor:'viewEditor',historial:'viewHistorial',encabezados:'viewEncabezados',ventas:'viewVentas',clientes:'viewClientes',clientesventas:'viewClientesVentas',configuracion:'viewConfiguracion',documento:'viewDocumento'};
     document.getElementById(viewIds[view]).classList.add('active');
     if(view==='dashboard')renderDashboard();
     if(view==='historial')renderHistorial();
     if(view==='encabezados')renderEncabezados();
     if(view==='ventas')renderVentas();
     if(view==='clientes')renderClientes();
+    if(view==='clientesventas')renderClientesVentas();
     if(view==='configuracion')renderConfiguracion();
     updateBadges();
     // En mobile, cerrar sidebar al navegar
@@ -2011,8 +2020,11 @@ function nav(view){
 
 function updateBadges(){
     const h=getHistorial(),v=getVentas(),c=getClientes();
-    const bh=document.getElementById('badgeHistorial'),bv=document.getElementById('badgeVentas'),bc=document.getElementById('badgeClientes');
-    bh.textContent=h.length||'';bv.textContent=v.length||'';bc.textContent=c.length||'';
+    const idsConVenta=new Set(v.map(x=>x.clienteId).filter(Boolean));
+    const contactosCount=c.filter(x=>!idsConVenta.has(x.id)).length;
+    const clientesCount=c.filter(x=>idsConVenta.has(x.id)).length;
+    const bh=document.getElementById('badgeHistorial'),bv=document.getElementById('badgeVentas'),bc=document.getElementById('badgeClientes'),bcv=document.getElementById('badgeClientesVentas');
+    bh.textContent=h.length||'';bv.textContent=v.length||'';bc.textContent=contactosCount||'';if(bcv)bcv.textContent=clientesCount||'';
 }
 
 // ===== FORM PANEL RESIZE (splitter) =====
@@ -4072,14 +4084,25 @@ function autoCreateCliente(data){
     clientes.unshift(nuevo);saveClientes(clientes);updateBadges();return nuevo.id;
 }
 
-function renderClientes(){
+// Renderiza la tabla de contactos. mode='contactos' (sin ventas) | 'clientes' (con al menos una venta).
+function renderListadoContactos(mode){
     const clientes=getClientes();
-    const grid=document.getElementById('clientesGrid');
-    const search=document.getElementById('clientesSearch').value.toLowerCase();
-    const filtered=clientes.filter(c=>{const text=[c.nombreCompleto,c.email,c.telefono,c.numeroDocumento,c.empresa,c.estado,c.origen,(c.etiquetas||[]).join(' ')].join(' ').toLowerCase();return!search||text.includes(search);});
-    if(!filtered.length){grid.innerHTML=`<div class="grid-empty"><h3>${search?'Sin resultados':'Sin contactos'}</h3><p>Los contactos se crean al guardar cotizaciones o manualmente.</p></div>`;return;}
-    const hist=getHistorial();
     const ventas=getVentas();
+    const idsConVenta=new Set(ventas.map(v=>v.clienteId).filter(Boolean));
+    const isClientes=mode==='clientes';
+    const gridId=isClientes?'clientesVentasGrid':'clientesGrid';
+    const searchId=isClientes?'clientesVentasSearch':'clientesSearch';
+    const grid=document.getElementById(gridId);
+    if(!grid)return;
+    const search=(document.getElementById(searchId)?.value||'').toLowerCase();
+    const base=clientes.filter(c=>isClientes?idsConVenta.has(c.id):!idsConVenta.has(c.id));
+    const filtered=base.filter(c=>{const text=[c.nombreCompleto,c.email,c.telefono,c.numeroDocumento,c.empresa,c.estado,c.origen,(c.etiquetas||[]).join(' ')].join(' ').toLowerCase();return!search||text.includes(search);});
+    if(!filtered.length){
+        const titulo=search?'Sin resultados':(isClientes?'Sin clientes':'Sin contactos');
+        const subt=isClientes?'Los contactos pasan a Clientes cuando se les registra una venta.':'Los contactos se crean al guardar cotizaciones o manualmente.';
+        grid.innerHTML=`<div class="grid-empty"><h3>${titulo}</h3><p>${subt}</p></div>`;return;
+    }
+    const hist=getHistorial();
     const estadoLabels=Object.fromEntries(CONTACTO_ESTADOS.map(s=>[s.id,s.label]));
     const origenLabels=Object.fromEntries(CONTACTO_ORIGENES.map(o=>[o.id,o.label]));
     const rows=filtered.map(c=>{
@@ -4114,6 +4137,8 @@ function renderClientes(){
         <tbody>${rows}</tbody>
     </table>`;
 }
+function renderClientes(){renderListadoContactos('contactos');}
+function renderClientesVentas(){renderListadoContactos('clientes');}
 
 // ===== CAPTURA RAPIDA (FAB) =====
 let _crEtiquetas=[];
