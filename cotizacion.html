@@ -1423,7 +1423,7 @@ function setLSObj(k,v){
 //   destinos/{pais}/{ciudad}_{timestamp}
 
 // Tracking de IDs que ya subimos a Firestore (para poder detectar eliminaciones)
-const _fsDocIds={cotizaciones:new Set(),ventas:new Set(),clientes:new Set(),destinos:new Set()};
+const _fsDocIds={cotizaciones:new Set(),ventas:new Set(),clientes:new Set(),destinos:new Set(),hoteles:new Set()};
 
 // ===== METADATA (timestamp + autor en cada save) =====
 // Agrega _lastModifiedAt y _lastModifiedBy a un objeto antes de guardarlo.
@@ -1451,6 +1451,7 @@ function guardarSnapshotRespaldo(motivo){
             ventas:getLS('dv_ventas'),
             clientes:getLS('dv_clientes'),
             encabezados:getLSObj('dv_encabezados'),
+            hoteles:getLS('dv_hoteles'),
             config:getLSObj('dv_config')
         };
         localStorage.setItem(key,JSON.stringify(snap));
@@ -1527,6 +1528,8 @@ async function pushToFirestore(key,value){
             await syncArrayCollection('clientes',value,false);
         }else if(key==='dv_encabezados'){
             await syncDestinos(value);
+        }else if(key==='dv_hoteles'){
+            await syncArrayCollection('hoteles',value,false);
         }
     }catch(e){
         console.error('[FS] error en pushToFirestore para',key,':',e);
@@ -1690,7 +1693,31 @@ async function loadAllFromFirestore(){
             }
         }
         localStorage.setItem('dv_encabezados',JSON.stringify(destObj));
-        console.log(`[FS] datos cargados: ${cots.length} cotizaciones, ${ventas.length} ventas, ${clientes.length} clientes, ${Object.keys(destObj).length} pa\u00edses${recuperadosTotal>0?' ('+recuperadosTotal+' items recuperados de localStorage)':''}`);
+        // hoteles: array de docs independientes, defensivo igual que clientes
+        const localHoteles=getLS('dv_hoteles');
+        const hSnap=await h.getDocs(h.collection(db,'hoteles'));
+        let hoteles=[];hSnap.forEach(dd=>{hoteles.push(dd.data());_fsDocIds.hoteles.add(dd.id);});
+        const mergedH=mergeArrayDefensivo('hoteles',hoteles,localHoteles);
+        hoteles=mergedH.merged;recuperadosTotal+=mergedH.recovered;
+        // Migracion: si Firestore esta vacio pero la config local tenia hoteles antiguos, convertirlos al nuevo formato
+        const cfgLocalParaMig=getLSObj('dv_config');
+        if(!hoteles.length&&cfgLocalParaMig.hoteles&&Object.keys(cfgLocalParaMig.hoteles).length){
+            console.warn('[FS] Migrando hoteles desde dv_config (formato antiguo) a coleccion hoteles');
+            Object.keys(cfgLocalParaMig.hoteles).forEach(p=>{
+                Object.keys(cfgLocalParaMig.hoteles[p]||{}).forEach(d=>{
+                    (cfgLocalParaMig.hoteles[p][d]||[]).forEach(ho=>{
+                        if(ho&&ho.nombre)hoteles.push({id:String(Date.now())+Math.random().toString(36).slice(2,7),pais:p,destino:d,nombre:ho.nombre,descripcion:ho.descripcion||'',link:ho.link||''});
+                    });
+                });
+            });
+            // Borrar la copia vieja para evitar reescrituras y subir al servidor
+            delete cfgLocalParaMig.hoteles;
+            localStorage.setItem('dv_config',JSON.stringify(cfgLocalParaMig));
+            if(hoteles.length)setTimeout(()=>{if(_fsEnabled){pushToFirestore('dv_hoteles',hoteles).catch(e=>console.error(e));pushToFirestore('dv_config',cfgLocalParaMig).catch(e=>console.error(e));}},9000);
+        }
+        localStorage.setItem('dv_hoteles',JSON.stringify(hoteles));
+        if(mergedH.recovered>0)setTimeout(()=>{if(_fsEnabled)pushToFirestore('dv_hoteles',hoteles).catch(e=>console.error(e));},8000);
+        console.log(`[FS] datos cargados: ${cots.length} cotizaciones, ${ventas.length} ventas, ${clientes.length} clientes, ${Object.keys(destObj).length} pa\u00edses, ${hoteles.length} hoteles${recuperadosTotal>0?' ('+recuperadosTotal+' items recuperados de localStorage)':''}`);
         if(recuperadosTotal>0){
             setTimeout(()=>{
                 alert('\u26A0 Se recuperaron '+recuperadosTotal+' item(s) desde el respaldo local que faltaban en el servidor. Se re-subir\u00e1n autom\u00e1ticamente.');
@@ -2451,29 +2478,33 @@ function renderConfigChecklist(){
     initDrag(pane.querySelector('#cfgChecklistList'));
 }
 
-// ===== HOTELES por destino =====
-function getHotelesDB(){const cfg=getLSObj('dv_config');return cfg.hoteles||{};}
-function setHotelesDB(h){const cfg=getLSObj('dv_config');cfg.hoteles=h;setLSObj('dv_config',cfg);}
+// ===== HOTELES por destino (coleccion independiente para evitar conflictos de escritura concurrente) =====
+const getHoteles=()=>getLS('dv_hoteles');
+const saveHoteles=(arr)=>setLS('dv_hoteles',arr);
+function newHotelId(){return String(Date.now())+Math.random().toString(36).slice(2,7);}
 function renderConfigHoteles(){
     const pane=document.getElementById('cfgPane-hoteles');
     const enc=getEncabezados();
-    const hoteles=getHotelesDB();
+    const hoteles=getHoteles();
     const paises=Object.keys(enc).sort((a,b)=>a.localeCompare(b));
     if(!paises.length){pane.innerHTML='<p class="config-hint">Primero agreg&aacute; pa&iacute;ses y destinos en la secci&oacute;n <strong>Destinos</strong> del men&uacute; lateral. Despu&eacute;s pod&eacute;s cargar hoteles para cada destino aqu&iacute;.</p>';return;}
-    let html='<p class="config-hint">Base de datos de hoteles agrupada por pa&iacute;s y destino. Los destinos se gestionan desde la secci&oacute;n <strong>Destinos</strong> del men&uacute; lateral. Los cambios se guardan autom&aacute;ticamente al editar cada campo.</p>';
+    // Indexar hoteles por pais+destino
+    const idx={};
+    hoteles.forEach(h=>{const k=(h.pais||'')+'␟'+(h.destino||'');if(!idx[k])idx[k]=[];idx[k].push(h);});
+    let html='<p class="config-hint">Base de datos de hoteles agrupada por pa&iacute;s y destino. Los destinos se gestionan desde la secci&oacute;n <strong>Destinos</strong> del men&uacute; lateral. Los cambios se guardan autom&aacute;ticamente al editar cada campo y se sincronizan con Firebase.</p>';
     paises.forEach(p=>{
         const destinos=Object.keys(enc[p]||{}).sort((a,b)=>a.localeCompare(b));
-        const totalHotel=destinos.reduce((sum,d)=>sum+((hoteles[p]&&hoteles[p][d]||[]).length),0);
+        const totalHotel=destinos.reduce((sum,d)=>sum+((idx[p+'␟'+d]||[]).length),0);
         html+=`<div class="hoteles-pais"><div class="hoteles-pais-header" onclick="toggleHotelesPais(this)"><h3 style="margin:0;">${esc(p)} <span style="font-size:0.78rem;color:var(--text-light);font-weight:400;">(${totalHotel} ${totalHotel===1?'hotel':'hoteles'})</span></h3><span class="toggle">&#9660;</span></div><div class="hoteles-pais-body">`;
         if(!destinos.length){html+='<p style="font-size:0.78rem;color:var(--text-light);padding:8px 4px;">Sin destinos cargados para este pa&iacute;s.</p>';}
         destinos.forEach(dest=>{
-            const lista=(hoteles[p]&&hoteles[p][dest])||[];
+            const lista=(idx[p+'␟'+dest]||[]).slice().sort((a,b)=>(a.nombre||'').localeCompare(b.nombre||''));
             const safeP=esc(p).replace(/'/g,"\\'"),safeD=esc(dest).replace(/'/g,"\\'");
             html+=`<div class="hoteles-destino"><div class="hoteles-destino-header"><strong>${esc(dest)}</strong> <span style="font-size:0.74rem;color:var(--text-light);">(${lista.length})</span><button class="btn btn-sm btn-primary" onclick="agregarHotel('${safeP}','${safeD}')">+ Hotel</button></div>`;
             if(lista.length){
                 html+='<div class="hoteles-lista">';
-                lista.forEach((h,i)=>{
-                    html+=`<div class="hotel-row"><input type="text" placeholder="Nombre del hotel" value="${esc(h.nombre||'')}" onchange="editarHotel('${safeP}','${safeD}',${i},'nombre',this.value)"><input type="text" placeholder="Categor&iacute;a / notas (opcional)" value="${esc(h.descripcion||'')}" onchange="editarHotel('${safeP}','${safeD}',${i},'descripcion',this.value)"><input type="text" placeholder="Link (opcional)" value="${esc(h.link||'')}" onchange="editarHotel('${safeP}','${safeD}',${i},'link',this.value)"><button class="btn-icon remove" title="Eliminar" onclick="eliminarHotel('${safeP}','${safeD}',${i})">&times;</button></div>`;
+                lista.forEach(h=>{
+                    html+=`<div class="hotel-row"><input type="text" placeholder="Nombre del hotel" value="${esc(h.nombre||'')}" onchange="editarHotel('${h.id}','nombre',this.value)"><input type="text" placeholder="Categor&iacute;a / notas (opcional)" value="${esc(h.descripcion||'')}" onchange="editarHotel('${h.id}','descripcion',this.value)"><input type="text" placeholder="Link (opcional)" value="${esc(h.link||'')}" onchange="editarHotel('${h.id}','link',this.value)"><button class="btn-icon remove" title="Eliminar" onclick="eliminarHotel('${h.id}')">&times;</button></div>`;
                 });
                 html+='</div>';
             }
@@ -2487,27 +2518,25 @@ function toggleHotelesPais(h){const body=h.nextElementSibling;const open=body.st
 function agregarHotel(p,d){
     const nombre=prompt('Nombre del hotel:');
     if(!nombre||!nombre.trim())return;
-    const h=getHotelesDB();
-    if(!h[p])h[p]={};
-    if(!h[p][d])h[p][d]=[];
-    h[p][d].push({nombre:nombre.trim(),descripcion:'',link:''});
-    setHotelesDB(h);
+    const arr=getHoteles();
+    arr.push({id:newHotelId(),pais:p,destino:d,nombre:nombre.trim(),descripcion:'',link:''});
+    saveHoteles(arr);
     renderConfigHoteles();
 }
-function editarHotel(p,d,idx,campo,valor){
-    const h=getHotelesDB();
-    if(!h[p]||!h[p][d]||!h[p][d][idx])return;
-    h[p][d][idx][campo]=valor;
-    setHotelesDB(h);
+function editarHotel(id,campo,valor){
+    const arr=getHoteles();
+    const i=arr.findIndex(h=>String(h.id)===String(id));
+    if(i<0)return;
+    arr[i][campo]=valor;
+    saveHoteles(arr);
 }
-function eliminarHotel(p,d,idx){
-    const h=getHotelesDB();
-    if(!h[p]||!h[p][d]||!h[p][d][idx])return;
-    if(!confirm('¿Eliminar el hotel "'+(h[p][d][idx].nombre||'sin nombre')+'"?'))return;
-    h[p][d].splice(idx,1);
-    if(!h[p][d].length)delete h[p][d];
-    if(!Object.keys(h[p]).length)delete h[p];
-    setHotelesDB(h);
+function eliminarHotel(id){
+    const arr=getHoteles();
+    const i=arr.findIndex(h=>String(h.id)===String(id));
+    if(i<0)return;
+    if(!confirm('¿Eliminar el hotel "'+(arr[i].nombre||'sin nombre')+'"?'))return;
+    arr.splice(i,1);
+    saveHoteles(arr);
     renderConfigHoteles();
 }
 
@@ -2586,9 +2615,9 @@ function saveConfigFromUI(){
         fee_nino:num(document.getElementById('cfgFee-nino').value),
         fee_bebe:num(document.getElementById('cfgFee-bebe').value)
     };
-    // Preservar campos editados fuera del formulario (BD de hoteles, imagenes de encabezado de recibo/EDC)
+    // Preservar campos editados fuera del formulario (imagenes de encabezado de recibo/EDC).
+    // Nota: hoteles ya NO viven dentro de dv_config — son una coleccion independiente (dv_hoteles).
     const prev=getLSObj('dv_config');
-    if(prev.hoteles)c.hoteles=prev.hoteles;
     if(prev.reciboHeader)c.reciboHeader=prev.reciboHeader;
     if(prev.edcHeader)c.edcHeader=prev.edcHeader;
     saveConfig(c);
@@ -3347,22 +3376,18 @@ function onDestinoSelect(){const ds=document.getElementById('destinoSelect');con
 function updateHotelesDatalist(){
     const dl=document.getElementById('hotelesDatalist');
     if(!dl)return;
-    const cfg=getLSObj('dv_config');
-    const hoteles=cfg.hoteles||{};
+    const arr=getHoteles();
     const p=document.getElementById('paisSelect')?.value||'';
     const dsEl=document.getElementById('destinoSelect');
     const customDest=document.getElementById('destino')?.value||'';
     const d=dsEl&&dsEl.value&&dsEl.value!=='__custom'?dsEl.value:customDest;
     const set=new Set();
-    if(p&&hoteles[p]){
-        if(d&&hoteles[p][d]){
-            (hoteles[p][d]||[]).forEach(h=>{if(h.nombre)set.add(h.nombre);});
-        }else{
-            Object.keys(hoteles[p]).forEach(dest=>(hoteles[p][dest]||[]).forEach(h=>{if(h.nombre)set.add(h.nombre);}));
-        }
-    }else{
-        Object.keys(hoteles).forEach(pp=>Object.keys(hoteles[pp]||{}).forEach(dd=>(hoteles[pp][dd]||[]).forEach(h=>{if(h.nombre)set.add(h.nombre);})));
-    }
+    arr.forEach(h=>{
+        if(!h.nombre)return;
+        if(p&&h.pais!==p)return;
+        if(d&&h.destino!==d)return;
+        set.add(h.nombre);
+    });
     const items=Array.from(set).sort((a,b)=>a.localeCompare(b));
     dl.innerHTML=items.map(n=>`<option value="${esc(n)}">`).join('');
 }
