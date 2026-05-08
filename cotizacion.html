@@ -384,6 +384,16 @@ body{font-family:'Open Sans',sans-serif;background:var(--bg);color:var(--text);m
 .grupo-header .toggle{font-size:0.7rem;color:var(--primary-dark);transition:transform 0.2s}
 .grupo-header.collapsed .toggle{transform:rotate(-90deg)}
 .grupo-body.collapsed{display:none}
+.ficha-moneda-block{border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:8px;background:#fafdff}
+.ficha-moneda-tag{display:inline-block;background:var(--primary-dark);color:white;font-size:0.7rem;font-weight:700;padding:2px 8px;border-radius:6px;margin-bottom:6px;letter-spacing:0.6px}
+.ficha-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.ficha-stat{display:flex;flex-direction:column;gap:2px}
+.ficha-stat-label{font-size:0.68rem;color:var(--text-light);text-transform:uppercase;letter-spacing:0.5px}
+.ficha-stat-value{font-size:1.05rem;font-weight:700;color:var(--text);font-family:'Playfair Display',serif}
+.ficha-row{display:flex;flex-wrap:wrap;gap:6px}
+.ficha-pill{padding:6px 12px;border-radius:18px;font-size:0.78rem;font-weight:600;display:inline-flex;align-items:center;gap:6px}
+.ficha-pill strong{font-size:0.95rem}
+@media (max-width:600px){.ficha-stats{grid-template-columns:1fr}}
 .config-subtabs{display:flex;gap:4px;margin:-6px -6px 14px;padding:6px;background:var(--bg);border-radius:8px;flex-wrap:wrap}
 .config-subtab{padding:6px 12px;border:none;background:transparent;border-radius:6px;font-family:'Open Sans',sans-serif;font-size:0.78rem;font-weight:600;color:var(--text-light);cursor:pointer;transition:all 0.2s}
 .config-subtab:hover{color:var(--primary)}
@@ -1348,6 +1358,13 @@ onAuthStateChanged(fbAuth, (user) => {
     <div id="checklistItems"></div>
     <div class="checklist-add"><input type="text" id="clNuevoItem" placeholder="Nuevo item del checklist..." onkeydown="if(event.key==='Enter')addChecklistItem()"><button class="btn btn-sm btn-primary" onclick="addChecklistItem()">+</button></div>
 </div><div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modalChecklist')">Cerrar</button></div></div></div>
+
+<!-- Modal: Ficha del grupo -->
+<div class="modal-overlay" id="modalFichaGrupo"><div class="modal" style="max-width:780px;">
+    <div class="modal-header"><h3 id="fichaGrupoTitulo">Ficha del grupo</h3><button class="modal-close" onclick="closeModal('modalFichaGrupo')">&times;</button></div>
+    <div class="modal-body" id="fichaGrupoBody"></div>
+    <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modalFichaGrupo')">Cerrar</button></div>
+</div></div>
 
 <!-- Modal: Nueva venta grupal -->
 <div class="modal-overlay" id="modalVentaGrupal"><div class="modal" style="max-width:560px;">
@@ -3715,13 +3732,48 @@ function renderVentasGrupales(filtered,grid){
             <td><div class="lt-actions"><button class="btn-checklist" onclick="openChecklist('${v.id}')" title="Checklist">&#9998;</button><button class="btn-checklist" style="background:#fff3e0;color:#d4830f;border:1px solid #e8941a;" onclick="openCobranza('${v.id}')" title="Estado de cuenta">&#128176;</button><button class="btn btn-sm btn-danger" onclick="eliminarVentaGrupal('${v.id}')" title="Eliminar">&times;</button></div></td>
             </tr>`;
         }).join('');
-        return`<div class="grupo-section"><div class="grupo-header" onclick="toggleGrupoSection(this)"><h4>${esc(g)}</h4><span class="grupo-count">${lista.length} ${lista.length===1?'cliente':'clientes'} &middot; Total ${monedaTxt} ${totalMonto.toFixed(2)}</span><span class="toggle">&#9660;</span></div><div class="grupo-body"><table class="list-table"><thead><tr><th>Cliente</th><th>Encargada</th><th>Fechas</th><th>Estado</th><th>Cobranza</th><th>Checklist</th><th>Acciones</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+        const safeG=esc(g).replace(/'/g,"\\'");
+        const accionesGrupo=g==='Sin grupo'?'':`<button class="btn btn-sm btn-ghost" onclick="event.stopPropagation();abrirFichaGrupo('${safeG}')" title="Ver ficha del grupo">&#128203; Ficha</button><button class="btn btn-sm btn-primary" onclick="event.stopPropagation();agregarClienteAlGrupo('${safeG}')" title="Agregar cliente a este grupo">+ Cliente</button>`;
+        return`<div class="grupo-section"><div class="grupo-header" onclick="toggleGrupoSection(this)"><h4>${esc(g)}</h4><span class="grupo-count">${lista.length} ${lista.length===1?'cliente':'clientes'} &middot; Total ${monedaTxt} ${totalMonto.toFixed(2)}</span><div class="grupo-actions" style="display:flex;gap:6px;">${accionesGrupo}</div><span class="toggle">&#9660;</span></div><div class="grupo-body"><table class="list-table"><thead><tr><th>Cliente</th><th>Encargada</th><th>Fechas</th><th>Estado</th><th>Cobranza</th><th>Checklist</th><th>Acciones</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
     }).join('');
 }
 function toggleGrupoSection(h){h.classList.toggle('collapsed');h.nextElementSibling.classList.toggle('collapsed');}
 function eliminarVentaGrupal(id){if(!confirm('¿Eliminar esta venta grupal? El contacto vinculado se mantiene.'))return;saveVentas(getVentas().filter(v=>v.id!==id));renderVentas();updateBadges();}
 
-function openModalVentaGrupal(){
+function agregarClienteAlGrupo(grupo){
+    openModalVentaGrupal(grupo);
+}
+function abrirFichaGrupo(grupo){
+    const ventas=getVentas().filter(v=>v.tipo==='grupal'&&(v.grupoNombre||'')===grupo);
+    if(!ventas.length){alert('No hay clientes en este grupo.');return;}
+    document.getElementById('fichaGrupoTitulo').textContent='Ficha del grupo · '+grupo;
+    // Calculos por moneda (para no sumar peras con manzanas)
+    const totalesMoneda={};
+    let pagados=0,parciales=0,pendientes=0;
+    const estVenta={pendiente:0,en_proceso:0,completada:0,cancelada:0};
+    const filas=ventas.map(v=>{
+        const c=calcCobranzaStatus(v);
+        const m=c.moneda||'USD';
+        if(!totalesMoneda[m])totalesMoneda[m]={total:0,pagado:0,saldo:0,clientes:0};
+        totalesMoneda[m].total+=c.montoTotal;
+        totalesMoneda[m].pagado+=c.pagado;
+        totalesMoneda[m].saldo+=c.saldo;
+        totalesMoneda[m].clientes++;
+        if(c.estadoPago==='pagado')pagados++;
+        else if(c.estadoPago==='parcial')parciales++;
+        else pendientes++;
+        if(estVenta[v.estado]!==undefined)estVenta[v.estado]++;
+        return{v,c};
+    });
+    const monedasArr=Object.keys(totalesMoneda);
+    const totalesHtml=monedasArr.map(m=>{const t=totalesMoneda[m];return`<div class="ficha-moneda-block"><div class="ficha-moneda-tag">${m}</div><div class="ficha-stats"><div class="ficha-stat"><span class="ficha-stat-label">Total facturado</span><span class="ficha-stat-value">${fmtMoney(t.total,m)}</span></div><div class="ficha-stat"><span class="ficha-stat-label">Cobrado</span><span class="ficha-stat-value" style="color:var(--success);">${fmtMoney(t.pagado,m)}</span></div><div class="ficha-stat"><span class="ficha-stat-label">Saldo pendiente</span><span class="ficha-stat-value" style="color:${t.saldo>0?'var(--danger)':'var(--success)'};">${fmtMoney(t.saldo,m)}</span></div></div></div>`;}).join('');
+    const fichaPagosHtml=`<div class="ficha-row"><div class="ficha-pill" style="background:#e9f9ee;color:#1f7a3a;"><strong>${pagados}</strong> Pagados</div><div class="ficha-pill" style="background:#fff3e0;color:#d4830f;"><strong>${parciales}</strong> Parciales</div><div class="ficha-pill" style="background:#fdecec;color:#c0392b;"><strong>${pendientes}</strong> Sin pago</div></div>`;
+    const fichaEstHtml=`<div class="ficha-row"><div class="ficha-pill" style="background:rgba(232,148,26,0.15);color:#d4830f;"><strong>${estVenta.pendiente}</strong> Pendiente</div><div class="ficha-pill" style="background:var(--primary-light);color:var(--primary-dark);"><strong>${estVenta.en_proceso}</strong> En proceso</div><div class="ficha-pill" style="background:#e9f9ee;color:#1f7a3a;"><strong>${estVenta.completada}</strong> Completada</div><div class="ficha-pill" style="background:#fdecec;color:#c0392b;"><strong>${estVenta.cancelada}</strong> Cancelada</div></div>`;
+    const tablaHtml=`<table class="list-table" style="margin-top:10px;"><thead><tr><th>Cliente</th><th>Total</th><th>Pagado</th><th>Saldo</th><th>Estado pago</th></tr></thead><tbody>${filas.map(({v,c})=>`<tr><td>${esc(v.clienteNombre||'-')}</td><td>${fmtMoney(c.montoTotal,c.moneda)}</td><td style="color:var(--success);">${fmtMoney(c.pagado,c.moneda)}</td><td style="color:${c.saldo>0?'var(--danger)':'var(--success)'};font-weight:600;">${fmtMoney(c.saldo,c.moneda)}</td><td><span class="lt-badge" style="background:${c.color}22;color:${c.color};">${c.estadoPagoLabel} ${c.pagadoPct}%</span></td></tr>`).join('')}</tbody></table>`;
+    document.getElementById('fichaGrupoBody').innerHTML=`<p style="color:var(--text-light);font-size:0.82rem;margin-bottom:14px;">${ventas.length} ${ventas.length===1?'cliente':'clientes'} en este grupo.</p><h4 style="font-family:'Playfair Display',serif;color:var(--primary-dark);font-size:0.9rem;margin-bottom:6px;">Totales</h4>${totalesHtml||'<p style="color:var(--text-light);">Sin montos cargados.</p>'}<h4 style="font-family:'Playfair Display',serif;color:var(--primary-dark);font-size:0.9rem;margin:14px 0 6px;">Estado de pago</h4>${fichaPagosHtml}<h4 style="font-family:'Playfair Display',serif;color:var(--primary-dark);font-size:0.9rem;margin:14px 0 6px;">Estado de la venta</h4>${fichaEstHtml}<h4 style="font-family:'Playfair Display',serif;color:var(--primary-dark);font-size:0.9rem;margin:14px 0 6px;">Detalle por cliente</h4>${tablaHtml}`;
+    document.getElementById('modalFichaGrupo').classList.add('open');
+}
+function openModalVentaGrupal(grupoPredef){
     // Poblar select de contactos
     const sel=document.getElementById('vgClienteId');
     const clientes=getClientes().slice().sort((a,b)=>(a.nombreCompleto||'').localeCompare(b.nombreCompleto||''));
@@ -3738,6 +3790,10 @@ function openModalVentaGrupal(){
     ['vgNombreGrupo','vgNuevoNombre','vgNuevoTel','vgNuevoEmail','vgDestino','vgFechaInicio','vgFechaFin','vgMonto','vgNotas'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
     document.getElementById('vgMoneda').value='USD';
     document.getElementById('vgNuevoClienteBox').style.display='none';
+    // Si vino un grupo pre-definido (al usar "+ Cliente al grupo"), pre-llenamos. Si no, queda en blanco.
+    if(typeof grupoPredef==='string'&&grupoPredef){
+        document.getElementById('vgNombreGrupo').value=grupoPredef;
+    }
     document.getElementById('modalVentaGrupal').classList.add('open');
 }
 function onVgClienteChange(){
