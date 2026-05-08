@@ -996,7 +996,7 @@ onAuthStateChanged(fbAuth, (user) => {
     <!-- Paquete -->
     <div class="form-section"><div class="form-section-header" onclick="toggleSection(this)">Datos del Paquete<span class="toggle">&#9660;</span></div><div class="form-section-body">
         <div class="form-group"><label>Pa&iacute;s</label><select id="paisSelect" onchange="onPaisChange()"><option value="">-- Seleccionar --</option></select></div>
-        <div class="form-group"><label>Destino</label><div class="destino-selector"><select id="destinoSelect" onchange="onDestinoSelect()"><option value="">-- Seleccionar --</option><option value="__custom">Escribir manualmente...</option></select></div><input type="text" id="destino" placeholder="Ej: Canc&uacute;n" oninput="updatePreview()" style="display:none;"><div class="destino-selected-preview" id="destinoPreviewImg"><img id="destinoPreviewImgTag" src="" alt=""></div></div>
+        <div class="form-group"><label>Destino</label><div class="destino-selector"><select id="destinoSelect" onchange="onDestinoSelect()"><option value="">-- Seleccionar --</option><option value="__custom">Escribir manualmente...</option></select></div><input type="text" id="destino" placeholder="Ej: Canc&uacute;n" oninput="updateHotelesDatalist();updatePreview()" style="display:none;"><div class="destino-selected-preview" id="destinoPreviewImg"><img id="destinoPreviewImgTag" src="" alt=""></div></div>
         <div class="form-row"><div class="form-group"><label>Fecha inicio</label><input type="date" id="fechaInicio" oninput="updatePreview()"></div><div class="form-group"><label>Fecha fin</label><input type="date" id="fechaFin" oninput="updatePreview()"></div></div>
         <div class="form-group"><label>Alerta (opcional)</label><select id="alertaPresetSelect" onchange="aplicarAlertaPreset(this)" style="margin-bottom:4px;"><option value="">-- Mensaje r&aacute;pido (opcional) --</option></select><textarea id="alertaDestino" placeholder="Ej: Vacuna obligatoria..." oninput="updatePreview()"></textarea></div>
         <div class="form-group"><label>Info adicional (opcional)</label><textarea id="infoDestino" placeholder="Informaci&oacute;n relevante..." oninput="updatePreview()"></textarea></div>
@@ -1037,6 +1037,7 @@ onAuthStateChanged(fbAuth, (user) => {
     <div class="form-section"><div class="form-section-header" onclick="toggleSection(this)"><span id="opcionesTitle">Opciones de Hoteles y Tarifas</span><span class="toggle">&#9660;</span></div><div class="form-section-body">
         <div class="form-group"><label>Moneda</label><select id="moneda" onchange="updatePreview()"><option value="USD">USD</option><option value="CRC">CRC</option><option value="EUR">EUR</option></select></div>
         <table class="options-table"><thead><tr><th id="colNombreHeader">Paquete / Hotel</th><th>Adulto</th><th>Ni&ntilde;o 2-11</th><th>Ni&ntilde;o 0-23m</th><th></th></tr></thead><tbody id="opcionesBody"></tbody></table>
+        <datalist id="hotelesDatalist"></datalist>
         <button class="btn btn-sm btn-primary" onclick="addOpcion()" style="margin-top:5px;">+ Agregar</button>
     </div></div>
     <!-- No incluye -->
@@ -2706,7 +2707,7 @@ function addOpcion(data){
     const adulto=(data&&data.adulto)||'';
     const nino=(data&&data.nino)||'';
     const bebe=(data&&data.bebe)||'';
-    tr.innerHTML=`<td><input type="text" class="op-nombre" value="${esc(nombre)}" placeholder="${currentFormat==='crucero'?'Cabina Interior':'Hotel Crown Paradise'}" oninput="updatePreview()"><button class="btn-calc-toggle" onclick="toggleCalc(this)" title="Calculadora de costos">&#128200; calc</button></td><td><input type="text" class="price-input op-adulto" value="${esc(adulto)}" placeholder="0" oninput="onPriceManualEdit(this);updatePreview();"></td><td><input type="text" class="price-input op-nino" value="${esc(nino)}" placeholder="-" oninput="onPriceManualEdit(this);updatePreview();"></td><td><input type="text" class="price-input op-bebe" value="${esc(bebe)}" placeholder="-" oninput="onPriceManualEdit(this);updatePreview();"></td><td class="row-actions"><button class="btn-icon remove" onclick="removeOpcion(this)">&times;</button></td>`;
+    tr.innerHTML=`<td><input type="text" class="op-nombre" list="hotelesDatalist" value="${esc(nombre)}" placeholder="${currentFormat==='crucero'?'Cabina Interior':'Hotel Crown Paradise'}" oninput="updatePreview()"><button class="btn-calc-toggle" onclick="toggleCalc(this)" title="Calculadora de costos">&#128200; calc</button></td><td><input type="text" class="price-input op-adulto" value="${esc(adulto)}" placeholder="0" oninput="onPriceManualEdit(this);updatePreview();"></td><td><input type="text" class="price-input op-nino" value="${esc(nino)}" placeholder="-" oninput="onPriceManualEdit(this);updatePreview();"></td><td><input type="text" class="price-input op-bebe" value="${esc(bebe)}" placeholder="-" oninput="onPriceManualEdit(this);updatePreview();"></td><td class="row-actions"><button class="btn-icon remove" onclick="removeOpcion(this)">&times;</button></td>`;
     tbody.appendChild(tr);
     // Fila de calculadora (oculta por default)
     const calcTr=document.createElement('tr');
@@ -3340,7 +3341,31 @@ function renderStorageIndicator(targetId){
 function renderEncabezados(){renderStorageIndicator('storageIndicator');const enc=getEncabezados();const c=document.getElementById('paisesContainer');const paises=Object.keys(enc);if(!paises.length){c.innerHTML='<div class="grid-empty"><h3>Sin pa\u00edses</h3><p>Agregue un pa\u00eds arriba para comenzar.</p></div>';return;}c.innerHTML=paises.map(p=>{const ds=Object.keys(enc[p]);return`<div class="enc-pais-section"><div class="enc-pais-header" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'':'none'"><h3>${esc(p)} (${ds.length})</h3><button class="btn btn-sm btn-danger" onclick="event.stopPropagation();eliminarPais('${esc(p).replace(/'/g,"\\'")}')">Eliminar</button></div><div class="enc-pais-body"><div class="enc-destinos-grid">${ds.map(d=>{const img=enc[p][d];return`<div class="enc-destino-card"><div class="enc-img-preview">${img?`<img src="${img}">`:'Sin imagen'}</div><div class="enc-destino-info"><div class="enc-destino-name">${esc(d)}</div><div class="enc-destino-actions"><button class="btn btn-sm btn-primary" onclick="subirImagenDestino('${esc(p).replace(/'/g,"\\'")}','${esc(d).replace(/'/g,"\\'")}');">${img?'Cambiar':'Subir'}</button><button class="btn btn-sm btn-danger" onclick="eliminarDestino('${esc(p).replace(/'/g,"\\'")}','${esc(d).replace(/'/g,"\\'")}');">&times;</button></div></div></div>`;}).join('')}<div class="enc-add-destino" onclick="agregarDestino('${esc(p).replace(/'/g,"\\'")}')"><span class="plus">+</span><span style="font-size:0.78rem;">Destino</span></div></div></div></div>`;}).join('');}
 function populatePaisSelect(){const enc=getEncabezados();const sel=document.getElementById('paisSelect');const cur=sel.value;sel.innerHTML='<option value="">-- Pa\u00eds --</option>';Object.keys(enc).forEach(p=>{const o=document.createElement('option');o.value=p;o.textContent=p;sel.appendChild(o);});if(cur&&enc[cur])sel.value=cur;onPaisChange();}
 function onPaisChange(){const p=document.getElementById('paisSelect').value;const enc=getEncabezados();const ds=document.getElementById('destinoSelect');const di=document.getElementById('destino');ds.innerHTML='<option value="">-- Destino --</option>';if(p&&enc[p])Object.keys(enc[p]).forEach(d=>{const o=document.createElement('option');o.value=d;o.textContent=d;ds.appendChild(o);});const co=document.createElement('option');co.value='__custom';co.textContent='Escribir manualmente...';ds.appendChild(co);ds.style.display='';di.style.display='none';onDestinoSelect();}
-function onDestinoSelect(){const ds=document.getElementById('destinoSelect');const di=document.getElementById('destino');const pv=document.getElementById('destinoPreviewImg');const pi=document.getElementById('destinoPreviewImgTag');const p=document.getElementById('paisSelect').value;if(ds.value==='__custom'){di.style.display='';ds.style.display='none';di.focus();selectedHeaderImg=null;pv.classList.remove('visible');}else if(ds.value){di.value=ds.value;di.style.display='none';const img=getDestinoImage(p,ds.value);selectedHeaderImg=img;if(img){pi.src=img;pv.classList.add('visible');}else{pv.classList.remove('visible');}}else{di.style.display='none';selectedHeaderImg=null;pv.classList.remove('visible');}updatePreview();}
+function onDestinoSelect(){const ds=document.getElementById('destinoSelect');const di=document.getElementById('destino');const pv=document.getElementById('destinoPreviewImg');const pi=document.getElementById('destinoPreviewImgTag');const p=document.getElementById('paisSelect').value;if(ds.value==='__custom'){di.style.display='';ds.style.display='none';di.focus();selectedHeaderImg=null;pv.classList.remove('visible');}else if(ds.value){di.value=ds.value;di.style.display='none';const img=getDestinoImage(p,ds.value);selectedHeaderImg=img;if(img){pi.src=img;pv.classList.add('visible');}else{pv.classList.remove('visible');}}else{di.style.display='none';selectedHeaderImg=null;pv.classList.remove('visible');}updateHotelesDatalist();updatePreview();}
+// Pobla la lista de sugerencias de hoteles para los inputs op-nombre, segun pais+destino actual.
+// Si no hay destino, muestra todos los hoteles del pais. Si tampoco hay pais, muestra todos.
+function updateHotelesDatalist(){
+    const dl=document.getElementById('hotelesDatalist');
+    if(!dl)return;
+    const cfg=getLSObj('dv_config');
+    const hoteles=cfg.hoteles||{};
+    const p=document.getElementById('paisSelect')?.value||'';
+    const dsEl=document.getElementById('destinoSelect');
+    const customDest=document.getElementById('destino')?.value||'';
+    const d=dsEl&&dsEl.value&&dsEl.value!=='__custom'?dsEl.value:customDest;
+    const set=new Set();
+    if(p&&hoteles[p]){
+        if(d&&hoteles[p][d]){
+            (hoteles[p][d]||[]).forEach(h=>{if(h.nombre)set.add(h.nombre);});
+        }else{
+            Object.keys(hoteles[p]).forEach(dest=>(hoteles[p][dest]||[]).forEach(h=>{if(h.nombre)set.add(h.nombre);}));
+        }
+    }else{
+        Object.keys(hoteles).forEach(pp=>Object.keys(hoteles[pp]||{}).forEach(dd=>(hoteles[pp][dd]||[]).forEach(h=>{if(h.nombre)set.add(h.nombre);})));
+    }
+    const items=Array.from(set).sort((a,b)=>a.localeCompare(b));
+    dl.innerHTML=items.map(n=>`<option value="${esc(n)}">`).join('');
+}
 
 // ===== DATE =====
 function formatDateRange(s,e){if(!s||!e)return'';const sd=new Date(s+'T12:00:00'),ed=new Date(e+'T12:00:00');const m=['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];if(sd.getMonth()===ed.getMonth()&&sd.getFullYear()===ed.getFullYear())return`${sd.getDate()} al ${ed.getDate()} de ${m[sd.getMonth()]} ${sd.getFullYear()}`;return`${sd.getDate()} de ${m[sd.getMonth()]} al ${ed.getDate()} de ${m[ed.getMonth()]} ${ed.getFullYear()}`;}
