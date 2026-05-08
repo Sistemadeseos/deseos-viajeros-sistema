@@ -371,6 +371,19 @@ body{font-family:'Open Sans',sans-serif;background:var(--bg);color:var(--text);m
 .config-tab.active{background:var(--primary);color:white;box-shadow:0 2px 8px rgba(10,126,140,0.3)}
 .config-pane{display:none;background:white;border-radius:10px;padding:18px;box-shadow:0 1px 6px rgba(0,0,0,0.06);max-width:900px}
 .config-pane.active{display:block}
+.ventas-tabs{display:flex;gap:6px;margin-bottom:12px;border-bottom:2px solid var(--border)}
+.ventas-tab{padding:10px 18px;border:none;background:transparent;font-family:'Open Sans',sans-serif;font-size:0.88rem;font-weight:600;color:var(--text-light);cursor:pointer;border-bottom:3px solid transparent;margin-bottom:-2px;transition:all 0.2s;display:flex;align-items:center;gap:6px}
+.ventas-tab:hover{color:var(--primary)}
+.ventas-tab.active{color:var(--primary-dark);border-bottom-color:var(--primary)}
+.vtab-count{display:inline-block;background:var(--primary-light);color:var(--primary-dark);font-size:0.7rem;padding:1px 8px;border-radius:10px;font-weight:700;min-width:20px;text-align:center}
+.ventas-tab.active .vtab-count{background:var(--accent);color:white}
+.grupo-section{margin-bottom:18px;border:1px solid var(--border);border-radius:10px;overflow:hidden;background:white}
+.grupo-header{padding:12px 16px;background:linear-gradient(135deg,var(--primary-light),#fff);cursor:pointer;display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--border)}
+.grupo-header h4{font-family:'Playfair Display',serif;color:var(--primary-dark);font-size:1rem;margin:0;flex:1}
+.grupo-header .grupo-count{font-size:0.75rem;color:var(--text-light);font-weight:600}
+.grupo-header .toggle{font-size:0.7rem;color:var(--primary-dark);transition:transform 0.2s}
+.grupo-header.collapsed .toggle{transform:rotate(-90deg)}
+.grupo-body.collapsed{display:none}
 .config-subtabs{display:flex;gap:4px;margin:-6px -6px 14px;padding:6px;background:var(--bg);border-radius:8px;flex-wrap:wrap}
 .config-subtab{padding:6px 12px;border:none;background:transparent;border-radius:6px;font-family:'Open Sans',sans-serif;font-size:0.78rem;font-weight:600;color:var(--text-light);cursor:pointer;transition:all 0.2s}
 .config-subtab:hover{color:var(--primary)}
@@ -1093,8 +1106,11 @@ onAuthStateChanged(fbAuth, (user) => {
 
 <!-- VIEW: VENTAS -->
 <div class="app-view view-list" id="viewVentas">
-    <div class="list-header"><h2>Ventas</h2></div>
-    <div class="list-search"><input type="text" id="ventasSearch" placeholder="Buscar por destino, cliente, encargado..." oninput="renderVentas()"><select id="ventasFilterEstado" onchange="renderVentas()"><option value="">Todos los estados</option><option value="pendiente">Pendiente</option><option value="en_proceso">En proceso</option><option value="completada">Completada</option><option value="cancelada">Cancelada</option></select></div>
+    <div class="ventas-tabs">
+        <button class="ventas-tab active" data-vtab="personalizada" onclick="setVentasTab('personalizada')">Personalizadas <span class="vtab-count" id="vtabCountPers"></span></button>
+        <button class="ventas-tab" data-vtab="grupal" onclick="setVentasTab('grupal')">Grupales <span class="vtab-count" id="vtabCountGrup"></span></button>
+    </div>
+    <div class="list-search"><input type="text" id="ventasSearch" placeholder="Buscar por destino, cliente, grupo, encargado..." oninput="renderVentas()"><select id="ventasFilterEstado" onchange="renderVentas()"><option value="">Todos los estados</option><option value="pendiente">Pendiente</option><option value="en_proceso">En proceso</option><option value="completada">Completada</option><option value="cancelada">Cancelada</option></select></div>
     <div class="list-view" id="ventasGrid"></div>
 </div>
 
@@ -1332,6 +1348,24 @@ onAuthStateChanged(fbAuth, (user) => {
     <div id="checklistItems"></div>
     <div class="checklist-add"><input type="text" id="clNuevoItem" placeholder="Nuevo item del checklist..." onkeydown="if(event.key==='Enter')addChecklistItem()"><button class="btn btn-sm btn-primary" onclick="addChecklistItem()">+</button></div>
 </div><div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modalChecklist')">Cerrar</button></div></div></div>
+
+<!-- Modal: Nueva venta grupal -->
+<div class="modal-overlay" id="modalVentaGrupal"><div class="modal" style="max-width:560px;">
+    <div class="modal-header"><h3>Nueva Venta Grupal</h3><button class="modal-close" onclick="closeModal('modalVentaGrupal')">&times;</button></div>
+    <div class="modal-body">
+        <div class="form-group"><label>Nombre del grupo *</label><input type="text" id="vgNombreGrupo" list="vgGruposExistentes" placeholder="Ej: Europa Primavera 2027"><datalist id="vgGruposExistentes"></datalist><p style="font-size:0.7rem;color:var(--text-light);margin-top:3px;">Si el grupo ya existe se sumar&aacute; el cliente al mismo. Si es nuevo, se crear&aacute;.</p></div>
+        <div class="form-group"><label>Cliente *</label><select id="vgClienteId" onchange="onVgClienteChange()"><option value="">-- Seleccionar contacto existente --</option><option value="__nuevo">+ Crear nuevo contacto</option></select></div>
+        <div id="vgNuevoClienteBox" style="display:none;border:1px dashed var(--border);padding:10px;border-radius:6px;margin-bottom:10px;">
+            <div class="form-row"><div class="form-group"><label>Nombre completo</label><input type="text" id="vgNuevoNombre" placeholder="Nombre y apellido"></div><div class="form-group"><label>Tel&eacute;fono</label><input type="text" id="vgNuevoTel"></div></div>
+            <div class="form-group"><label>Email</label><input type="email" id="vgNuevoEmail"></div>
+        </div>
+        <div class="form-row"><div class="form-group"><label>Destino</label><input type="text" id="vgDestino" placeholder="Ej: Roma + Par&iacute;s"></div><div class="form-group"><label>Encargada</label><select id="vgEncargado"><option value="">--</option></select></div></div>
+        <div class="form-row"><div class="form-group"><label>Fecha inicio</label><input type="date" id="vgFechaInicio"></div><div class="form-group"><label>Fecha fin</label><input type="date" id="vgFechaFin"></div></div>
+        <div class="form-row"><div class="form-group"><label>Monto total</label><input type="number" id="vgMonto" step="0.01" placeholder="0"></div><div class="form-group"><label>Moneda</label><select id="vgMoneda"><option value="USD">USD</option><option value="CRC">CRC</option><option value="EUR">EUR</option></select></div></div>
+        <div class="form-group"><label>Notas</label><textarea id="vgNotas" rows="2" placeholder="Detalles del paquete grupal..."></textarea></div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modalVentaGrupal')">Cancelar</button><button class="btn btn-success" onclick="guardarVentaGrupal()">Guardar venta grupal</button></div>
+</div></div>
 
 <script>
 // ===== STATE =====
@@ -2015,6 +2049,7 @@ function nav(view){
     if(view==='clientes')renderClientes();
     if(view==='clientesventas')renderClientesVentas();
     if(view==='configuracion')renderConfiguracion();
+    if(view==='ventas')applyVentasHeaderActions();
     updateBadges();
     // En mobile, cerrar sidebar al navegar
     if(window.innerWidth<=768)closeSidebar();
@@ -3649,15 +3684,156 @@ function eliminarCotizacion(id){if(!confirm('\u00bfEliminar cotizaci\u00f3n?'))r
 function limpiarHistorial(){if(!confirm('\u00bfEliminar TODAS las cotizaciones?'))return;saveHistorial([]);renderHistorial();updateBadges();}
 
 // ===== VENTAS =====
-function crearVenta(cotEntry){const ventas=getVentas();if(ventas.find(v=>v.cotizacionId===cotEntry.id))return;const d=cotEntry.data;const v={id:Date.now().toString(),cotizacionId:cotEntry.id,clienteId:cotEntry.clienteId||null,destino:d.destino,clienteNombre:d.tipoCliente==='empresa'?(d.empresaNombre||''):(d.clienteNombre||''),fechaInicio:d.fechaInicio,fechaFin:d.fechaFin,encargado:d.encargado,estado:'pendiente',checklist:defaultChecklistItems.map((t,i)=>({id:Date.now()+'_'+i,texto:t,completado:false})),fechaCreacion:new Date().toISOString()};ventas.unshift(v);saveVentas(ventas);}
+function crearVenta(cotEntry){const ventas=getVentas();if(ventas.find(v=>v.cotizacionId===cotEntry.id))return;const d=cotEntry.data;const v={id:Date.now().toString(),tipo:'personalizada',cotizacionId:cotEntry.id,clienteId:cotEntry.clienteId||null,destino:d.destino,clienteNombre:d.tipoCliente==='empresa'?(d.empresaNombre||''):(d.clienteNombre||''),fechaInicio:d.fechaInicio,fechaFin:d.fechaFin,encargado:d.encargado,estado:'pendiente',checklist:defaultChecklistItems.map((t,i)=>({id:Date.now()+'_'+i,texto:t,completado:false})),fechaCreacion:new Date().toISOString()};ventas.unshift(v);saveVentas(ventas);}
 
+// ===== VENTAS GRUPALES =====
+function renderVentasGrupales(filtered,grid){
+    // Agrupar por grupoNombre (vacios -> "Sin grupo")
+    const grupos={};
+    filtered.forEach(v=>{const g=(v.grupoNombre||'').trim()||'Sin grupo';if(!grupos[g])grupos[g]=[];grupos[g].push(v);});
+    const nombresOrden=Object.keys(grupos).sort((a,b)=>a.localeCompare(b));
+    const estadoLabels={pendiente:'Pendiente',en_proceso:'En proceso',completada:'Completada',cancelada:'Cancelada'};
+    const estadoColors={pendiente:'var(--accent)',en_proceso:'var(--primary)',completada:'var(--success)',cancelada:'var(--danger)'};
+    grid.innerHTML=nombresOrden.map(g=>{
+        const lista=grupos[g];
+        const totalMonto=lista.reduce((s,v)=>s+(v.cobranza&&Number(v.cobranza.montoTotal)||0),0);
+        const monedas=Array.from(new Set(lista.map(v=>v.cobranza&&v.cobranza.moneda||'USD')));
+        const monedaTxt=monedas.length===1?monedas[0]:monedas.join('/');
+        const rows=lista.map(v=>{
+            const done=(v.checklist||[]).filter(c=>c.completado).length;
+            const total=(v.checklist||[]).length;
+            const pct=total?Math.round(done/total*100):0;
+            const cob=calcCobranzaStatus(v);
+            const cobBadge=cob.montoTotal>0?`<span class="lt-badge" style="background:${cob.color}22;color:${cob.color};">${cob.estadoPagoLabel} ${cob.pagadoPct}%</span>`:'<span style="color:var(--text-light);font-size:0.72rem;">-</span>';
+            return`<tr class="estado-${v.estado}">
+            <td>${esc(v.clienteNombre||'-')}</td>
+            <td>${esc(v.encargado||'-')}</td>
+            <td>${v.fechaInicio?formatDateRange(v.fechaInicio,v.fechaFin):'<span style="color:var(--text-light);">-</span>'}</td>
+            <td><span class="lt-badge" style="background:${estadoColors[v.estado]||'var(--primary)'};color:white;">${estadoLabels[v.estado]||v.estado}</span></td>
+            <td>${cobBadge}</td>
+            <td class="lt-progress-cell"><div class="venta-progress"><div class="venta-progress-bar" style="width:${pct}%"></div></div><div class="lr-progress-text">${done}/${total}</div></td>
+            <td><div class="lt-actions"><button class="btn-checklist" onclick="openChecklist('${v.id}')" title="Checklist">&#9998;</button><button class="btn-checklist" style="background:#fff3e0;color:#d4830f;border:1px solid #e8941a;" onclick="openCobranza('${v.id}')" title="Estado de cuenta">&#128176;</button><button class="btn btn-sm btn-danger" onclick="eliminarVentaGrupal('${v.id}')" title="Eliminar">&times;</button></div></td>
+            </tr>`;
+        }).join('');
+        return`<div class="grupo-section"><div class="grupo-header" onclick="toggleGrupoSection(this)"><h4>${esc(g)}</h4><span class="grupo-count">${lista.length} ${lista.length===1?'cliente':'clientes'} &middot; Total ${monedaTxt} ${totalMonto.toFixed(2)}</span><span class="toggle">&#9660;</span></div><div class="grupo-body"><table class="list-table"><thead><tr><th>Cliente</th><th>Encargada</th><th>Fechas</th><th>Estado</th><th>Cobranza</th><th>Checklist</th><th>Acciones</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+    }).join('');
+}
+function toggleGrupoSection(h){h.classList.toggle('collapsed');h.nextElementSibling.classList.toggle('collapsed');}
+function eliminarVentaGrupal(id){if(!confirm('¿Eliminar esta venta grupal? El contacto vinculado se mantiene.'))return;saveVentas(getVentas().filter(v=>v.id!==id));renderVentas();updateBadges();}
+
+function openModalVentaGrupal(){
+    // Poblar select de contactos
+    const sel=document.getElementById('vgClienteId');
+    const clientes=getClientes().slice().sort((a,b)=>(a.nombreCompleto||'').localeCompare(b.nombreCompleto||''));
+    sel.innerHTML='<option value="">-- Seleccionar contacto existente --</option>'+clientes.map(c=>`<option value="${c.id}">${esc(c.nombreCompleto||'(sin nombre)')}${c.email?' · '+esc(c.email):''}</option>`).join('')+'<option value="__nuevo">+ Crear nuevo contacto</option>';
+    // Poblar datalist de grupos existentes
+    const ventas=getVentas();
+    const grupos=Array.from(new Set(ventas.filter(v=>v.tipo==='grupal'&&v.grupoNombre).map(v=>v.grupoNombre))).sort();
+    document.getElementById('vgGruposExistentes').innerHTML=grupos.map(g=>`<option value="${esc(g)}">`).join('');
+    // Encargadas
+    const encSel=document.getElementById('vgEncargado');
+    const encList=(cfgGet().encargados||[]).filter(Boolean);
+    encSel.innerHTML='<option value="">--</option>'+encList.map(e=>`<option value="${esc(e)}">${esc(e)}</option>`).join('');
+    // Limpiar campos
+    ['vgNombreGrupo','vgNuevoNombre','vgNuevoTel','vgNuevoEmail','vgDestino','vgFechaInicio','vgFechaFin','vgMonto','vgNotas'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+    document.getElementById('vgMoneda').value='USD';
+    document.getElementById('vgNuevoClienteBox').style.display='none';
+    document.getElementById('modalVentaGrupal').classList.add('open');
+}
+function onVgClienteChange(){
+    const v=document.getElementById('vgClienteId').value;
+    document.getElementById('vgNuevoClienteBox').style.display=v==='__nuevo'?'':'none';
+}
+function guardarVentaGrupal(){
+    const grupo=document.getElementById('vgNombreGrupo').value.trim();
+    if(!grupo){alert('Ingrese el nombre del grupo.');return;}
+    const sel=document.getElementById('vgClienteId').value;
+    if(!sel){alert('Seleccione un contacto o cree uno nuevo.');return;}
+    const ahora=new Date().toISOString();
+    let clienteId=null,clienteNombre='';
+    if(sel==='__nuevo'){
+        const nombre=document.getElementById('vgNuevoNombre').value.trim();
+        if(!nombre){alert('Ingrese el nombre del nuevo contacto.');return;}
+        const nuevo={
+            id:Date.now().toString()+'_c',
+            nombreCompleto:nombre,
+            telefono:document.getElementById('vgNuevoTel').value.trim(),
+            email:document.getElementById('vgNuevoEmail').value.trim(),
+            estado:'cliente',
+            origen:'',
+            etiquetas:[],
+            fechaCreacion:ahora,
+            fechaActualizacion:ahora,
+            fechaCaptura:ahora,
+            bitacora:[makeBitacoraEntry('captura','Contacto creado desde Nueva Venta Grupal',{automatico:true})]
+        };
+        const cls=getClientes();cls.unshift(nuevo);saveClientes(cls);
+        clienteId=nuevo.id;clienteNombre=nuevo.nombreCompleto;
+    }else{
+        const c=getClientes().find(x=>x.id===sel);
+        if(!c){alert('Contacto no encontrado.');return;}
+        clienteId=c.id;clienteNombre=c.nombreCompleto||'';
+    }
+    const usuarioEmail=(window.currentUser&&window.currentUser.email)||'';
+    const monto=parseFloat(document.getElementById('vgMonto').value)||0;
+    const venta={
+        id:Date.now().toString()+'_vg',
+        tipo:'grupal',
+        grupoNombre:grupo,
+        cotizacionId:null,
+        clienteId,
+        clienteNombre,
+        destino:document.getElementById('vgDestino').value.trim(),
+        fechaInicio:document.getElementById('vgFechaInicio').value,
+        fechaFin:document.getElementById('vgFechaFin').value,
+        encargado:document.getElementById('vgEncargado').value||usuarioEmail,
+        estado:'pendiente',
+        notas:document.getElementById('vgNotas').value.trim(),
+        checklist:defaultChecklistItems.map((t,i)=>({id:Date.now()+'_'+i,texto:t,completado:false})),
+        cobranza:{montoTotal:monto,moneda:document.getElementById('vgMoneda').value||'USD',pagos:[]},
+        fechaCreacion:ahora
+    };
+    const ventas=getVentas();ventas.unshift(venta);saveVentas(ventas);
+    closeModal('modalVentaGrupal');
+    setVentasTab('grupal');
+    updateBadges();
+}
+
+function getVentasTab(){return localStorage.getItem('dv_ventas_tab')||'personalizada';}
+function setVentasTab(t){
+    const tab=t==='grupal'?'grupal':'personalizada';
+    localStorage.setItem('dv_ventas_tab',tab);
+    document.querySelectorAll('.ventas-tab').forEach(b=>b.classList.toggle('active',b.dataset.vtab===tab));
+    applyVentasHeaderActions();
+    renderVentas();
+}
+function applyVentasHeaderActions(){
+    const ha=document.getElementById('headerActions');
+    if(!ha)return;
+    const tab=getVentasTab();
+    ha.innerHTML=tab==='grupal'?'<button class="btn btn-accent" onclick="openModalVentaGrupal()">+ Nueva Venta Grupal</button>':'';
+}
 function renderVentas(){
     const ventas=getVentas();
     const grid=document.getElementById('ventasGrid');
     const search=document.getElementById('ventasSearch').value.toLowerCase();
     const filterE=document.getElementById('ventasFilterEstado').value;
-    const filtered=ventas.filter(v=>{const text=[v.destino,v.clienteNombre,v.encargado].join(' ').toLowerCase();return(!search||text.includes(search))&&(!filterE||v.estado===filterE);});
-    if(!filtered.length){grid.innerHTML=`<div class="grid-empty"><h3>${search||filterE?'Sin resultados':'Sin ventas'}</h3><p>Las ventas se crean al aceptar cotizaciones.</p></div>`;return;}
+    const tab=getVentasTab();
+    // Sincronizar UI tabs (por si renderVentas se llama desde otro flujo)
+    document.querySelectorAll('.ventas-tab').forEach(b=>b.classList.toggle('active',b.dataset.vtab===tab));
+    // Compat hacia atras: ventas sin tipo se consideran personalizadas
+    const tipoOf=v=>v.tipo==='grupal'?'grupal':'personalizada';
+    const cuentaPers=ventas.filter(v=>tipoOf(v)==='personalizada').length;
+    const cuentaGrup=ventas.filter(v=>tipoOf(v)==='grupal').length;
+    const cP=document.getElementById('vtabCountPers');if(cP)cP.textContent=cuentaPers;
+    const cG=document.getElementById('vtabCountGrup');if(cG)cG.textContent=cuentaGrup;
+    const baseTipo=ventas.filter(v=>tipoOf(v)===tab);
+    const filtered=baseTipo.filter(v=>{const text=[v.destino,v.clienteNombre,v.encargado,v.grupoNombre].join(' ').toLowerCase();return(!search||text.includes(search))&&(!filterE||v.estado===filterE);});
+    if(!filtered.length){
+        const subt=tab==='grupal'?'Las ventas grupales se crean manualmente con el bot&oacute;n + Nueva Venta Grupal.':'Las ventas personalizadas se crean al aceptar cotizaciones.';
+        grid.innerHTML=`<div class="grid-empty"><h3>${search||filterE?'Sin resultados':'Sin ventas'}</h3><p>${subt}</p></div>`;return;
+    }
+    if(tab==='grupal'){renderVentasGrupales(filtered,grid);return;}
     const estadoLabels={pendiente:'Pendiente',en_proceso:'En proceso',completada:'Completada',cancelada:'Cancelada'};
     const estadoColors={pendiente:'var(--accent)',en_proceso:'var(--primary)',completada:'var(--success)',cancelada:'var(--danger)'};
     const rows=filtered.map(v=>{
