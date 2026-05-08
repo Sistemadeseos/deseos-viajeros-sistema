@@ -377,6 +377,21 @@ body{font-family:'Open Sans',sans-serif;background:var(--bg);color:var(--text);m
 .config-subtab.active{background:white;color:var(--primary-dark);box-shadow:0 1px 4px rgba(0,0,0,0.08)}
 .config-subpane{display:none}
 .config-subpane.active{display:block}
+.hoteles-pais{border:1px solid var(--border);border-radius:8px;margin-bottom:10px;background:#fcfdfd;overflow:hidden}
+.hoteles-pais-header{padding:10px 14px;background:linear-gradient(135deg,var(--primary-light),#fff);cursor:pointer;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border)}
+.hoteles-pais-header h3{font-family:'Playfair Display',serif;color:var(--primary-dark);font-size:0.95rem}
+.hoteles-pais-header .toggle{color:var(--primary-dark);font-size:0.7rem;transition:transform 0.2s}
+.hoteles-pais-body{padding:10px 14px}
+.hoteles-destino{margin-bottom:12px;padding-bottom:10px;border-bottom:1px dashed var(--border)}
+.hoteles-destino:last-child{border-bottom:none;margin-bottom:0;padding-bottom:0}
+.hoteles-destino-header{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.hoteles-destino-header strong{color:var(--primary-dark);font-size:0.88rem}
+.hoteles-destino-header button{margin-left:auto}
+.hoteles-lista{display:flex;flex-direction:column;gap:5px}
+.hotel-row{display:grid;grid-template-columns:1.2fr 1fr 1fr auto;gap:6px;align-items:center}
+.hotel-row input{padding:5px 8px;font-size:0.8rem;border:1px solid var(--border);border-radius:4px}
+.hotel-row input:focus{outline:none;border-color:var(--primary)}
+@media (max-width:700px){.hotel-row{grid-template-columns:1fr auto;gap:4px}.hotel-row input:nth-child(2),.hotel-row input:nth-child(3){grid-column:1/-1}}
 .config-pane h3{font-family:'Playfair Display',serif;color:var(--primary-dark);font-size:1rem;margin-bottom:10px;margin-top:14px}
 .config-pane h3:first-child{margin-top:0}
 .config-pane .service-item{background:rgba(10,126,140,0.03);padding:4px 6px}
@@ -1115,12 +1130,14 @@ onAuthStateChanged(fbAuth, (user) => {
                 <button class="config-subtab" data-cfgsubtab="noincluye" onclick="switchConfigSubTab('noincluye')">No incluye</button>
                 <button class="config-subtab" data-cfgsubtab="alertas" onclick="switchConfigSubTab('alertas')">Alertas</button>
                 <button class="config-subtab" data-cfgsubtab="fees" onclick="switchConfigSubTab('fees')">Fees calculadora</button>
+                <button class="config-subtab" data-cfgsubtab="hoteles" onclick="switchConfigSubTab('hoteles')">Hoteles</button>
             </div>
             <div class="config-subpane active" id="cfgPane-servicios"></div>
             <div class="config-subpane" id="cfgPane-politicas"></div>
             <div class="config-subpane" id="cfgPane-noincluye"></div>
             <div class="config-subpane" id="cfgPane-alertas"></div>
             <div class="config-subpane" id="cfgPane-fees"></div>
+            <div class="config-subpane" id="cfgPane-hoteles"></div>
         </div>
         <div class="config-pane" id="cfgPane-cuentas"></div>
         <div class="config-pane" id="cfgPane-checklist"></div>
@@ -2230,6 +2247,7 @@ function renderConfiguracion(){
     renderConfigChecklist();
     renderConfigAlertas();
     renderConfigFees();
+    renderConfigHoteles();
     renderConfigRecibo();
     renderConfigEDC();
 }
@@ -2432,6 +2450,66 @@ function renderConfigChecklist(){
     initDrag(pane.querySelector('#cfgChecklistList'));
 }
 
+// ===== HOTELES por destino =====
+function getHotelesDB(){const cfg=getLSObj('dv_config');return cfg.hoteles||{};}
+function setHotelesDB(h){const cfg=getLSObj('dv_config');cfg.hoteles=h;setLSObj('dv_config',cfg);}
+function renderConfigHoteles(){
+    const pane=document.getElementById('cfgPane-hoteles');
+    const enc=getEncabezados();
+    const hoteles=getHotelesDB();
+    const paises=Object.keys(enc).sort((a,b)=>a.localeCompare(b));
+    if(!paises.length){pane.innerHTML='<p class="config-hint">Primero agreg&aacute; pa&iacute;ses y destinos en la secci&oacute;n <strong>Destinos</strong> del men&uacute; lateral. Despu&eacute;s pod&eacute;s cargar hoteles para cada destino aqu&iacute;.</p>';return;}
+    let html='<p class="config-hint">Base de datos de hoteles agrupada por pa&iacute;s y destino. Los destinos se gestionan desde la secci&oacute;n <strong>Destinos</strong> del men&uacute; lateral. Los cambios se guardan autom&aacute;ticamente al editar cada campo.</p>';
+    paises.forEach(p=>{
+        const destinos=Object.keys(enc[p]||{}).sort((a,b)=>a.localeCompare(b));
+        const totalHotel=destinos.reduce((sum,d)=>sum+((hoteles[p]&&hoteles[p][d]||[]).length),0);
+        html+=`<div class="hoteles-pais"><div class="hoteles-pais-header" onclick="toggleHotelesPais(this)"><h3 style="margin:0;">${esc(p)} <span style="font-size:0.78rem;color:var(--text-light);font-weight:400;">(${totalHotel} ${totalHotel===1?'hotel':'hoteles'})</span></h3><span class="toggle">&#9660;</span></div><div class="hoteles-pais-body">`;
+        if(!destinos.length){html+='<p style="font-size:0.78rem;color:var(--text-light);padding:8px 4px;">Sin destinos cargados para este pa&iacute;s.</p>';}
+        destinos.forEach(dest=>{
+            const lista=(hoteles[p]&&hoteles[p][dest])||[];
+            const safeP=esc(p).replace(/'/g,"\\'"),safeD=esc(dest).replace(/'/g,"\\'");
+            html+=`<div class="hoteles-destino"><div class="hoteles-destino-header"><strong>${esc(dest)}</strong> <span style="font-size:0.74rem;color:var(--text-light);">(${lista.length})</span><button class="btn btn-sm btn-primary" onclick="agregarHotel('${safeP}','${safeD}')">+ Hotel</button></div>`;
+            if(lista.length){
+                html+='<div class="hoteles-lista">';
+                lista.forEach((h,i)=>{
+                    html+=`<div class="hotel-row"><input type="text" placeholder="Nombre del hotel" value="${esc(h.nombre||'')}" onchange="editarHotel('${safeP}','${safeD}',${i},'nombre',this.value)"><input type="text" placeholder="Categor&iacute;a / notas (opcional)" value="${esc(h.descripcion||'')}" onchange="editarHotel('${safeP}','${safeD}',${i},'descripcion',this.value)"><input type="text" placeholder="Link (opcional)" value="${esc(h.link||'')}" onchange="editarHotel('${safeP}','${safeD}',${i},'link',this.value)"><button class="btn-icon remove" title="Eliminar" onclick="eliminarHotel('${safeP}','${safeD}',${i})">&times;</button></div>`;
+                });
+                html+='</div>';
+            }
+            html+='</div>';
+        });
+        html+='</div></div>';
+    });
+    pane.innerHTML=html;
+}
+function toggleHotelesPais(h){const body=h.nextElementSibling;const open=body.style.display!=='none';body.style.display=open?'none':'';h.querySelector('.toggle').style.transform=open?'rotate(-90deg)':'';}
+function agregarHotel(p,d){
+    const nombre=prompt('Nombre del hotel:');
+    if(!nombre||!nombre.trim())return;
+    const h=getHotelesDB();
+    if(!h[p])h[p]={};
+    if(!h[p][d])h[p][d]=[];
+    h[p][d].push({nombre:nombre.trim(),descripcion:'',link:''});
+    setHotelesDB(h);
+    renderConfigHoteles();
+}
+function editarHotel(p,d,idx,campo,valor){
+    const h=getHotelesDB();
+    if(!h[p]||!h[p][d]||!h[p][d][idx])return;
+    h[p][d][idx][campo]=valor;
+    setHotelesDB(h);
+}
+function eliminarHotel(p,d,idx){
+    const h=getHotelesDB();
+    if(!h[p]||!h[p][d]||!h[p][d][idx])return;
+    if(!confirm('¿Eliminar el hotel "'+(h[p][d][idx].nombre||'sin nombre')+'"?'))return;
+    h[p][d].splice(idx,1);
+    if(!h[p][d].length)delete h[p][d];
+    if(!Object.keys(h[p]).length)delete h[p];
+    setHotelesDB(h);
+    renderConfigHoteles();
+}
+
 function renderConfigFees(){
     const cfg=cfgGet();
     const pane=document.getElementById('cfgPane-fees');
@@ -2507,6 +2585,11 @@ function saveConfigFromUI(){
         fee_nino:num(document.getElementById('cfgFee-nino').value),
         fee_bebe:num(document.getElementById('cfgFee-bebe').value)
     };
+    // Preservar campos editados fuera del formulario (BD de hoteles, imagenes de encabezado de recibo/EDC)
+    const prev=getLSObj('dv_config');
+    if(prev.hoteles)c.hoteles=prev.hoteles;
+    if(prev.reciboHeader)c.reciboHeader=prev.reciboHeader;
+    if(prev.edcHeader)c.edcHeader=prev.edcHeader;
     saveConfig(c);
     populateEncargadosSelect();
     populateAlertaPresets();
