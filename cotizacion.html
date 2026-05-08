@@ -1377,7 +1377,8 @@ onAuthStateChanged(fbAuth, (user) => {
             <div class="form-group"><label>Email</label><input type="email" id="vgNuevoEmail"></div>
         </div>
         <div class="form-row"><div class="form-group"><label>Destino</label><input type="text" id="vgDestino" placeholder="Ej: Roma + Par&iacute;s"></div><div class="form-group"><label>Encargada</label><select id="vgEncargado"><option value="">--</option></select></div></div>
-        <div class="form-row"><div class="form-group"><label>Fecha inicio</label><input type="date" id="vgFechaInicio"></div><div class="form-group"><label>Fecha fin</label><input type="date" id="vgFechaFin"></div></div>
+        <div class="form-group"><label>Fecha de la venta</label><input type="date" id="vgFechaVenta"><p style="font-size:0.7rem;color:var(--text-light);margin-top:3px;">Fecha en que se cerr&oacute; la venta. Sirve para registrar ventas hechas antes de empezar a usar el sistema.</p></div>
+        <div class="form-row"><div class="form-group"><label>Fecha inicio del viaje</label><input type="date" id="vgFechaInicio"></div><div class="form-group"><label>Fecha fin del viaje</label><input type="date" id="vgFechaFin"></div></div>
         <div class="form-row"><div class="form-group"><label>Precio por persona</label><input type="number" id="vgMonto" step="0.01" placeholder="0" oninput="recalcVgTotal()"></div><div class="form-group"><label>Moneda</label><select id="vgMoneda"><option value="USD">USD</option><option value="CRC">CRC</option><option value="EUR">EUR</option></select></div></div>
         <div class="form-row"><div class="form-group"><label>N&uacute;mero de acompa&ntilde;antes</label><input type="number" id="vgAcompCount" min="0" step="1" placeholder="0" value="0" oninput="renderVgAcompanantes()"><p style="font-size:0.7rem;color:var(--text-light);margin-top:3px;">Personas que viajan con el cliente (no se cuenta el cliente).</p></div><div class="form-group"><label>Total estimado</label><input type="text" id="vgTotalCalc" readonly style="background:#f5f7fa;font-weight:700;color:var(--primary-dark);"></div></div>
         <div id="vgAcompContainer" style="display:none;margin-bottom:10px;"><label style="display:block;font-weight:600;font-size:0.78rem;color:var(--text-light);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.5px;">Nombres de acompa&ntilde;antes</label><div id="vgAcompList" style="display:flex;flex-direction:column;gap:5px;"></div></div>
@@ -3726,8 +3727,9 @@ function renderVentasGrupales(filtered,grid){
             const pct=total?Math.round(done/total*100):0;
             const cob=calcCobranzaStatus(v);
             const cobBadge=cob.montoTotal>0?`<span class="lt-badge" style="background:${cob.color}22;color:${cob.color};">${cob.estadoPagoLabel} ${cob.pagadoPct}%</span>`:'<span style="color:var(--text-light);font-size:0.72rem;">-</span>';
+            const fv=v.fechaVenta?formatFechaCorta(v.fechaVenta)||v.fechaVenta:'';
             return`<tr class="estado-${v.estado}">
-            <td>${esc(v.clienteNombre||'-')}</td>
+            <td>${esc(v.clienteNombre||'-')}${fv?`<div class="lt-secondary">Vendida: ${esc(fv)}</div>`:''}</td>
             <td>${esc(v.encargado||'-')}</td>
             <td>${v.fechaInicio?formatDateRange(v.fechaInicio,v.fechaFin):'<span style="color:var(--text-light);">-</span>'}</td>
             <td><span class="lt-badge" style="background:${estadoColors[v.estado]||'var(--primary)'};color:white;">${estadoLabels[v.estado]||v.estado}</span></td>
@@ -3767,6 +3769,7 @@ function editarVentaGrupal(ventaId){
     document.getElementById('vgEncargado').value=v.encargado||'';
     document.getElementById('vgFechaInicio').value=v.fechaInicio||'';
     document.getElementById('vgFechaFin').value=v.fechaFin||'';
+    document.getElementById('vgFechaVenta').value=v.fechaVenta||(v.fechaCreacion?String(v.fechaCreacion).slice(0,10):'');
     const cob=v.cobranza||{};
     document.getElementById('vgMonto').value=cob.precioPorPersona!=null?cob.precioPorPersona:'';
     document.getElementById('vgMoneda').value=cob.moneda||'USD';
@@ -3832,7 +3835,9 @@ function openModalVentaGrupal(grupoPredef){
     const encList=(cfgGet().encargados||[]).filter(Boolean);
     encSel.innerHTML='<option value="">--</option>'+encList.map(e=>`<option value="${esc(e)}">${esc(e)}</option>`).join('');
     // Limpiar campos
-    ['vgNombreGrupo','vgNuevoNombre','vgNuevoTel','vgNuevoEmail','vgDestino','vgFechaInicio','vgFechaFin','vgMonto','vgNotas'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+    ['vgNombreGrupo','vgNuevoNombre','vgNuevoTel','vgNuevoEmail','vgDestino','vgFechaInicio','vgFechaFin','vgMonto','vgNotas','vgFechaVenta'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+    // Default: hoy
+    document.getElementById('vgFechaVenta').value=new Date().toISOString().slice(0,10);
     document.getElementById('vgMoneda').value='USD';
     document.getElementById('vgAcompCount').value='0';
     document.getElementById('vgAcompList').innerHTML='';
@@ -3923,6 +3928,7 @@ function guardarVentaGrupal(){
         ventaPrev.destino=document.getElementById('vgDestino').value.trim();
         ventaPrev.fechaInicio=document.getElementById('vgFechaInicio').value;
         ventaPrev.fechaFin=document.getElementById('vgFechaFin').value;
+        ventaPrev.fechaVenta=document.getElementById('vgFechaVenta').value||ventaPrev.fechaVenta||'';
         ventaPrev.encargado=document.getElementById('vgEncargado').value||ventaPrev.encargado||usuarioEmail;
         ventaPrev.notas=document.getElementById('vgNotas').value.trim();
         ventaPrev.numAcompanantes=numAcomp;
@@ -3944,6 +3950,7 @@ function guardarVentaGrupal(){
             clienteId,
             clienteNombre,
             destino:document.getElementById('vgDestino').value.trim(),
+            fechaVenta:document.getElementById('vgFechaVenta').value||new Date().toISOString().slice(0,10),
             fechaInicio:document.getElementById('vgFechaInicio').value,
             fechaFin:document.getElementById('vgFechaFin').value,
             encargado:document.getElementById('vgEncargado').value||usuarioEmail,
