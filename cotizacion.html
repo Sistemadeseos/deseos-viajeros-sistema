@@ -1393,6 +1393,8 @@ let currentFormat='america',tipoCliente='persona',logoDataUrl=null,editingId=nul
 let loadedReservaLegacy={ad:'',n:'',b:''};
 // Flag: si el modal de contacto se abrio desde "+ Nuevo Cliente", al guardar se crea automaticamente una venta vinculada.
 let _pendingVentaForNewCliente=false;
+// Edicion de venta grupal: cuando es null se crea, cuando trae un id se actualiza.
+let _editingVentaGrupalId=null;
 
 // ===== DEFAULTS =====
 const defaultServiciosAmerica=['Boletos a\u00e9reos ida y vuelta (incluye objeto personal mochila y carry on 10 kg) NO incluye equipaje documentado de 23kg.','Hospedajes diarios en el hotel a elegir.','Desayunos diarios.','Traslados aeropuerto-hotel y viceversa.','Uso de las instalaciones.','Impuestos hoteleros.','Impuestos a\u00e9reos.','Asesor\u00eda personalizada sobre lugares para conocer y tips de viaje.','Atenci\u00f3n personalizada antes, durante y despu\u00e9s de su viaje.'];
@@ -3731,7 +3733,7 @@ function renderVentasGrupales(filtered,grid){
             <td><span class="lt-badge" style="background:${estadoColors[v.estado]||'var(--primary)'};color:white;">${estadoLabels[v.estado]||v.estado}</span></td>
             <td>${cobBadge}</td>
             <td class="lt-progress-cell"><div class="venta-progress"><div class="venta-progress-bar" style="width:${pct}%"></div></div><div class="lr-progress-text">${done}/${total}</div></td>
-            <td><div class="lt-actions"><button class="btn-checklist" onclick="openChecklist('${v.id}')" title="Checklist">&#9998;</button><button class="btn-checklist" style="background:#fff3e0;color:#d4830f;border:1px solid #e8941a;" onclick="openCobranza('${v.id}')" title="Estado de cuenta">&#128176;</button><button class="btn btn-sm btn-danger" onclick="eliminarVentaGrupal('${v.id}')" title="Eliminar">&times;</button></div></td>
+            <td><div class="lt-actions"><button class="btn btn-sm btn-primary" onclick="editarVentaGrupal('${v.id}')" title="Editar venta grupal">&#9998;</button><button class="btn-checklist" onclick="openChecklist('${v.id}')" title="Checklist">&#9745;</button><button class="btn-checklist" style="background:#fff3e0;color:#d4830f;border:1px solid #e8941a;" onclick="openCobranza('${v.id}')" title="Estado de cuenta">&#128176;</button><button class="btn btn-sm btn-danger" onclick="eliminarVentaGrupal('${v.id}')" title="Eliminar">&times;</button></div></td>
             </tr>`;
         }).join('');
         const safeG=esc(g).replace(/'/g,"\\'");
@@ -3744,6 +3746,38 @@ function eliminarVentaGrupal(id){if(!confirm('¿Eliminar esta venta grupal? El c
 
 function agregarClienteAlGrupo(grupo){
     openModalVentaGrupal(grupo);
+}
+function editarVentaGrupal(ventaId){
+    const v=getVentas().find(x=>x.id===ventaId);
+    if(!v){alert('Venta no encontrada.');return;}
+    openModalVentaGrupal(v.grupoNombre||'');
+    // Marcar modo edicion DESPUES del open (que lo limpia)
+    _editingVentaGrupalId=ventaId;
+    document.getElementById('modalVentaGrupal').querySelector('h3').textContent='Editar Venta Grupal';
+    // Cliente: forzar a contacto existente (o nombre actual si no hay clienteId)
+    const sel=document.getElementById('vgClienteId');
+    if(v.clienteId&&Array.from(sel.options).some(o=>o.value===v.clienteId)){
+        sel.value=v.clienteId;
+    }else{
+        // Inyectar opcion temporal con el nombre actual para no perderlo
+        const opt=document.createElement('option');opt.value='__keep__';opt.textContent=(v.clienteNombre||'(cliente actual)')+' (mantener)';opt.selected=true;sel.insertBefore(opt,sel.firstChild.nextSibling);
+    }
+    document.getElementById('vgNuevoClienteBox').style.display='none';
+    document.getElementById('vgDestino').value=v.destino||'';
+    document.getElementById('vgEncargado').value=v.encargado||'';
+    document.getElementById('vgFechaInicio').value=v.fechaInicio||'';
+    document.getElementById('vgFechaFin').value=v.fechaFin||'';
+    const cob=v.cobranza||{};
+    document.getElementById('vgMonto').value=cob.precioPorPersona!=null?cob.precioPorPersona:'';
+    document.getElementById('vgMoneda').value=cob.moneda||'USD';
+    const numAc=v.numAcompanantes!=null?v.numAcompanantes:(Array.isArray(v.acompanantes)?v.acompanantes.length:0);
+    document.getElementById('vgAcompCount').value=numAc;
+    renderVgAcompanantes();
+    // Volver a setear los nombres ya tipeados (renderVgAcompanantes los limpia si no estaban en el DOM previo)
+    const inputs=document.querySelectorAll('#vgAcompList input.vg-acomp');
+    (v.acompanantes||[]).forEach((nom,i)=>{if(inputs[i])inputs[i].value=nom;});
+    document.getElementById('vgNotas').value=v.notas||'';
+    recalcVgTotal();
 }
 function abrirFichaGrupo(grupo){
     const ventas=getVentas().filter(v=>v.tipo==='grupal'&&(v.grupoNombre||'')===grupo);
@@ -3782,6 +3816,9 @@ function abrirFichaGrupo(grupo){
     document.getElementById('modalFichaGrupo').classList.add('open');
 }
 function openModalVentaGrupal(grupoPredef){
+    // Reset por defecto. editarVentaGrupal() reasigna _editingVentaGrupalId tras este open.
+    _editingVentaGrupalId=null;
+    document.getElementById('modalVentaGrupal').querySelector('h3').textContent='Nueva Venta Grupal';
     // Poblar select de contactos
     const sel=document.getElementById('vgClienteId');
     const clientes=getClientes().slice().sort((a,b)=>(a.nombreCompleto||'').localeCompare(b.nombreCompleto||''));
@@ -3838,11 +3875,17 @@ function recalcVgTotal(){
 function guardarVentaGrupal(){
     const grupo=document.getElementById('vgNombreGrupo').value.trim();
     if(!grupo){alert('Ingrese el nombre del grupo.');return;}
+    const editId=_editingVentaGrupalId;
+    const ventas=getVentas();
+    const ventaPrev=editId?ventas.find(v=>v.id===editId):null;
     const sel=document.getElementById('vgClienteId').value;
     if(!sel){alert('Seleccione un contacto o cree uno nuevo.');return;}
     const ahora=new Date().toISOString();
     let clienteId=null,clienteNombre='';
-    if(sel==='__nuevo'){
+    if(sel==='__keep__'&&ventaPrev){
+        clienteId=ventaPrev.clienteId||null;
+        clienteNombre=ventaPrev.clienteNombre||'';
+    }else if(sel==='__nuevo'){
         const nombre=document.getElementById('vgNuevoNombre').value.trim();
         if(!nombre){alert('Ingrese el nombre del nuevo contacto.');return;}
         const nuevo={
@@ -3871,26 +3914,50 @@ function guardarVentaGrupal(){
     const acompanantes=Array.from(document.querySelectorAll('#vgAcompList input.vg-acomp')).map(i=>i.value.trim()).filter(Boolean);
     const personasTotal=1+numAcomp;
     const montoTotalCalc=precioPorPersona*personasTotal;
-    const venta={
-        id:Date.now().toString()+'_vg',
-        tipo:'grupal',
-        grupoNombre:grupo,
-        cotizacionId:null,
-        clienteId,
-        clienteNombre,
-        destino:document.getElementById('vgDestino').value.trim(),
-        fechaInicio:document.getElementById('vgFechaInicio').value,
-        fechaFin:document.getElementById('vgFechaFin').value,
-        encargado:document.getElementById('vgEncargado').value||usuarioEmail,
-        estado:'pendiente',
-        notas:document.getElementById('vgNotas').value.trim(),
-        numAcompanantes:numAcomp,
-        acompanantes,
-        checklist:defaultChecklistItems.map((t,i)=>({id:Date.now()+'_'+i,texto:t,completado:false})),
-        cobranza:{montoTotal:montoTotalCalc,precioPorPersona,personas:personasTotal,moneda:document.getElementById('vgMoneda').value||'USD',pagos:[]},
-        fechaCreacion:ahora
-    };
-    const ventas=getVentas();ventas.unshift(venta);saveVentas(ventas);
+    if(editId&&ventaPrev){
+        // Edicion: actualizar campos preservando id, fechaCreacion, checklist, pagos.
+        ventaPrev.tipo='grupal';
+        ventaPrev.grupoNombre=grupo;
+        ventaPrev.clienteId=clienteId;
+        ventaPrev.clienteNombre=clienteNombre;
+        ventaPrev.destino=document.getElementById('vgDestino').value.trim();
+        ventaPrev.fechaInicio=document.getElementById('vgFechaInicio').value;
+        ventaPrev.fechaFin=document.getElementById('vgFechaFin').value;
+        ventaPrev.encargado=document.getElementById('vgEncargado').value||ventaPrev.encargado||usuarioEmail;
+        ventaPrev.notas=document.getElementById('vgNotas').value.trim();
+        ventaPrev.numAcompanantes=numAcomp;
+        ventaPrev.acompanantes=acompanantes;
+        ventaPrev.cobranza=ventaPrev.cobranza||{};
+        ventaPrev.cobranza.montoTotal=montoTotalCalc;
+        ventaPrev.cobranza.precioPorPersona=precioPorPersona;
+        ventaPrev.cobranza.personas=personasTotal;
+        ventaPrev.cobranza.moneda=document.getElementById('vgMoneda').value||ventaPrev.cobranza.moneda||'USD';
+        ventaPrev.cobranza.pagos=ventaPrev.cobranza.pagos||[];
+        ventaPrev.fechaActualizacion=ahora;
+        saveVentas(ventas);
+    }else{
+        const venta={
+            id:Date.now().toString()+'_vg',
+            tipo:'grupal',
+            grupoNombre:grupo,
+            cotizacionId:null,
+            clienteId,
+            clienteNombre,
+            destino:document.getElementById('vgDestino').value.trim(),
+            fechaInicio:document.getElementById('vgFechaInicio').value,
+            fechaFin:document.getElementById('vgFechaFin').value,
+            encargado:document.getElementById('vgEncargado').value||usuarioEmail,
+            estado:'pendiente',
+            notas:document.getElementById('vgNotas').value.trim(),
+            numAcompanantes:numAcomp,
+            acompanantes,
+            checklist:defaultChecklistItems.map((t,i)=>({id:Date.now()+'_'+i,texto:t,completado:false})),
+            cobranza:{montoTotal:montoTotalCalc,precioPorPersona,personas:personasTotal,moneda:document.getElementById('vgMoneda').value||'USD',pagos:[]},
+            fechaCreacion:ahora
+        };
+        ventas.unshift(venta);saveVentas(ventas);
+    }
+    _editingVentaGrupalId=null;
     closeModal('modalVentaGrupal');
     setVentasTab('grupal');
     updateBadges();
