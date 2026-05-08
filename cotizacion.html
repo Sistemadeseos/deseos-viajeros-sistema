@@ -371,6 +371,12 @@ body{font-family:'Open Sans',sans-serif;background:var(--bg);color:var(--text);m
 .config-tab.active{background:var(--primary);color:white;box-shadow:0 2px 8px rgba(10,126,140,0.3)}
 .config-pane{display:none;background:white;border-radius:10px;padding:18px;box-shadow:0 1px 6px rgba(0,0,0,0.06);max-width:900px}
 .config-pane.active{display:block}
+.config-subtabs{display:flex;gap:4px;margin:-6px -6px 14px;padding:6px;background:var(--bg);border-radius:8px;flex-wrap:wrap}
+.config-subtab{padding:6px 12px;border:none;background:transparent;border-radius:6px;font-family:'Open Sans',sans-serif;font-size:0.78rem;font-weight:600;color:var(--text-light);cursor:pointer;transition:all 0.2s}
+.config-subtab:hover{color:var(--primary)}
+.config-subtab.active{background:white;color:var(--primary-dark);box-shadow:0 1px 4px rgba(0,0,0,0.08)}
+.config-subpane{display:none}
+.config-subpane.active{display:block}
 .config-pane h3{font-family:'Playfair Display',serif;color:var(--primary-dark);font-size:1rem;margin-bottom:10px;margin-top:14px}
 .config-pane h3:first-child{margin-top:0}
 .config-pane .service-item{background:rgba(10,126,140,0.03);padding:4px 6px}
@@ -1093,26 +1099,31 @@ onAuthStateChanged(fbAuth, (user) => {
     <div class="config-tabs">
         <button class="config-tab active" data-cfgtab="agencia" onclick="switchConfigTab('agencia')">Agencia</button>
         <button class="config-tab" data-cfgtab="encargados" onclick="switchConfigTab('encargados')">Encargados</button>
-        <button class="config-tab" data-cfgtab="servicios" onclick="switchConfigTab('servicios')">Servicios</button>
-        <button class="config-tab" data-cfgtab="politicas" onclick="switchConfigTab('politicas')">Pol&iacute;ticas</button>
-        <button class="config-tab" data-cfgtab="noincluye" onclick="switchConfigTab('noincluye')">No incluye</button>
+        <button class="config-tab" data-cfgtab="cotizacion" onclick="switchConfigTab('cotizacion')">Cotizaci&oacute;n</button>
         <button class="config-tab" data-cfgtab="cuentas" onclick="switchConfigTab('cuentas')">Cuentas bancarias</button>
         <button class="config-tab" data-cfgtab="checklist" onclick="switchConfigTab('checklist')">Checklist ventas</button>
-        <button class="config-tab" data-cfgtab="alertas" onclick="switchConfigTab('alertas')">Alertas</button>
-        <button class="config-tab" data-cfgtab="fees" onclick="switchConfigTab('fees')">Fees calculadora</button>
         <button class="config-tab" data-cfgtab="recibo" onclick="switchConfigTab('recibo')">Recibo de pago</button>
         <button class="config-tab" data-cfgtab="edc" onclick="switchConfigTab('edc')">Estado de cuenta</button>
     </div>
     <div class="config-panes">
         <div class="config-pane active" id="cfgPane-agencia"></div>
         <div class="config-pane" id="cfgPane-encargados"></div>
-        <div class="config-pane" id="cfgPane-servicios"></div>
-        <div class="config-pane" id="cfgPane-politicas"></div>
-        <div class="config-pane" id="cfgPane-noincluye"></div>
+        <div class="config-pane" id="cfgPane-cotizacion">
+            <div class="config-subtabs">
+                <button class="config-subtab active" data-cfgsubtab="servicios" onclick="switchConfigSubTab('servicios')">Servicios</button>
+                <button class="config-subtab" data-cfgsubtab="politicas" onclick="switchConfigSubTab('politicas')">Pol&iacute;ticas</button>
+                <button class="config-subtab" data-cfgsubtab="noincluye" onclick="switchConfigSubTab('noincluye')">No incluye</button>
+                <button class="config-subtab" data-cfgsubtab="alertas" onclick="switchConfigSubTab('alertas')">Alertas</button>
+                <button class="config-subtab" data-cfgsubtab="fees" onclick="switchConfigSubTab('fees')">Fees calculadora</button>
+            </div>
+            <div class="config-subpane active" id="cfgPane-servicios"></div>
+            <div class="config-subpane" id="cfgPane-politicas"></div>
+            <div class="config-subpane" id="cfgPane-noincluye"></div>
+            <div class="config-subpane" id="cfgPane-alertas"></div>
+            <div class="config-subpane" id="cfgPane-fees"></div>
+        </div>
         <div class="config-pane" id="cfgPane-cuentas"></div>
         <div class="config-pane" id="cfgPane-checklist"></div>
-        <div class="config-pane" id="cfgPane-alertas"></div>
-        <div class="config-pane" id="cfgPane-fees"></div>
         <div class="config-pane" id="cfgPane-recibo"></div>
         <div class="config-pane" id="cfgPane-edc"></div>
     </div>
@@ -2321,6 +2332,14 @@ function renderConfigAgencia(){
     </div>`;
 }
 
+function switchConfigSubTab(name){
+    document.querySelectorAll('.config-subtab').forEach(t=>t.classList.remove('active'));
+    const btn=document.querySelector(`.config-subtab[data-cfgsubtab="${name}"]`);
+    if(btn)btn.classList.add('active');
+    document.querySelectorAll('.config-subpane').forEach(p=>p.classList.remove('active'));
+    const pane=document.getElementById('cfgPane-'+name);
+    if(pane)pane.classList.add('active');
+}
 function switchConfigTab(name){
     document.querySelectorAll('.config-tab').forEach(t=>t.classList.remove('active'));
     document.querySelector(`.config-tab[data-cfgtab="${name}"]`).classList.add('active');
