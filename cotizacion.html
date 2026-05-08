@@ -1378,7 +1378,9 @@ onAuthStateChanged(fbAuth, (user) => {
         </div>
         <div class="form-row"><div class="form-group"><label>Destino</label><input type="text" id="vgDestino" placeholder="Ej: Roma + Par&iacute;s"></div><div class="form-group"><label>Encargada</label><select id="vgEncargado"><option value="">--</option></select></div></div>
         <div class="form-row"><div class="form-group"><label>Fecha inicio</label><input type="date" id="vgFechaInicio"></div><div class="form-group"><label>Fecha fin</label><input type="date" id="vgFechaFin"></div></div>
-        <div class="form-row"><div class="form-group"><label>Monto total</label><input type="number" id="vgMonto" step="0.01" placeholder="0"></div><div class="form-group"><label>Moneda</label><select id="vgMoneda"><option value="USD">USD</option><option value="CRC">CRC</option><option value="EUR">EUR</option></select></div></div>
+        <div class="form-row"><div class="form-group"><label>Precio por persona</label><input type="number" id="vgMonto" step="0.01" placeholder="0" oninput="recalcVgTotal()"></div><div class="form-group"><label>Moneda</label><select id="vgMoneda"><option value="USD">USD</option><option value="CRC">CRC</option><option value="EUR">EUR</option></select></div></div>
+        <div class="form-row"><div class="form-group"><label>N&uacute;mero de acompa&ntilde;antes</label><input type="number" id="vgAcompCount" min="0" step="1" placeholder="0" value="0" oninput="renderVgAcompanantes()"><p style="font-size:0.7rem;color:var(--text-light);margin-top:3px;">Personas que viajan con el cliente (no se cuenta el cliente).</p></div><div class="form-group"><label>Total estimado</label><input type="text" id="vgTotalCalc" readonly style="background:#f5f7fa;font-weight:700;color:var(--primary-dark);"></div></div>
+        <div id="vgAcompContainer" style="display:none;margin-bottom:10px;"><label style="display:block;font-weight:600;font-size:0.78rem;color:var(--text-light);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.5px;">Nombres de acompa&ntilde;antes</label><div id="vgAcompList" style="display:flex;flex-direction:column;gap:5px;"></div></div>
         <div class="form-group"><label>Notas</label><textarea id="vgNotas" rows="2" placeholder="Detalles del paquete grupal..."></textarea></div>
     </div>
     <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modalVentaGrupal')">Cancelar</button><button class="btn btn-success" onclick="guardarVentaGrupal()">Guardar venta grupal</button></div>
@@ -3769,7 +3771,13 @@ function abrirFichaGrupo(grupo){
     const totalesHtml=monedasArr.map(m=>{const t=totalesMoneda[m];return`<div class="ficha-moneda-block"><div class="ficha-moneda-tag">${m}</div><div class="ficha-stats"><div class="ficha-stat"><span class="ficha-stat-label">Total facturado</span><span class="ficha-stat-value">${fmtMoney(t.total,m)}</span></div><div class="ficha-stat"><span class="ficha-stat-label">Cobrado</span><span class="ficha-stat-value" style="color:var(--success);">${fmtMoney(t.pagado,m)}</span></div><div class="ficha-stat"><span class="ficha-stat-label">Saldo pendiente</span><span class="ficha-stat-value" style="color:${t.saldo>0?'var(--danger)':'var(--success)'};">${fmtMoney(t.saldo,m)}</span></div></div></div>`;}).join('');
     const fichaPagosHtml=`<div class="ficha-row"><div class="ficha-pill" style="background:#e9f9ee;color:#1f7a3a;"><strong>${pagados}</strong> Pagados</div><div class="ficha-pill" style="background:#fff3e0;color:#d4830f;"><strong>${parciales}</strong> Parciales</div><div class="ficha-pill" style="background:#fdecec;color:#c0392b;"><strong>${pendientes}</strong> Sin pago</div></div>`;
     const fichaEstHtml=`<div class="ficha-row"><div class="ficha-pill" style="background:rgba(232,148,26,0.15);color:#d4830f;"><strong>${estVenta.pendiente}</strong> Pendiente</div><div class="ficha-pill" style="background:var(--primary-light);color:var(--primary-dark);"><strong>${estVenta.en_proceso}</strong> En proceso</div><div class="ficha-pill" style="background:#e9f9ee;color:#1f7a3a;"><strong>${estVenta.completada}</strong> Completada</div><div class="ficha-pill" style="background:#fdecec;color:#c0392b;"><strong>${estVenta.cancelada}</strong> Cancelada</div></div>`;
-    const tablaHtml=`<table class="list-table" style="margin-top:10px;"><thead><tr><th>Cliente</th><th>Total</th><th>Pagado</th><th>Saldo</th><th>Estado pago</th></tr></thead><tbody>${filas.map(({v,c})=>`<tr><td>${esc(v.clienteNombre||'-')}</td><td>${fmtMoney(c.montoTotal,c.moneda)}</td><td style="color:var(--success);">${fmtMoney(c.pagado,c.moneda)}</td><td style="color:${c.saldo>0?'var(--danger)':'var(--success)'};font-weight:600;">${fmtMoney(c.saldo,c.moneda)}</td><td><span class="lt-badge" style="background:${c.color}22;color:${c.color};">${c.estadoPagoLabel} ${c.pagadoPct}%</span></td></tr>`).join('')}</tbody></table>`;
+    const tablaHtml=`<table class="list-table" style="margin-top:10px;"><thead><tr><th>Cliente</th><th>Personas</th><th>Precio p/p</th><th>Total</th><th>Pagado</th><th>Saldo</th><th>Estado pago</th></tr></thead><tbody>${filas.map(({v,c})=>{
+        const acomp=Array.isArray(v.acompanantes)?v.acompanantes:[];
+        const personas=c.personas||(v.numAcompanantes!=null?(1+v.numAcompanantes):1);
+        const ppp=c.precioPorPersona!=null?c.precioPorPersona:(personas>0?(c.montoTotal/personas):0);
+        const acompTitle=acomp.length?'Acompañantes: '+acomp.join(', '):'';
+        return`<tr><td>${esc(v.clienteNombre||'-')}${acomp.length?`<div style="font-size:0.7rem;color:var(--text-light);" title="${esc(acompTitle)}">+ ${acomp.length} acomp.</div>`:''}</td><td style="text-align:center;">${personas}</td><td>${fmtMoney(ppp,c.moneda)}</td><td>${fmtMoney(c.montoTotal,c.moneda)}</td><td style="color:var(--success);">${fmtMoney(c.pagado,c.moneda)}</td><td style="color:${c.saldo>0?'var(--danger)':'var(--success)'};font-weight:600;">${fmtMoney(c.saldo,c.moneda)}</td><td><span class="lt-badge" style="background:${c.color}22;color:${c.color};">${c.estadoPagoLabel} ${c.pagadoPct}%</span></td></tr>`;
+    }).join('')}</tbody></table>`;
     document.getElementById('fichaGrupoBody').innerHTML=`<p style="color:var(--text-light);font-size:0.82rem;margin-bottom:14px;">${ventas.length} ${ventas.length===1?'cliente':'clientes'} en este grupo.</p><h4 style="font-family:'Playfair Display',serif;color:var(--primary-dark);font-size:0.9rem;margin-bottom:6px;">Totales</h4>${totalesHtml||'<p style="color:var(--text-light);">Sin montos cargados.</p>'}<h4 style="font-family:'Playfair Display',serif;color:var(--primary-dark);font-size:0.9rem;margin:14px 0 6px;">Estado de pago</h4>${fichaPagosHtml}<h4 style="font-family:'Playfair Display',serif;color:var(--primary-dark);font-size:0.9rem;margin:14px 0 6px;">Estado de la venta</h4>${fichaEstHtml}<h4 style="font-family:'Playfair Display',serif;color:var(--primary-dark);font-size:0.9rem;margin:14px 0 6px;">Detalle por cliente</h4>${tablaHtml}`;
     document.getElementById('modalFichaGrupo').classList.add('open');
 }
@@ -3789,6 +3797,10 @@ function openModalVentaGrupal(grupoPredef){
     // Limpiar campos
     ['vgNombreGrupo','vgNuevoNombre','vgNuevoTel','vgNuevoEmail','vgDestino','vgFechaInicio','vgFechaFin','vgMonto','vgNotas'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
     document.getElementById('vgMoneda').value='USD';
+    document.getElementById('vgAcompCount').value='0';
+    document.getElementById('vgAcompList').innerHTML='';
+    document.getElementById('vgAcompContainer').style.display='none';
+    recalcVgTotal();
     document.getElementById('vgNuevoClienteBox').style.display='none';
     // Si vino un grupo pre-definido (al usar "+ Cliente al grupo"), pre-llenamos. Si no, queda en blanco.
     if(typeof grupoPredef==='string'&&grupoPredef){
@@ -3799,6 +3811,29 @@ function openModalVentaGrupal(grupoPredef){
 function onVgClienteChange(){
     const v=document.getElementById('vgClienteId').value;
     document.getElementById('vgNuevoClienteBox').style.display=v==='__nuevo'?'':'none';
+}
+function renderVgAcompanantes(){
+    const n=Math.max(0,parseInt(document.getElementById('vgAcompCount').value||'0',10));
+    const cont=document.getElementById('vgAcompContainer');
+    const list=document.getElementById('vgAcompList');
+    // Conservar valores ya tipeados
+    const prev=Array.from(list.querySelectorAll('input.vg-acomp')).map(i=>i.value);
+    if(n<=0){cont.style.display='none';list.innerHTML='';recalcVgTotal();return;}
+    cont.style.display='';
+    let html='';
+    for(let i=0;i<n;i++){
+        html+=`<input type="text" class="vg-acomp" placeholder="Acompa&ntilde;ante ${i+1}" value="${esc(prev[i]||'')}" style="padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:0.85rem;">`;
+    }
+    list.innerHTML=html;
+    recalcVgTotal();
+}
+function recalcVgTotal(){
+    const precio=parseFloat(document.getElementById('vgMonto').value)||0;
+    const acomp=Math.max(0,parseInt(document.getElementById('vgAcompCount').value||'0',10));
+    const personas=1+acomp;
+    const moneda=document.getElementById('vgMoneda').value||'USD';
+    const total=precio*personas;
+    document.getElementById('vgTotalCalc').value=fmtMoney(total,moneda)+' ('+personas+' '+(personas===1?'persona':'personas')+')';
 }
 function guardarVentaGrupal(){
     const grupo=document.getElementById('vgNombreGrupo').value.trim();
@@ -3831,7 +3866,11 @@ function guardarVentaGrupal(){
         clienteId=c.id;clienteNombre=c.nombreCompleto||'';
     }
     const usuarioEmail=(window.currentUser&&window.currentUser.email)||'';
-    const monto=parseFloat(document.getElementById('vgMonto').value)||0;
+    const precioPorPersona=parseFloat(document.getElementById('vgMonto').value)||0;
+    const numAcomp=Math.max(0,parseInt(document.getElementById('vgAcompCount').value||'0',10));
+    const acompanantes=Array.from(document.querySelectorAll('#vgAcompList input.vg-acomp')).map(i=>i.value.trim()).filter(Boolean);
+    const personasTotal=1+numAcomp;
+    const montoTotalCalc=precioPorPersona*personasTotal;
     const venta={
         id:Date.now().toString()+'_vg',
         tipo:'grupal',
@@ -3845,8 +3884,10 @@ function guardarVentaGrupal(){
         encargado:document.getElementById('vgEncargado').value||usuarioEmail,
         estado:'pendiente',
         notas:document.getElementById('vgNotas').value.trim(),
+        numAcompanantes:numAcomp,
+        acompanantes,
         checklist:defaultChecklistItems.map((t,i)=>({id:Date.now()+'_'+i,texto:t,completado:false})),
-        cobranza:{montoTotal:monto,moneda:document.getElementById('vgMoneda').value||'USD',pagos:[]},
+        cobranza:{montoTotal:montoTotalCalc,precioPorPersona,personas:personasTotal,moneda:document.getElementById('vgMoneda').value||'USD',pagos:[]},
         fechaCreacion:ahora
     };
     const ventas=getVentas();ventas.unshift(venta);saveVentas(ventas);
@@ -3946,7 +3987,7 @@ function calcCobranzaStatus(v){
     let estadoPago='pendiente',estadoPagoLabel='Pendiente',color='#e74c3c';
     if(montoTotal>0&&pagado>=montoTotal){estadoPago='pagado';estadoPagoLabel='Pagado';color='#27ae60';}
     else if(pagado>0){estadoPago='parcial';estadoPagoLabel='Parcial';color='#d4830f';}
-    return{montoTotal,pagado,saldo,pagadoPct,estadoPago,estadoPagoLabel,color,moneda:cob.moneda||'USD',pagos:cob.pagos||[]};
+    return{montoTotal,pagado,saldo,pagadoPct,estadoPago,estadoPagoLabel,color,moneda:cob.moneda||'USD',pagos:cob.pagos||[],precioPorPersona:cob.precioPorPersona!=null?num(cob.precioPorPersona):null,personas:cob.personas||null};
 }
 
 function currencySymbol(m){return m==='USD'?'$':m==='EUR'?'\u20ac':m==='CRC'?'\u20a1':'$';}
