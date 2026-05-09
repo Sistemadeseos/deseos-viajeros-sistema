@@ -1387,8 +1387,7 @@ onAuthStateChanged(fbAuth, (user) => {
         <div class="form-row"><div class="form-group"><label>Destino</label><input type="text" id="vgDestino" placeholder="Ej: Roma + Par&iacute;s"></div><div class="form-group"><label>Encargada</label><select id="vgEncargado"><option value="">--</option></select></div></div>
         <div class="form-group"><label>Fecha de la venta</label><input type="date" id="vgFechaVenta" onchange="renderVgPlanPago()"><p style="font-size:0.7rem;color:var(--text-light);margin-top:3px;">Fecha en que se cerr&oacute; la venta. Sirve para registrar ventas hechas antes de empezar a usar el sistema.</p></div>
         <div class="form-row"><div class="form-group"><label>Fecha inicio del viaje</label><input type="date" id="vgFechaInicio" onchange="renderVgPlanPago()"></div><div class="form-group"><label>Fecha fin del viaje</label><input type="date" id="vgFechaFin"></div></div>
-        <div class="form-row"><div class="form-group"><label>Precio por persona (Hab. compartida)</label><input type="number" id="vgMonto" step="0.01" placeholder="0" oninput="recalcVgTotal()"></div><div class="form-group"><label>Precio por persona (Hab. individual)</label><input type="number" id="vgMontoInd" step="0.01" placeholder="0" oninput="recalcVgTotal()"></div></div>
-        <div class="form-row"><div class="form-group"><label>Tipo de habitaci&oacute;n</label><select id="vgTipoHab" onchange="recalcVgTotal()"><option value="compartida">Compartida</option><option value="individual">Individual</option></select></div><div class="form-group"><label>Moneda</label><select id="vgMoneda"><option value="USD">USD</option><option value="CRC">CRC</option><option value="EUR">EUR</option></select></div></div>
+        <div class="form-row"><div class="form-group"><label>Precio por persona</label><input type="number" id="vgMonto" step="0.01" placeholder="0" oninput="recalcVgTotal()"></div><div class="form-group"><label>Moneda</label><select id="vgMoneda"><option value="USD">USD</option><option value="CRC">CRC</option><option value="EUR">EUR</option></select></div></div>
         <div class="form-row"><div class="form-group"><label>N&uacute;mero de acompa&ntilde;antes</label><input type="number" id="vgAcompCount" min="0" step="1" placeholder="0" value="0" oninput="renderVgAcompanantes()"><p style="font-size:0.7rem;color:var(--text-light);margin-top:3px;">Personas que viajan con el cliente (no se cuenta el cliente).</p></div><div class="form-group"><label>Total estimado</label><input type="text" id="vgTotalCalc" readonly style="background:#f5f7fa;font-weight:700;color:var(--primary-dark);"></div></div>
         <div id="vgAcompContainer" style="display:none;margin-bottom:10px;"><label style="display:block;font-weight:600;font-size:0.78rem;color:var(--text-light);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.5px;">Nombres de acompa&ntilde;antes</label><div id="vgAcompList" style="display:flex;flex-direction:column;gap:5px;"></div></div>
         <div class="form-group"><label style="display:flex;align-items:center;gap:8px;">Plan de pago <button type="button" class="btn btn-sm btn-ghost" style="font-size:0.7rem;padding:3px 8px;" onclick="distribuirPlanPago()" title="Divide el total estimado en partes iguales entre todos los meses">Distribuir total</button></label><p style="font-size:0.7rem;color:var(--text-light);margin-top:0;margin-bottom:6px;">Una fila por mes desde la fecha de la venta hasta la fecha de inicio del viaje. Pon&eacute; el monto acordado para cada mes.</p><div id="vgPlanPagoBox"></div></div>
@@ -3811,8 +3810,6 @@ function editarVentaGrupal(ventaId){
     document.getElementById('vgFechaVenta').value=v.fechaVenta||(v.fechaCreacion?String(v.fechaCreacion).slice(0,10):'');
     const cob=v.cobranza||{};
     document.getElementById('vgMonto').value=cob.precioPorPersona!=null?cob.precioPorPersona:'';
-    document.getElementById('vgMontoInd').value=cob.precioPorPersonaIndividual!=null?cob.precioPorPersonaIndividual:'';
-    document.getElementById('vgTipoHab').value=cob.tipoHabitacion==='individual'?'individual':'compartida';
     document.getElementById('vgMoneda').value=cob.moneda||'USD';
     const numAc=v.numAcompanantes!=null?v.numAcompanantes:(Array.isArray(v.acompanantes)?v.acompanantes.length:0);
     document.getElementById('vgAcompCount').value=numAc;
@@ -3859,8 +3856,7 @@ function abrirFichaGrupo(grupo){
         const personas=c.personas||(v.numAcompanantes!=null?(1+v.numAcompanantes):1);
         const ppp=c.precioPorPersona!=null?c.precioPorPersona:(personas>0?(c.montoTotal/personas):0);
         const acompTitle=acomp.length?'Acompañantes: '+acomp.join(', '):'';
-        const habTag=c.tipoHabitacion==='individual'?' <span style="font-size:0.65rem;background:var(--accent-light);color:#d4830f;padding:1px 5px;border-radius:8px;font-weight:700;">IND</span>':'';
-        return`<tr><td>${esc(v.clienteNombre||'-')}${acomp.length?`<div style="font-size:0.7rem;color:var(--text-light);" title="${esc(acompTitle)}">+ ${acomp.length} acomp.</div>`:''}</td><td style="text-align:center;">${personas}</td><td>${fmtMoney(ppp,c.moneda)}${habTag}</td><td>${fmtMoney(c.montoTotal,c.moneda)}</td><td style="color:var(--success);">${fmtMoney(c.pagado,c.moneda)}</td><td style="color:${c.saldo>0?'var(--danger)':'var(--success)'};font-weight:600;">${fmtMoney(c.saldo,c.moneda)}</td><td><span class="lt-badge" style="background:${c.color}22;color:${c.color};">${c.estadoPagoLabel} ${c.pagadoPct}%</span></td></tr>`;
+        return`<tr><td>${esc(v.clienteNombre||'-')}${acomp.length?`<div style="font-size:0.7rem;color:var(--text-light);" title="${esc(acompTitle)}">+ ${acomp.length} acomp.</div>`:''}</td><td style="text-align:center;">${personas}</td><td>${fmtMoney(ppp,c.moneda)}</td><td>${fmtMoney(c.montoTotal,c.moneda)}</td><td style="color:var(--success);">${fmtMoney(c.pagado,c.moneda)}</td><td style="color:${c.saldo>0?'var(--danger)':'var(--success)'};font-weight:600;">${fmtMoney(c.saldo,c.moneda)}</td><td><span class="lt-badge" style="background:${c.color}22;color:${c.color};">${c.estadoPagoLabel} ${c.pagadoPct}%</span></td></tr>`;
     }).join('')}</tbody></table>`;
     // Datos generales del grupo (almacenados en coleccion dv_grupos, editables aqui)
     const gInfo=getGrupoByNombre(grupo)||{};
@@ -3898,11 +3894,10 @@ function openModalVentaGrupal(grupoPredef){
     const encList=(cfgGet().encargados||[]).filter(Boolean);
     encSel.innerHTML='<option value="">--</option>'+encList.map(e=>`<option value="${esc(e)}">${esc(e)}</option>`).join('');
     // Limpiar campos
-    ['vgNombreGrupo','vgNuevoNombre','vgNuevoTel','vgNuevoEmail','vgDestino','vgFechaInicio','vgFechaFin','vgMonto','vgMontoInd','vgNotas','vgFechaVenta'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+    ['vgNombreGrupo','vgNuevoNombre','vgNuevoTel','vgNuevoEmail','vgDestino','vgFechaInicio','vgFechaFin','vgMonto','vgNotas','vgFechaVenta'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
     // Default: hoy
     document.getElementById('vgFechaVenta').value=new Date().toISOString().slice(0,10);
     document.getElementById('vgMoneda').value='USD';
-    document.getElementById('vgTipoHab').value='compartida';
     document.getElementById('vgAcompCount').value='0';
     document.getElementById('vgAcompList').innerHTML='';
     document.getElementById('vgAcompContainer').style.display='none';
@@ -3957,21 +3952,13 @@ function renderVgAcompanantes(){
     list.innerHTML=html;
     recalcVgTotal();
 }
-// Devuelve el precio activo segun el tipo de habitacion seleccionado
-function precioActivoVg(){
-    const tipo=document.getElementById('vgTipoHab')?.value||'compartida';
-    const precioComp=parseFloat(document.getElementById('vgMonto').value)||0;
-    const precioInd=parseFloat(document.getElementById('vgMontoInd').value)||0;
-    return tipo==='individual'?precioInd:precioComp;
-}
 function recalcVgTotal(){
-    const precio=precioActivoVg();
+    const precio=parseFloat(document.getElementById('vgMonto').value)||0;
     const acomp=Math.max(0,parseInt(document.getElementById('vgAcompCount').value||'0',10));
     const personas=1+acomp;
     const moneda=document.getElementById('vgMoneda').value||'USD';
     const total=precio*personas;
-    const tipoLabel=(document.getElementById('vgTipoHab')?.value||'compartida')==='individual'?'individual':'compartida';
-    document.getElementById('vgTotalCalc').value=fmtMoney(total,moneda)+' ('+personas+' '+(personas===1?'persona':'personas')+', hab. '+tipoLabel+')';
+    document.getElementById('vgTotalCalc').value=fmtMoney(total,moneda)+' ('+personas+' '+(personas===1?'persona':'personas')+')';
     actualizarTotalPlanPago();
 }
 // Genera la lista de meses (YYYY-MM) entre fechaDesde y fechaHasta inclusive.
@@ -4019,7 +4006,7 @@ function actualizarTotalPlanPago(){
     let suma=0;
     document.querySelectorAll('input.vg-pp-monto').forEach(i=>{suma+=parseFloat(i.value)||0;});
     tot.textContent=sym+suma.toLocaleString('es-CR',{minimumFractionDigits:2,maximumFractionDigits:2});
-    const precio=precioActivoVg();
+    const precio=parseFloat(document.getElementById('vgMonto').value)||0;
     const acomp=Math.max(0,parseInt(document.getElementById('vgAcompCount').value||'0',10));
     const totalEsperado=precio*(1+acomp);
     const diff=totalEsperado-suma;
@@ -4033,10 +4020,10 @@ function actualizarTotalPlanPago(){
 function distribuirPlanPago(){
     const inputs=Array.from(document.querySelectorAll('input.vg-pp-monto'));
     if(!inputs.length){alert('Primero cargue fecha de venta y fecha de inicio del viaje para generar las filas.');return;}
-    const precio=precioActivoVg();
+    const precio=parseFloat(document.getElementById('vgMonto').value)||0;
     const acomp=Math.max(0,parseInt(document.getElementById('vgAcompCount').value||'0',10));
     const total=precio*(1+acomp);
-    if(total<=0){alert('Cargue el precio por persona (segun el tipo de habitacion seleccionado) y los acompañantes para calcular el total.');return;}
+    if(total<=0){alert('Cargue el precio por persona y los acompañantes para calcular el total.');return;}
     const cuota=Math.floor((total/inputs.length)*100)/100;
     let restante=total;
     inputs.forEach((inp,i)=>{
@@ -4083,13 +4070,10 @@ function guardarVentaGrupal(){
     }
     const usuarioEmail=(window.currentUser&&window.currentUser.email)||'';
     const precioPorPersona=parseFloat(document.getElementById('vgMonto').value)||0;
-    const precioPorPersonaIndividual=parseFloat(document.getElementById('vgMontoInd').value)||0;
-    const tipoHabitacion=document.getElementById('vgTipoHab').value==='individual'?'individual':'compartida';
-    const precioActivo=tipoHabitacion==='individual'?precioPorPersonaIndividual:precioPorPersona;
     const numAcomp=Math.max(0,parseInt(document.getElementById('vgAcompCount').value||'0',10));
     const acompanantes=Array.from(document.querySelectorAll('#vgAcompList input.vg-acomp')).map(i=>i.value.trim()).filter(Boolean);
     const personasTotal=1+numAcomp;
-    const montoTotalCalc=precioActivo*personasTotal;
+    const montoTotalCalc=precioPorPersona*personasTotal;
     if(editId&&ventaPrev){
         // Edicion: actualizar campos preservando id, fechaCreacion, checklist, pagos.
         ventaPrev.tipo='grupal';
@@ -4108,8 +4092,6 @@ function guardarVentaGrupal(){
         ventaPrev.cobranza=ventaPrev.cobranza||{};
         ventaPrev.cobranza.montoTotal=montoTotalCalc;
         ventaPrev.cobranza.precioPorPersona=precioPorPersona;
-        ventaPrev.cobranza.precioPorPersonaIndividual=precioPorPersonaIndividual;
-        ventaPrev.cobranza.tipoHabitacion=tipoHabitacion;
         ventaPrev.cobranza.personas=personasTotal;
         ventaPrev.cobranza.moneda=document.getElementById('vgMoneda').value||ventaPrev.cobranza.moneda||'USD';
         ventaPrev.cobranza.pagos=ventaPrev.cobranza.pagos||[];
@@ -4134,7 +4116,7 @@ function guardarVentaGrupal(){
             acompanantes,
             planPago:collectPlanPagoFromUI(),
             checklist:defaultChecklistItems.map((t,i)=>({id:Date.now()+'_'+i,texto:t,completado:false})),
-            cobranza:{montoTotal:montoTotalCalc,precioPorPersona,precioPorPersonaIndividual,tipoHabitacion,personas:personasTotal,moneda:document.getElementById('vgMoneda').value||'USD',pagos:[]},
+            cobranza:{montoTotal:montoTotalCalc,precioPorPersona,personas:personasTotal,moneda:document.getElementById('vgMoneda').value||'USD',pagos:[]},
             fechaCreacion:ahora
         };
         ventas.unshift(venta);saveVentas(ventas);
@@ -4257,9 +4239,7 @@ function calcCobranzaStatus(v){
     let estadoPago='pendiente',estadoPagoLabel='Pendiente',color='#e74c3c';
     if(montoTotal>0&&pagado>=montoTotal){estadoPago='pagado';estadoPagoLabel='Pagado';color='#27ae60';}
     else if(pagado>0){estadoPago='parcial';estadoPagoLabel='Parcial';color='#d4830f';}
-    const tipoHab=cob.tipoHabitacion==='individual'?'individual':'compartida';
-    const precioActivo=tipoHab==='individual'&&cob.precioPorPersonaIndividual!=null?num(cob.precioPorPersonaIndividual):(cob.precioPorPersona!=null?num(cob.precioPorPersona):null);
-    return{montoTotal,pagado,saldo,pagadoPct,estadoPago,estadoPagoLabel,color,moneda:cob.moneda||'USD',pagos:cob.pagos||[],precioPorPersona:precioActivo,precioPorPersonaCompartida:cob.precioPorPersona!=null?num(cob.precioPorPersona):null,precioPorPersonaIndividual:cob.precioPorPersonaIndividual!=null?num(cob.precioPorPersonaIndividual):null,tipoHabitacion:tipoHab,personas:cob.personas||null};
+    return{montoTotal,pagado,saldo,pagadoPct,estadoPago,estadoPagoLabel,color,moneda:cob.moneda||'USD',pagos:cob.pagos||[],precioPorPersona:cob.precioPorPersona!=null?num(cob.precioPorPersona):null,personas:cob.personas||null};
 }
 
 function currencySymbol(m){return m==='USD'?'$':m==='EUR'?'\u20ac':m==='CRC'?'\u20a1':'$';}
