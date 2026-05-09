@@ -1377,11 +1377,12 @@ onAuthStateChanged(fbAuth, (user) => {
             <div class="form-group"><label>Email</label><input type="email" id="vgNuevoEmail"></div>
         </div>
         <div class="form-row"><div class="form-group"><label>Destino</label><input type="text" id="vgDestino" placeholder="Ej: Roma + Par&iacute;s"></div><div class="form-group"><label>Encargada</label><select id="vgEncargado"><option value="">--</option></select></div></div>
-        <div class="form-group"><label>Fecha de la venta</label><input type="date" id="vgFechaVenta"><p style="font-size:0.7rem;color:var(--text-light);margin-top:3px;">Fecha en que se cerr&oacute; la venta. Sirve para registrar ventas hechas antes de empezar a usar el sistema.</p></div>
-        <div class="form-row"><div class="form-group"><label>Fecha inicio del viaje</label><input type="date" id="vgFechaInicio"></div><div class="form-group"><label>Fecha fin del viaje</label><input type="date" id="vgFechaFin"></div></div>
+        <div class="form-group"><label>Fecha de la venta</label><input type="date" id="vgFechaVenta" onchange="renderVgPlanPago()"><p style="font-size:0.7rem;color:var(--text-light);margin-top:3px;">Fecha en que se cerr&oacute; la venta. Sirve para registrar ventas hechas antes de empezar a usar el sistema.</p></div>
+        <div class="form-row"><div class="form-group"><label>Fecha inicio del viaje</label><input type="date" id="vgFechaInicio" onchange="renderVgPlanPago()"></div><div class="form-group"><label>Fecha fin del viaje</label><input type="date" id="vgFechaFin"></div></div>
         <div class="form-row"><div class="form-group"><label>Precio por persona</label><input type="number" id="vgMonto" step="0.01" placeholder="0" oninput="recalcVgTotal()"></div><div class="form-group"><label>Moneda</label><select id="vgMoneda"><option value="USD">USD</option><option value="CRC">CRC</option><option value="EUR">EUR</option></select></div></div>
         <div class="form-row"><div class="form-group"><label>N&uacute;mero de acompa&ntilde;antes</label><input type="number" id="vgAcompCount" min="0" step="1" placeholder="0" value="0" oninput="renderVgAcompanantes()"><p style="font-size:0.7rem;color:var(--text-light);margin-top:3px;">Personas que viajan con el cliente (no se cuenta el cliente).</p></div><div class="form-group"><label>Total estimado</label><input type="text" id="vgTotalCalc" readonly style="background:#f5f7fa;font-weight:700;color:var(--primary-dark);"></div></div>
         <div id="vgAcompContainer" style="display:none;margin-bottom:10px;"><label style="display:block;font-weight:600;font-size:0.78rem;color:var(--text-light);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.5px;">Nombres de acompa&ntilde;antes</label><div id="vgAcompList" style="display:flex;flex-direction:column;gap:5px;"></div></div>
+        <div class="form-group"><label style="display:flex;align-items:center;gap:8px;">Plan de pago <button type="button" class="btn btn-sm btn-ghost" style="font-size:0.7rem;padding:3px 8px;" onclick="distribuirPlanPago()" title="Divide el total estimado en partes iguales entre todos los meses">Distribuir total</button></label><p style="font-size:0.7rem;color:var(--text-light);margin-top:0;margin-bottom:6px;">Una fila por mes desde la fecha de la venta hasta la fecha de inicio del viaje. Pon&eacute; el monto acordado para cada mes.</p><div id="vgPlanPagoBox"></div></div>
         <div class="form-group"><label>Notas</label><textarea id="vgNotas" rows="2" placeholder="Detalles del paquete grupal..."></textarea></div>
     </div>
     <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modalVentaGrupal')">Cancelar</button><button class="btn btn-success" onclick="guardarVentaGrupal()">Guardar venta grupal</button></div>
@@ -3781,6 +3782,11 @@ function editarVentaGrupal(ventaId){
     (v.acompanantes||[]).forEach((nom,i)=>{if(inputs[i])inputs[i].value=nom;});
     document.getElementById('vgNotas').value=v.notas||'';
     recalcVgTotal();
+    // Plan de pago: regenerar filas y rellenar montos
+    renderVgPlanPago();
+    const plan=Array.isArray(v.planPago)?v.planPago:[];
+    plan.forEach(p=>{const inp=document.querySelector(`input.vg-pp-monto[data-mes="${p.mes}"]`);if(inp)inp.value=p.monto!=null?p.monto:'';});
+    actualizarTotalPlanPago();
 }
 function abrirFichaGrupo(grupo){
     const ventas=getVentas().filter(v=>v.tipo==='grupal'&&(v.grupoNombre||'')===grupo);
@@ -3848,7 +3854,14 @@ function openModalVentaGrupal(grupoPredef){
     if(typeof grupoPredef==='string'&&grupoPredef){
         document.getElementById('vgNombreGrupo').value=grupoPredef;
     }
+    renderVgPlanPago();
     document.getElementById('modalVentaGrupal').classList.add('open');
+}
+function collectPlanPagoFromUI(){
+    return Array.from(document.querySelectorAll('input.vg-pp-monto')).map(i=>{
+        const monto=parseFloat(i.value);
+        return{mes:i.dataset.mes,monto:isFinite(monto)?monto:0};
+    });
 }
 function onVgClienteChange(){
     const v=document.getElementById('vgClienteId').value;
@@ -3876,6 +3889,78 @@ function recalcVgTotal(){
     const moneda=document.getElementById('vgMoneda').value||'USD';
     const total=precio*personas;
     document.getElementById('vgTotalCalc').value=fmtMoney(total,moneda)+' ('+personas+' '+(personas===1?'persona':'personas')+')';
+    actualizarTotalPlanPago();
+}
+// Genera la lista de meses (YYYY-MM) entre fechaDesde y fechaHasta inclusive.
+function mesesEntre(fechaDesde,fechaHasta){
+    if(!fechaDesde||!fechaHasta)return [];
+    const a=new Date(fechaDesde+'T00:00:00');const b=new Date(fechaHasta+'T00:00:00');
+    if(isNaN(a)||isNaN(b))return [];
+    if(b<a)return [];
+    const meses=[];
+    let y=a.getFullYear(),m=a.getMonth();
+    const fy=b.getFullYear(),fm=b.getMonth();
+    while(y<fy||(y===fy&&m<=fm)){
+        const mm=String(m+1).padStart(2,'0');
+        meses.push(y+'-'+mm);
+        m++;if(m>11){m=0;y++;}
+        if(meses.length>120)break; // safety
+    }
+    return meses;
+}
+function labelMes(ym){
+    const [y,m]=ym.split('-');
+    const d=new Date(parseInt(y,10),parseInt(m,10)-1,1);
+    return d.toLocaleString('es-CR',{month:'long',year:'numeric'}).replace(/^./,c=>c.toUpperCase());
+}
+function renderVgPlanPago(){
+    const box=document.getElementById('vgPlanPagoBox');
+    if(!box)return;
+    const desde=document.getElementById('vgFechaVenta').value;
+    const hasta=document.getElementById('vgFechaInicio').value;
+    const meses=mesesEntre(desde,hasta);
+    // Conservar valores ya tipeados
+    const prev={};
+    Array.from(box.querySelectorAll('input.vg-pp-monto')).forEach(i=>{prev[i.dataset.mes]=i.value;});
+    if(!meses.length){box.innerHTML='<p style="font-size:0.78rem;color:var(--text-light);font-style:italic;">Cargue fecha de venta y fecha de inicio del viaje para generar el plan.</p>';return;}
+    const moneda=document.getElementById('vgMoneda').value||'USD';
+    const sym=currencySymbol(moneda);
+    const filas=meses.map(ym=>`<tr><td style="font-size:0.82rem;">${esc(labelMes(ym))}</td><td><div style="display:flex;align-items:center;gap:4px;"><span style="color:var(--text-light);font-size:0.78rem;">${sym}</span><input type="number" class="vg-pp-monto" data-mes="${ym}" step="0.01" placeholder="0" value="${esc(prev[ym]||'')}" oninput="actualizarTotalPlanPago()" style="flex:1;padding:5px 8px;border:1px solid var(--border);border-radius:4px;font-size:0.82rem;"></div></td></tr>`).join('');
+    box.innerHTML=`<table class="list-table" style="margin:0;"><thead><tr><th style="width:55%;">Mes</th><th>Monto acordado</th></tr></thead><tbody>${filas}</tbody><tfoot><tr><td style="text-align:right;font-weight:600;">Total plan</td><td><strong id="vgPpTotal">${sym}0.00</strong> <span id="vgPpDelta" style="font-size:0.72rem;margin-left:6px;color:var(--text-light);"></span></td></tr></tfoot></table>`;
+    actualizarTotalPlanPago();
+}
+function actualizarTotalPlanPago(){
+    const tot=document.getElementById('vgPpTotal');if(!tot)return;
+    const moneda=document.getElementById('vgMoneda').value||'USD';
+    const sym=currencySymbol(moneda);
+    let suma=0;
+    document.querySelectorAll('input.vg-pp-monto').forEach(i=>{suma+=parseFloat(i.value)||0;});
+    tot.textContent=sym+suma.toLocaleString('es-CR',{minimumFractionDigits:2,maximumFractionDigits:2});
+    const precio=parseFloat(document.getElementById('vgMonto').value)||0;
+    const acomp=Math.max(0,parseInt(document.getElementById('vgAcompCount').value||'0',10));
+    const totalEsperado=precio*(1+acomp);
+    const diff=totalEsperado-suma;
+    const delta=document.getElementById('vgPpDelta');if(delta){
+        if(totalEsperado<=0){delta.textContent='';delta.style.color='var(--text-light)';}
+        else if(Math.abs(diff)<0.01){delta.textContent='✓ coincide con el total';delta.style.color='var(--success)';}
+        else if(diff>0){delta.textContent='Falta '+sym+diff.toFixed(2);delta.style.color='var(--danger)';}
+        else{delta.textContent='Excede en '+sym+Math.abs(diff).toFixed(2);delta.style.color='var(--accent-dark)';}
+    }
+}
+function distribuirPlanPago(){
+    const inputs=Array.from(document.querySelectorAll('input.vg-pp-monto'));
+    if(!inputs.length){alert('Primero cargue fecha de venta y fecha de inicio del viaje para generar las filas.');return;}
+    const precio=parseFloat(document.getElementById('vgMonto').value)||0;
+    const acomp=Math.max(0,parseInt(document.getElementById('vgAcompCount').value||'0',10));
+    const total=precio*(1+acomp);
+    if(total<=0){alert('Cargue el precio por persona y los acompañantes para calcular el total.');return;}
+    const cuota=Math.floor((total/inputs.length)*100)/100;
+    let restante=total;
+    inputs.forEach((inp,i)=>{
+        if(i===inputs.length-1){inp.value=restante.toFixed(2);}
+        else{inp.value=cuota.toFixed(2);restante-=cuota;}
+    });
+    actualizarTotalPlanPago();
 }
 function guardarVentaGrupal(){
     const grupo=document.getElementById('vgNombreGrupo').value.trim();
@@ -3933,6 +4018,7 @@ function guardarVentaGrupal(){
         ventaPrev.notas=document.getElementById('vgNotas').value.trim();
         ventaPrev.numAcompanantes=numAcomp;
         ventaPrev.acompanantes=acompanantes;
+        ventaPrev.planPago=collectPlanPagoFromUI();
         ventaPrev.cobranza=ventaPrev.cobranza||{};
         ventaPrev.cobranza.montoTotal=montoTotalCalc;
         ventaPrev.cobranza.precioPorPersona=precioPorPersona;
@@ -3958,6 +4044,7 @@ function guardarVentaGrupal(){
             notas:document.getElementById('vgNotas').value.trim(),
             numAcompanantes:numAcomp,
             acompanantes,
+            planPago:collectPlanPagoFromUI(),
             checklist:defaultChecklistItems.map((t,i)=>({id:Date.now()+'_'+i,texto:t,completado:false})),
             cobranza:{montoTotal:montoTotalCalc,precioPorPersona,personas:personasTotal,moneda:document.getElementById('vgMoneda').value||'USD',pagos:[]},
             fechaCreacion:ahora
