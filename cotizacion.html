@@ -393,7 +393,15 @@ body{font-family:'Open Sans',sans-serif;background:var(--bg);color:var(--text);m
 .ficha-row{display:flex;flex-wrap:wrap;gap:6px}
 .ficha-pill{padding:6px 12px;border-radius:18px;font-size:0.78rem;font-weight:600;display:inline-flex;align-items:center;gap:6px}
 .ficha-pill strong{font-size:0.95rem}
-@media (max-width:600px){.ficha-stats{grid-template-columns:1fr}}
+.ficha-h{font-family:'Playfair Display',serif;color:var(--primary-dark);font-size:0.9rem;margin:14px 0 6px}
+.ficha-h:first-of-type{margin-top:6px}
+.ficha-general{background:#fafdff;border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px}
+.ficha-general .form-row{display:flex;gap:8px;margin-bottom:8px}
+.ficha-general .form-group{flex:1}
+.ficha-general label{display:block;font-size:0.7rem;color:var(--text-light);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:3px;font-weight:600}
+.ficha-general input,.ficha-general textarea{width:100%;padding:6px 9px;font-size:0.85rem;border:1px solid var(--border);border-radius:5px}
+.ficha-general input:focus,.ficha-general textarea:focus{outline:none;border-color:var(--primary)}
+@media (max-width:600px){.ficha-stats{grid-template-columns:1fr}.ficha-general .form-row{flex-direction:column}}
 .config-subtabs{display:flex;gap:4px;margin:-6px -6px 14px;padding:6px;background:var(--bg);border-radius:8px;flex-wrap:wrap}
 .config-subtab{padding:6px 12px;border:none;background:transparent;border-radius:6px;font-family:'Open Sans',sans-serif;font-size:0.78rem;font-weight:600;color:var(--text-light);cursor:pointer;transition:all 0.2s}
 .config-subtab:hover{color:var(--primary)}
@@ -1489,7 +1497,7 @@ function setLSObj(k,v){
 //   destinos/{pais}/{ciudad}_{timestamp}
 
 // Tracking de IDs que ya subimos a Firestore (para poder detectar eliminaciones)
-const _fsDocIds={cotizaciones:new Set(),ventas:new Set(),clientes:new Set(),destinos:new Set(),hoteles:new Set()};
+const _fsDocIds={cotizaciones:new Set(),ventas:new Set(),clientes:new Set(),destinos:new Set(),hoteles:new Set(),grupos:new Set()};
 
 // ===== METADATA (timestamp + autor en cada save) =====
 // Agrega _lastModifiedAt y _lastModifiedBy a un objeto antes de guardarlo.
@@ -1518,6 +1526,7 @@ function guardarSnapshotRespaldo(motivo){
             clientes:getLS('dv_clientes'),
             encabezados:getLSObj('dv_encabezados'),
             hoteles:getLS('dv_hoteles'),
+            grupos:getLS('dv_grupos'),
             config:getLSObj('dv_config')
         };
         localStorage.setItem(key,JSON.stringify(snap));
@@ -1596,6 +1605,8 @@ async function pushToFirestore(key,value){
             await syncDestinos(value);
         }else if(key==='dv_hoteles'){
             await syncArrayCollection('hoteles',value,false);
+        }else if(key==='dv_grupos'){
+            await syncArrayCollection('grupos',value,false);
         }
     }catch(e){
         console.error('[FS] error en pushToFirestore para',key,':',e);
@@ -1783,6 +1794,14 @@ async function loadAllFromFirestore(){
         }
         localStorage.setItem('dv_hoteles',JSON.stringify(hoteles));
         if(mergedH.recovered>0)setTimeout(()=>{if(_fsEnabled)pushToFirestore('dv_hoteles',hoteles).catch(e=>console.error(e));},8000);
+        // grupos: array de docs independientes, defensivo
+        const localGrupos=getLS('dv_grupos');
+        const gSnap=await h.getDocs(h.collection(db,'grupos'));
+        let grupos=[];gSnap.forEach(dd=>{grupos.push(dd.data());_fsDocIds.grupos.add(dd.id);});
+        const mergedG=mergeArrayDefensivo('grupos',grupos,localGrupos);
+        grupos=mergedG.merged;recuperadosTotal+=mergedG.recovered;
+        localStorage.setItem('dv_grupos',JSON.stringify(grupos));
+        if(mergedG.recovered>0)setTimeout(()=>{if(_fsEnabled)pushToFirestore('dv_grupos',grupos).catch(e=>console.error(e));},8500);
         console.log(`[FS] datos cargados: ${cots.length} cotizaciones, ${ventas.length} ventas, ${clientes.length} clientes, ${Object.keys(destObj).length} pa\u00edses, ${hoteles.length} hoteles${recuperadosTotal>0?' ('+recuperadosTotal+' items recuperados de localStorage)':''}`);
         if(recuperadosTotal>0){
             setTimeout(()=>{
@@ -2554,6 +2573,21 @@ function renderConfigChecklist(){
 const getHoteles=()=>getLS('dv_hoteles');
 const saveHoteles=(arr)=>setLS('dv_hoteles',arr);
 function newHotelId(){return String(Date.now())+Math.random().toString(36).slice(2,7);}
+
+// ===== GRUPOS (datos generales por cada paquete grupal: destino, fechas, etc.) =====
+const getGrupos=()=>getLS('dv_grupos');
+const saveGrupos=(arr)=>setLS('dv_grupos',arr);
+function newGrupoId(){return String(Date.now())+Math.random().toString(36).slice(2,7);}
+function getGrupoByNombre(nombre){const arr=getGrupos();return arr.find(g=>(g.nombre||'').trim().toLowerCase()===String(nombre||'').trim().toLowerCase())||null;}
+function upsertGrupoByNombre(nombre,patch){
+    const arr=getGrupos();
+    let g=arr.find(x=>(x.nombre||'').trim().toLowerCase()===String(nombre||'').trim().toLowerCase());
+    if(!g){g={id:newGrupoId(),nombre:nombre,fechaCreacion:new Date().toISOString()};arr.unshift(g);}
+    Object.keys(patch||{}).forEach(k=>{g[k]=patch[k];});
+    g.fechaActualizacion=new Date().toISOString();
+    saveGrupos(arr);
+    return g;
+}
 function renderConfigHoteles(){
     const pane=document.getElementById('cfgPane-hoteles');
     const enc=getEncabezados();
@@ -3821,8 +3855,24 @@ function abrirFichaGrupo(grupo){
         const acompTitle=acomp.length?'Acompañantes: '+acomp.join(', '):'';
         return`<tr><td>${esc(v.clienteNombre||'-')}${acomp.length?`<div style="font-size:0.7rem;color:var(--text-light);" title="${esc(acompTitle)}">+ ${acomp.length} acomp.</div>`:''}</td><td style="text-align:center;">${personas}</td><td>${fmtMoney(ppp,c.moneda)}</td><td>${fmtMoney(c.montoTotal,c.moneda)}</td><td style="color:var(--success);">${fmtMoney(c.pagado,c.moneda)}</td><td style="color:${c.saldo>0?'var(--danger)':'var(--success)'};font-weight:600;">${fmtMoney(c.saldo,c.moneda)}</td><td><span class="lt-badge" style="background:${c.color}22;color:${c.color};">${c.estadoPagoLabel} ${c.pagadoPct}%</span></td></tr>`;
     }).join('')}</tbody></table>`;
-    document.getElementById('fichaGrupoBody').innerHTML=`<p style="color:var(--text-light);font-size:0.82rem;margin-bottom:14px;">${ventas.length} ${ventas.length===1?'cliente':'clientes'} en este grupo.</p><h4 style="font-family:'Playfair Display',serif;color:var(--primary-dark);font-size:0.9rem;margin-bottom:6px;">Totales</h4>${totalesHtml||'<p style="color:var(--text-light);">Sin montos cargados.</p>'}<h4 style="font-family:'Playfair Display',serif;color:var(--primary-dark);font-size:0.9rem;margin:14px 0 6px;">Estado de pago</h4>${fichaPagosHtml}<h4 style="font-family:'Playfair Display',serif;color:var(--primary-dark);font-size:0.9rem;margin:14px 0 6px;">Estado de la venta</h4>${fichaEstHtml}<h4 style="font-family:'Playfair Display',serif;color:var(--primary-dark);font-size:0.9rem;margin:14px 0 6px;">Detalle por cliente</h4>${tablaHtml}`;
+    // Datos generales del grupo (almacenados en coleccion dv_grupos, editables aqui)
+    const gInfo=getGrupoByNombre(grupo)||{};
+    const generalHtml=`<div class="ficha-general"><div class="form-row"><div class="form-group"><label>Destino del grupo</label><input type="text" id="fgDestino" value="${esc(gInfo.destino||'')}" placeholder="Ej: Italia + Francia"></div><div class="form-group"><label>Cupos totales</label><input type="number" id="fgCupos" min="0" step="1" value="${gInfo.cupos!=null?esc(String(gInfo.cupos)):''}" placeholder="Ej: 25"></div></div><div class="form-row"><div class="form-group"><label>Fecha de viaje (inicio)</label><input type="date" id="fgFechaInicio" value="${esc(gInfo.fechaInicio||'')}"></div><div class="form-group"><label>Fecha de viaje (fin)</label><input type="date" id="fgFechaFin" value="${esc(gInfo.fechaFin||'')}"></div></div><div class="form-row"><div class="form-group"><label>Fecha l&iacute;mite de pago</label><input type="date" id="fgFechaLimitePago" value="${esc(gInfo.fechaLimitePago||'')}"></div><div class="form-group"><label>Salida desde</label><input type="text" id="fgSalida" value="${esc(gInfo.salidaDesde||'')}" placeholder="Ej: SJO"></div></div><div class="form-group"><label>Notas / descripci&oacute;n del paquete</label><textarea id="fgNotas" rows="2" placeholder="Detalles generales del paquete grupal...">${esc(gInfo.notas||'')}</textarea></div><div style="display:flex;justify-content:flex-end;gap:6px;"><button class="btn btn-sm btn-success" onclick="guardarFichaGrupo('${esc(grupo).replace(/'/g,"\\'")}')">&#128190; Guardar info del grupo</button></div></div>`;
+    document.getElementById('fichaGrupoBody').innerHTML=`<p style="color:var(--text-light);font-size:0.82rem;margin-bottom:10px;">${ventas.length} ${ventas.length===1?'cliente':'clientes'} en este grupo.</p><h4 class="ficha-h">Datos generales del grupo</h4>${generalHtml}<h4 class="ficha-h">Totales</h4>${totalesHtml||'<p style="color:var(--text-light);">Sin montos cargados.</p>'}<h4 class="ficha-h">Estado de pago</h4>${fichaPagosHtml}<h4 class="ficha-h">Estado de la venta</h4>${fichaEstHtml}<h4 class="ficha-h">Detalle por cliente</h4>${tablaHtml}`;
     document.getElementById('modalFichaGrupo').classList.add('open');
+}
+function guardarFichaGrupo(nombre){
+    const patch={
+        destino:document.getElementById('fgDestino').value.trim(),
+        cupos:parseInt(document.getElementById('fgCupos').value||'0',10)||0,
+        fechaInicio:document.getElementById('fgFechaInicio').value||'',
+        fechaFin:document.getElementById('fgFechaFin').value||'',
+        fechaLimitePago:document.getElementById('fgFechaLimitePago').value||'',
+        salidaDesde:document.getElementById('fgSalida').value.trim(),
+        notas:document.getElementById('fgNotas').value.trim()
+    };
+    upsertGrupoByNombre(nombre,patch);
+    alert('Datos del grupo guardados.');
 }
 function openModalVentaGrupal(grupoPredef){
     // Reset por defecto. editarVentaGrupal() reasigna _editingVentaGrupalId tras este open.
