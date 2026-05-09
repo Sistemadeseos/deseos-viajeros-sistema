@@ -3940,7 +3940,7 @@ function openModalVentaGrupal(grupoPredef){
     // Poblar select de contactos
     const sel=document.getElementById('vgClienteId');
     const clientes=getClientes().slice().sort((a,b)=>(a.nombreCompleto||'').localeCompare(b.nombreCompleto||''));
-    sel.innerHTML='<option value="">-- Seleccionar contacto existente --</option>'+clientes.map(c=>`<option value="${c.id}">${esc(c.nombreCompleto||'(sin nombre)')}${c.email?' · '+esc(c.email):''}</option>`).join('')+'<option value="__nuevo">+ Crear nuevo contacto</option>';
+    sel.innerHTML='<option value="">-- Seleccionar --</option><option value="__nuevo">+ Crear nuevo contacto</option>'+clientes.map(c=>`<option value="${c.id}">${esc(c.nombreCompleto||'(sin nombre)')}${c.email?' · '+esc(c.email):''}</option>`).join('');
     // Poblar datalist de grupos existentes
     const ventas=getVentas();
     const grupos=Array.from(new Set(ventas.filter(v=>v.tipo==='grupal'&&v.grupoNombre).map(v=>v.grupoNombre))).sort();
