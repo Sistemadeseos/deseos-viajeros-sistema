@@ -3861,7 +3861,26 @@ function abrirFichaGrupo(grupo){
     // Datos generales del grupo (almacenados en coleccion dv_grupos, editables aqui)
     const gInfo=getGrupoByNombre(grupo)||{};
     const generalHtml=`<div class="ficha-general"><div class="form-row"><div class="form-group"><label>Destino del grupo</label><input type="text" id="fgDestino" value="${esc(gInfo.destino||'')}" placeholder="Ej: Italia + Francia"></div><div class="form-group"><label>Cupos totales</label><input type="number" id="fgCupos" min="0" step="1" value="${gInfo.cupos!=null?esc(String(gInfo.cupos)):''}" placeholder="Ej: 25"></div></div><div class="form-row"><div class="form-group"><label>Fecha de viaje (inicio)</label><input type="date" id="fgFechaInicio" value="${esc(gInfo.fechaInicio||'')}"></div><div class="form-group"><label>Fecha de viaje (fin)</label><input type="date" id="fgFechaFin" value="${esc(gInfo.fechaFin||'')}"></div></div><div class="form-row"><div class="form-group"><label>Fecha l&iacute;mite de pago</label><input type="date" id="fgFechaLimitePago" value="${esc(gInfo.fechaLimitePago||'')}"></div><div class="form-group"><label>Salida desde</label><input type="text" id="fgSalida" value="${esc(gInfo.salidaDesde||'')}" placeholder="Ej: SJO"></div></div><div class="form-group"><label>Notas / descripci&oacute;n del paquete</label><textarea id="fgNotas" rows="2" placeholder="Detalles generales del paquete grupal...">${esc(gInfo.notas||'')}</textarea></div><div style="display:flex;justify-content:flex-end;gap:6px;"><button class="btn btn-sm btn-success" onclick="guardarFichaGrupo('${esc(grupo).replace(/'/g,"\\'")}')">&#128190; Guardar info del grupo</button></div></div>`;
-    document.getElementById('fichaGrupoBody').innerHTML=`<p style="color:var(--text-light);font-size:0.82rem;margin-bottom:10px;">${ventas.length} ${ventas.length===1?'cliente':'clientes'} en este grupo.</p><h4 class="ficha-h">Datos generales del grupo</h4>${generalHtml}<h4 class="ficha-h">Totales</h4>${totalesHtml||'<p style="color:var(--text-light);">Sin montos cargados.</p>'}<h4 class="ficha-h">Estado de pago</h4>${fichaPagosHtml}<h4 class="ficha-h">Estado de la venta</h4>${fichaEstHtml}<h4 class="ficha-h">Detalle por cliente</h4>${tablaHtml}`;
+    // Lista de viajeros (cliente titular + acompañantes) y comparacion contra cupos del grupo
+    const viajeros=[];
+    ventas.forEach(v=>{
+        viajeros.push({nombre:v.clienteNombre||'(sin nombre)',rol:'Titular',vendedor:v.encargado||''});
+        const acomp=Array.isArray(v.acompanantes)?v.acompanantes:[];
+        const numAc=v.numAcompanantes!=null?v.numAcompanantes:acomp.length;
+        for(let i=0;i<numAc;i++){
+            const nom=acomp[i]&&acomp[i].trim()?acomp[i]:'(sin nombre)';
+            viajeros.push({nombre:nom,rol:'Acompañante de '+(v.clienteNombre||'-'),vendedor:v.encargado||''});
+        }
+    });
+    const cuposTotal=parseInt((gInfo.cupos!=null?gInfo.cupos:0),10)||0;
+    const ocupados=viajeros.length;
+    const libres=Math.max(0,cuposTotal-ocupados);
+    const cuposBlock=cuposTotal>0
+        ?`<div class="ficha-row" style="margin-bottom:8px;"><div class="ficha-pill" style="background:var(--primary-light);color:var(--primary-dark);"><strong>${cuposTotal}</strong> Cupos totales</div><div class="ficha-pill" style="background:#e9f9ee;color:#1f7a3a;"><strong>${ocupados}</strong> Vendidos</div><div class="ficha-pill" style="background:${libres>0?'#fff3e0':'#fdecec'};color:${libres>0?'#d4830f':'#c0392b'};"><strong>${libres}</strong> Sin vender</div></div>`
+        :`<p style="color:var(--text-light);font-size:0.78rem;font-style:italic;margin-bottom:8px;">Cargue "Cupos totales" en datos generales para calcular espacios sin vender. Viajeros cargados: <strong>${ocupados}</strong>.</p>`;
+    const filasViajeros=viajeros.length?viajeros.map((p,i)=>`<tr><td style="text-align:center;color:var(--text-light);font-size:0.78rem;">${i+1}</td><td>${esc(p.nombre)}</td><td style="font-size:0.78rem;color:${p.rol==='Titular'?'var(--primary-dark)':'var(--text-light)'};font-weight:${p.rol==='Titular'?'600':'400'};">${esc(p.rol)}</td></tr>`).join(''):`<tr><td colspan="3" style="text-align:center;color:var(--text-light);font-style:italic;">Sin viajeros cargados.</td></tr>`;
+    const viajerosTabla=`<table class="list-table" style="margin-top:6px;"><thead><tr><th style="width:40px;">#</th><th>Nombre</th><th>Rol</th></tr></thead><tbody>${filasViajeros}</tbody></table>`;
+    document.getElementById('fichaGrupoBody').innerHTML=`<p style="color:var(--text-light);font-size:0.82rem;margin-bottom:10px;">${ventas.length} ${ventas.length===1?'cliente titular':'clientes titulares'} en este grupo · ${viajeros.length} ${viajeros.length===1?'viajero':'viajeros'} en total.</p><h4 class="ficha-h">Datos generales del grupo</h4>${generalHtml}<h4 class="ficha-h">Cupos y viajeros</h4>${cuposBlock}${viajerosTabla}<h4 class="ficha-h">Totales</h4>${totalesHtml||'<p style="color:var(--text-light);">Sin montos cargados.</p>'}<h4 class="ficha-h">Estado de pago</h4>${fichaPagosHtml}<h4 class="ficha-h">Estado de la venta</h4>${fichaEstHtml}<h4 class="ficha-h">Detalle por cliente</h4>${tablaHtml}`;
     document.getElementById('modalFichaGrupo').classList.add('open');
 }
 function guardarFichaGrupo(nombre){
