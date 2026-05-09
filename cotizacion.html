@@ -1149,7 +1149,8 @@ onAuthStateChanged(fbAuth, (user) => {
 <div class="app-view view-list" id="viewConfiguracion">
     <div class="list-header">
         <h2>Configuraci&oacute;n</h2>
-        <div style="display:flex;gap:6px;">
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+            <button class="btn btn-outline" style="color:var(--primary-dark);border-color:var(--primary);" onclick="limpiarCacheLocal()" title="Vacia el almacenamiento local del navegador y vuelve a bajar todo desde Firebase">&#128260; Limpiar cach&eacute; local</button>
             <button class="btn btn-outline" style="color:var(--primary-dark);border-color:var(--primary);" onclick="resetConfigToDefaults()">Restaurar defaults</button>
             <button class="btn btn-success" onclick="saveConfigFromUI()">&#128190; Guardar configuraci&oacute;n</button>
         </div>
@@ -2742,6 +2743,26 @@ function saveConfigFromUI(){
     alert('Configuraci\u00f3n guardada correctamente.');
 }
 
+// Vacia el localStorage del navegador (excepto las claves de auth de Firebase) y recarga la pagina.
+// Toda la data ya esta en Firestore/Storage; al recargar se vuelve a bajar fresca, sin dataURLs antiguos
+// que aun no se hayan reemplazado por URLs de Storage.
+function limpiarCacheLocal(){
+    if(!confirm('Esto va a vaciar la caché del navegador y bajar todo nuevamente desde Firebase.\n\nIMPORTANTE: si tenes algun cambio sin sincronizar (por ejemplo cargado sin internet), se perdera.\n\n¿Continuar?'))return;
+    if(!confirm('Última confirmación: vamos a borrar la caché local. Toda la información compartida del equipo se mantiene en Firebase. ¿Seguir?'))return;
+    try{
+        // Conservar solo claves que NO empiezan con dv_ ni dv_snapshot_ (asi no rompemos auth de Firebase)
+        const keysToRemove=[];
+        for(let i=0;i<localStorage.length;i++){
+            const k=localStorage.key(i);
+            if(k&&(k.startsWith('dv_')||k.startsWith('dv_snapshot_')))keysToRemove.push(k);
+        }
+        keysToRemove.forEach(k=>localStorage.removeItem(k));
+        alert('Caché local limpiada. La página se va a recargar para bajar los datos desde Firebase.');
+        location.reload();
+    }catch(e){
+        alert('Error al limpiar la caché: '+e.message);
+    }
+}
 function resetConfigToDefaults(){
     if(!confirm('\u00bfRestaurar toda la configuraci\u00f3n a los valores por defecto? Esta acci\u00f3n no se puede deshacer.'))return;
     localStorage.removeItem('dv_config');
