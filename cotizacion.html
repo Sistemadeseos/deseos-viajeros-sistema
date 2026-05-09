@@ -974,7 +974,6 @@ onAuthStateChanged(fbAuth, (user) => {
         <div class="sidebar-section-label">Cotizaciones</div>
         <div class="sidebar-item active" onclick="nav('editor')"><span class="si-icon">&#9998;</span>Editor</div>
         <div class="sidebar-item" onclick="nav('historial')"><span class="si-icon">&#128203;</span>Historial<span class="si-badge" id="badgeHistorial"></span></div>
-        <div class="sidebar-item" onclick="nav('encabezados')"><span class="si-icon">&#127748;</span>Destinos</div>
     </div>
     <div class="sidebar-section">
         <div class="sidebar-section-label">Gesti&oacute;n</div>
@@ -1121,13 +1120,8 @@ onAuthStateChanged(fbAuth, (user) => {
 </div>
 
 <!-- VIEW: ENCABEZADOS -->
-<div class="app-view view-list" id="viewEncabezados">
-    <div class="list-header"><h2>Destinos</h2></div>
-    <p style="margin-bottom:10px;color:var(--text-light);font-size:0.85rem;">Organice im&aacute;genes de encabezado por pa&iacute;s y destino. Las im&aacute;genes se comprimen autom&aacute;ticamente al subirlas.</p>
-    <div id="storageIndicator" style="margin-bottom:14px;"></div>
-    <div class="enc-add-pais"><input type="text" id="nuevoPaisInput" placeholder="Nombre del pa&iacute;s..."><button class="btn btn-primary" onclick="agregarPais()">+ Pa&iacute;s</button></div>
-    <div id="paisesContainer"></div>
-</div>
+<!-- viewEncabezados se reubico dentro de Configuracion > Cotizacion > Destinos. Se conserva el div para compat retro con codigo que pudiera buscarlo. -->
+<div class="app-view view-list" id="viewEncabezados" style="display:none;"></div>
 
 <!-- VIEW: VENTAS -->
 <div class="app-view view-list" id="viewVentas">
@@ -1180,6 +1174,7 @@ onAuthStateChanged(fbAuth, (user) => {
                 <button class="config-subtab" data-cfgsubtab="alertas" onclick="switchConfigSubTab('alertas')">Alertas</button>
                 <button class="config-subtab" data-cfgsubtab="fees" onclick="switchConfigSubTab('fees')">Fees calculadora</button>
                 <button class="config-subtab" data-cfgsubtab="hoteles" onclick="switchConfigSubTab('hoteles')">Hoteles</button>
+                <button class="config-subtab" data-cfgsubtab="destinos" onclick="switchConfigSubTab('destinos')">Destinos</button>
             </div>
             <div class="config-subpane active" id="cfgPane-servicios"></div>
             <div class="config-subpane" id="cfgPane-politicas"></div>
@@ -1187,6 +1182,7 @@ onAuthStateChanged(fbAuth, (user) => {
             <div class="config-subpane" id="cfgPane-alertas"></div>
             <div class="config-subpane" id="cfgPane-fees"></div>
             <div class="config-subpane" id="cfgPane-hoteles"></div>
+            <div class="config-subpane" id="cfgPane-destinos"></div>
         </div>
         <div class="config-pane" id="cfgPane-cuentas"></div>
         <div class="config-pane" id="cfgPane-checklist"></div>
@@ -2076,9 +2072,11 @@ function populateEncargadosSelect(){
 
 // ===== NAV =====
 function nav(view){
+    // Compat retro: la antigua entrada "encabezados" ahora vive en Configuracion > Cotizacion > Destinos.
+    if(view==='encabezados'){nav('configuracion');setTimeout(()=>{switchConfigTab('cotizacion');switchConfigSubTab('destinos');},0);return;}
     document.querySelectorAll('.sidebar-item').forEach(el=>el.classList.remove('active'));
     const items=document.querySelectorAll('.sidebar-item');
-    const map={dashboard:0,editor:1,historial:2,encabezados:3,ventas:4,clientes:5,clientesventas:6,configuracion:7};
+    const map={dashboard:0,editor:1,historial:2,ventas:3,clientes:4,clientesventas:5,configuracion:6};
     if(map[view]!==undefined)items[map[view]].classList.add('active');
     document.querySelectorAll('.app-view').forEach(v=>v.classList.remove('active'));
     const titles={dashboard:'Dashboard',editor:'Editor de Cotizaci\u00f3n',historial:'Historial de Cotizaciones',encabezados:'Destinos',ventas:'Ventas',clientes:'Contactos',clientesventas:'Clientes',configuracion:'Configuraci\u00f3n',documento:'Documento'};
@@ -2374,6 +2372,7 @@ function renderConfiguracion(){
     renderConfigAlertas();
     renderConfigFees();
     renderConfigHoteles();
+    renderEncabezados();
     renderConfigRecibo();
     renderConfigEDC();
 }
@@ -3480,7 +3479,17 @@ function renderStorageIndicator(targetId){
     </div>`;
 }
 
-function renderEncabezados(){renderStorageIndicator('storageIndicator');const enc=getEncabezados();const c=document.getElementById('paisesContainer');const paises=Object.keys(enc);if(!paises.length){c.innerHTML='<div class="grid-empty"><h3>Sin pa\u00edses</h3><p>Agregue un pa\u00eds arriba para comenzar.</p></div>';return;}c.innerHTML=paises.map(p=>{const ds=Object.keys(enc[p]);return`<div class="enc-pais-section"><div class="enc-pais-header" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'':'none'"><h3>${esc(p)} (${ds.length})</h3><button class="btn btn-sm btn-danger" onclick="event.stopPropagation();eliminarPais('${esc(p).replace(/'/g,"\\'")}')">Eliminar</button></div><div class="enc-pais-body"><div class="enc-destinos-grid">${ds.map(d=>{const img=enc[p][d];return`<div class="enc-destino-card"><div class="enc-img-preview">${img?`<img src="${img}">`:'Sin imagen'}</div><div class="enc-destino-info"><div class="enc-destino-name">${esc(d)}</div><div class="enc-destino-actions"><button class="btn btn-sm btn-primary" onclick="subirImagenDestino('${esc(p).replace(/'/g,"\\'")}','${esc(d).replace(/'/g,"\\'")}');">${img?'Cambiar':'Subir'}</button><button class="btn btn-sm btn-danger" onclick="eliminarDestino('${esc(p).replace(/'/g,"\\'")}','${esc(d).replace(/'/g,"\\'")}');">&times;</button></div></div></div>`;}).join('')}<div class="enc-add-destino" onclick="agregarDestino('${esc(p).replace(/'/g,"\\'")}')"><span class="plus">+</span><span style="font-size:0.78rem;">Destino</span></div></div></div></div>`;}).join('');}
+function renderEncabezados(){
+    // Render reubicado a Configuracion > Cotizacion > Destinos. Si el contenedor no existe (la pesta\u00f1a aun no se inicializo), no hacemos nada.
+    const pane=document.getElementById('cfgPane-destinos');
+    if(!pane)return;
+    const enc=getEncabezados();
+    const paises=Object.keys(enc).sort((a,b)=>a.localeCompare(b));
+    const intro=`<p class="config-hint">Organice im&aacute;genes de encabezado por pa&iacute;s y destino. Las im&aacute;genes se comprimen autom&aacute;ticamente al subirlas.</p><div id="storageIndicator" style="margin-bottom:14px;"></div><div class="enc-add-pais"><input type="text" id="nuevoPaisInput" placeholder="Nombre del pa&iacute;s..."><button class="btn btn-primary" onclick="agregarPais()">+ Pa&iacute;s</button></div>`;
+    if(!paises.length){pane.innerHTML=intro+'<div class="grid-empty"><h3>Sin pa&iacute;ses</h3><p>Agregue un pa&iacute;s arriba para comenzar.</p></div>';renderStorageIndicator('storageIndicator');return;}
+    pane.innerHTML=intro+paises.map(p=>{const ds=Object.keys(enc[p]);return`<div class="enc-pais-section"><div class="enc-pais-header" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'':'none'"><h3>${esc(p)} (${ds.length})</h3><button class="btn btn-sm btn-danger" onclick="event.stopPropagation();eliminarPais('${esc(p).replace(/'/g,"\\'")}')">Eliminar</button></div><div class="enc-pais-body"><div class="enc-destinos-grid">${ds.map(d=>{const img=enc[p][d];return`<div class="enc-destino-card"><div class="enc-img-preview">${img?`<img src="${img}">`:'Sin imagen'}</div><div class="enc-destino-info"><div class="enc-destino-name">${esc(d)}</div><div class="enc-destino-actions"><button class="btn btn-sm btn-primary" onclick="subirImagenDestino('${esc(p).replace(/'/g,"\\'")}','${esc(d).replace(/'/g,"\\'")}');">${img?'Cambiar':'Subir'}</button><button class="btn btn-sm btn-danger" onclick="eliminarDestino('${esc(p).replace(/'/g,"\\'")}','${esc(d).replace(/'/g,"\\'")}');">&times;</button></div></div></div>`;}).join('')}<div class="enc-add-destino" onclick="agregarDestino('${esc(p).replace(/'/g,"\\'")}')"><span class="plus">+</span><span style="font-size:0.78rem;">Destino</span></div></div></div></div>`;}).join('');
+    renderStorageIndicator('storageIndicator');
+}
 function populatePaisSelect(){const enc=getEncabezados();const sel=document.getElementById('paisSelect');const cur=sel.value;sel.innerHTML='<option value="">-- Pa\u00eds --</option>';Object.keys(enc).forEach(p=>{const o=document.createElement('option');o.value=p;o.textContent=p;sel.appendChild(o);});if(cur&&enc[cur])sel.value=cur;onPaisChange();}
 function onPaisChange(){const p=document.getElementById('paisSelect').value;const enc=getEncabezados();const ds=document.getElementById('destinoSelect');const di=document.getElementById('destino');ds.innerHTML='<option value="">-- Destino --</option>';if(p&&enc[p])Object.keys(enc[p]).forEach(d=>{const o=document.createElement('option');o.value=d;o.textContent=d;ds.appendChild(o);});const co=document.createElement('option');co.value='__custom';co.textContent='Escribir manualmente...';ds.appendChild(co);ds.style.display='';di.style.display='none';onDestinoSelect();}
 function onDestinoSelect(){const ds=document.getElementById('destinoSelect');const di=document.getElementById('destino');const pv=document.getElementById('destinoPreviewImg');const pi=document.getElementById('destinoPreviewImgTag');const p=document.getElementById('paisSelect').value;if(ds.value==='__custom'){di.style.display='';ds.style.display='none';di.focus();selectedHeaderImg=null;pv.classList.remove('visible');}else if(ds.value){di.value=ds.value;di.style.display='none';const img=getDestinoImage(p,ds.value);selectedHeaderImg=img;if(img){pi.src=img;pv.classList.add('visible');}else{pv.classList.remove('visible');}}else{di.style.display='none';selectedHeaderImg=null;pv.classList.remove('visible');}updateHotelesDatalist();updatePreview();}
