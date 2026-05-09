@@ -4210,7 +4210,7 @@ function calcPlanPagoStatus(v){
     const eps=0.01;
     if(esperadoActual<=0&&esperadoAnterior<=0)return{estado:'aldia',color:'#27ae60',label:'Al día',pagado,esperadoActual,esperadoAnterior};
     if(pagado+eps>=esperadoActual)return{estado:'aldia',color:'#27ae60',label:'Al día',pagado,esperadoActual,esperadoAnterior};
-    if(pagado+eps>=esperadoAnterior)return{estado:'mesencurso',color:'#e8941a',label:'Mes en curso pendiente',pagado,esperadoActual,esperadoAnterior};
+    if(pagado+eps>=esperadoAnterior)return{estado:'mesencurso',color:'#d4a017',label:'Mes en curso pendiente',pagado,esperadoActual,esperadoAnterior};
     return{estado:'atrasado',color:'#e74c3c',label:'Atrasado',pagado,esperadoActual,esperadoAnterior};
 }
 function calcCobranzaStatus(v){
