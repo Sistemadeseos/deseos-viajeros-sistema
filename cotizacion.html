@@ -1378,7 +1378,7 @@ onAuthStateChanged(fbAuth, (user) => {
 <div class="modal-overlay" id="modalVentaGrupal"><div class="modal" style="max-width:560px;">
     <div class="modal-header"><h3>Nueva Venta Grupal</h3><button class="modal-close" onclick="closeModal('modalVentaGrupal')">&times;</button></div>
     <div class="modal-body">
-        <div class="form-group"><label>Nombre del grupo *</label><input type="text" id="vgNombreGrupo" list="vgGruposExistentes" placeholder="Ej: Europa Primavera 2027"><datalist id="vgGruposExistentes"></datalist><p style="font-size:0.7rem;color:var(--text-light);margin-top:3px;">Si el grupo ya existe se sumar&aacute; el cliente al mismo. Si es nuevo, se crear&aacute;.</p></div>
+        <div class="form-group"><label>Nombre del grupo *</label><input type="text" id="vgNombreGrupo" list="vgGruposExistentes" placeholder="Ej: Europa Primavera 2027" oninput="autoLlenarDesdeGrupo()" onchange="autoLlenarDesdeGrupo()"><datalist id="vgGruposExistentes"></datalist><p style="font-size:0.7rem;color:var(--text-light);margin-top:3px;">Si el grupo ya existe se sumar&aacute; el cliente al mismo (destino y fechas se rellenan autom&aacute;ticamente). Si es nuevo, se crear&aacute;.</p></div>
         <div class="form-group"><label>Cliente *</label><select id="vgClienteId" onchange="onVgClienteChange()"><option value="">-- Seleccionar contacto existente --</option><option value="__nuevo">+ Crear nuevo contacto</option></select></div>
         <div id="vgNuevoClienteBox" style="display:none;border:1px dashed var(--border);padding:10px;border-radius:6px;margin-bottom:10px;">
             <div class="form-row"><div class="form-group"><label>Nombre completo</label><input type="text" id="vgNuevoNombre" placeholder="Nombre y apellido"></div><div class="form-group"><label>Tel&eacute;fono</label><input type="text" id="vgNuevoTel"></div></div>
@@ -3906,9 +3906,26 @@ function openModalVentaGrupal(grupoPredef){
     // Si vino un grupo pre-definido (al usar "+ Cliente al grupo"), pre-llenamos. Si no, queda en blanco.
     if(typeof grupoPredef==='string'&&grupoPredef){
         document.getElementById('vgNombreGrupo').value=grupoPredef;
+        autoLlenarDesdeGrupo();
     }
     renderVgPlanPago();
     document.getElementById('modalVentaGrupal').classList.add('open');
+}
+// Si el nombre del grupo coincide con uno ya existente (dv_grupos), pre-llena destino y fechas del viaje
+// solo en los campos que esten vacios (para no pisar lo que ya tipeo el usuario).
+function autoLlenarDesdeGrupo(){
+    const nombre=(document.getElementById('vgNombreGrupo').value||'').trim();
+    if(!nombre)return;
+    const g=getGrupoByNombre(nombre);
+    if(!g)return;
+    const destEl=document.getElementById('vgDestino');
+    if(destEl&&!destEl.value&&g.destino)destEl.value=g.destino;
+    const fiEl=document.getElementById('vgFechaInicio');
+    if(fiEl&&!fiEl.value&&g.fechaInicio){fiEl.value=g.fechaInicio;}
+    const ffEl=document.getElementById('vgFechaFin');
+    if(ffEl&&!ffEl.value&&g.fechaFin){ffEl.value=g.fechaFin;}
+    // Como las fechas pueden haber cambiado, regenerar plan de pago
+    renderVgPlanPago();
 }
 function collectPlanPagoFromUI(){
     return Array.from(document.querySelectorAll('input.vg-pp-monto')).map(i=>{
