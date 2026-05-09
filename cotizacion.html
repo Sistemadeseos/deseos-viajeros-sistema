@@ -3761,7 +3761,11 @@ function renderVentasGrupales(filtered,grid){
             const total=(v.checklist||[]).length;
             const pct=total?Math.round(done/total*100):0;
             const cob=calcCobranzaStatus(v);
-            const cobBadge=cob.montoTotal>0?`<span class="lt-badge" style="background:${cob.color}22;color:${cob.color};">${cob.estadoPagoLabel} ${cob.pagadoPct}%</span>`:'<span style="color:var(--text-light);font-size:0.72rem;">-</span>';
+            const planSt=calcPlanPagoStatus(v);
+            const usaPlan=planSt.estado!=='sinplan';
+            const colorBadge=usaPlan?planSt.color:cob.color;
+            const titleBadge=usaPlan?`Plan: ${planSt.label} · esperado al mes actual ${fmtMoney(planSt.esperadoActual||0,cob.moneda)} · pagado ${fmtMoney(planSt.pagado||0,cob.moneda)}`:'';
+            const cobBadge=cob.montoTotal>0?`<span class="lt-badge" title="${esc(titleBadge)}" style="background:${colorBadge}22;color:${colorBadge};">${cob.estadoPagoLabel} ${cob.pagadoPct}%</span>`:'<span style="color:var(--text-light);font-size:0.72rem;">-</span>';
             const fv=v.fechaVenta?formatFechaCorta(v.fechaVenta)||v.fechaVenta:'';
             return`<tr class="estado-${v.estado}">
             <td>${esc(v.clienteNombre||'-')}${fv?`<div class="lt-secondary">Vendida: ${esc(fv)}</div>`:''}</td>
@@ -4189,6 +4193,27 @@ function removeCheckItem(ventaId,itemId){const ventas=getVentas();const v=ventas
 function updateVentaEstado(){const ventaId=document.getElementById('clVentaId').value;const estado=document.getElementById('clEstado').value;const ventas=getVentas();const v=ventas.find(x=>x.id===ventaId);if(!v)return;v.estado=estado;saveVentas(ventas);renderVentas();}
 
 // ===== ESTADO DE CUENTA (COBRANZA) =====
+// Estado del plan de pago vs cobranza real al mes actual.
+// Devuelve {estado:'aldia'|'mesencurso'|'atrasado'|'sinplan', color, label, esperadoActual, esperadoAnterior, pagado}
+function calcPlanPagoStatus(v){
+    const plan=Array.isArray(v.planPago)?v.planPago.filter(p=>p&&p.mes):[];
+    const cob=v.cobranza||{};
+    const pagado=(cob.pagos||[]).reduce((s,p)=>s+num(p.monto),0);
+    if(!plan.length)return{estado:'sinplan',color:null,label:null,pagado};
+    const hoy=new Date();
+    const ymHoy=hoy.getFullYear()+'-'+String(hoy.getMonth()+1).padStart(2,'0');
+    const ymPrev=(()=>{const d=new Date(hoy.getFullYear(),hoy.getMonth()-1,1);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');})();
+    let esperadoActual=0,esperadoAnterior=0;
+    plan.forEach(p=>{
+        if(String(p.mes)<=ymHoy)esperadoActual+=num(p.monto);
+        if(String(p.mes)<=ymPrev)esperadoAnterior+=num(p.monto);
+    });
+    const eps=0.01;
+    if(esperadoActual<=0&&esperadoAnterior<=0)return{estado:'aldia',color:'#27ae60',label:'Al día',pagado,esperadoActual,esperadoAnterior};
+    if(pagado+eps>=esperadoActual)return{estado:'aldia',color:'#27ae60',label:'Al día',pagado,esperadoActual,esperadoAnterior};
+    if(pagado+eps>=esperadoAnterior)return{estado:'mesencurso',color:'#e8941a',label:'Mes en curso pendiente',pagado,esperadoActual,esperadoAnterior};
+    return{estado:'atrasado',color:'#e74c3c',label:'Atrasado',pagado,esperadoActual,esperadoAnterior};
+}
 function calcCobranzaStatus(v){
     const cob=v.cobranza||{montoTotal:0,moneda:'USD',pagos:[]};
     const montoTotal=num(cob.montoTotal);
