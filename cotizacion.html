@@ -3771,7 +3771,6 @@ function renderVentasGrupales(filtered,grid){
             <td>${esc(v.clienteNombre||'-')}${fv?`<div class="lt-secondary">Vendida: ${esc(fv)}</div>`:''}</td>
             <td>${esc(v.encargado||'-')}</td>
             <td>${v.fechaInicio?formatDateRange(v.fechaInicio,v.fechaFin):'<span style="color:var(--text-light);">-</span>'}</td>
-            <td><span class="lt-badge" style="background:${estadoColors[v.estado]||'var(--primary)'};color:white;">${estadoLabels[v.estado]||v.estado}</span></td>
             <td>${cobBadge}</td>
             <td class="lt-progress-cell"><div class="venta-progress"><div class="venta-progress-bar" style="width:${pct}%"></div></div><div class="lr-progress-text">${done}/${total}</div></td>
             <td><div class="lt-actions"><button class="btn btn-sm btn-primary" onclick="editarVentaGrupal('${v.id}')" title="Editar venta grupal">&#9998;</button><button class="btn-checklist" onclick="openChecklist('${v.id}')" title="Checklist">&#9745;</button><button class="btn-checklist" style="background:#fff3e0;color:#d4830f;border:1px solid #e8941a;" onclick="openCobranza('${v.id}')" title="Estado de cuenta">&#128176;</button><button class="btn btn-sm btn-danger" onclick="eliminarVentaGrupal('${v.id}')" title="Eliminar">&times;</button></div></td>
@@ -3779,7 +3778,7 @@ function renderVentasGrupales(filtered,grid){
         }).join('');
         const safeG=esc(g).replace(/'/g,"\\'");
         const accionesGrupo=g==='Sin grupo'?'':`<button class="btn btn-sm btn-ghost" onclick="event.stopPropagation();abrirFichaGrupo('${safeG}')" title="Ver ficha del grupo">&#128203; Ficha</button><button class="btn btn-sm btn-primary" onclick="event.stopPropagation();agregarClienteAlGrupo('${safeG}')" title="Agregar cliente a este grupo">+ Cliente</button>`;
-        return`<div class="grupo-section"><div class="grupo-header" onclick="toggleGrupoSection(this)"><h4>${esc(g)}</h4><span class="grupo-count">${lista.length} ${lista.length===1?'cliente':'clientes'} &middot; Total ${monedaTxt} ${totalMonto.toFixed(2)}</span><div class="grupo-actions" style="display:flex;gap:6px;">${accionesGrupo}</div><span class="toggle">&#9660;</span></div><div class="grupo-body"><table class="list-table"><thead><tr><th>Cliente</th><th>Encargada</th><th>Fechas</th><th>Estado</th><th>Cobranza</th><th>Checklist</th><th>Acciones</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+        return`<div class="grupo-section"><div class="grupo-header" onclick="toggleGrupoSection(this)"><h4>${esc(g)}</h4><span class="grupo-count">${lista.length} ${lista.length===1?'cliente':'clientes'} &middot; Total ${monedaTxt} ${totalMonto.toFixed(2)}</span><div class="grupo-actions" style="display:flex;gap:6px;">${accionesGrupo}</div><span class="toggle">&#9660;</span></div><div class="grupo-body"><table class="list-table"><thead><tr><th>Cliente</th><th>Encargada</th><th>Fechas</th><th>Cobranza</th><th>Checklist</th><th>Acciones</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
     }).join('');
 }
 function toggleGrupoSection(h){h.classList.toggle('collapsed');h.nextElementSibling.classList.toggle('collapsed');}
