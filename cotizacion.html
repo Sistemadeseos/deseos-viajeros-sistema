@@ -394,6 +394,13 @@ body{font-family:'Open Sans',sans-serif;background:var(--bg);color:var(--text);m
 .ficha-pill{padding:6px 12px;border-radius:18px;font-size:0.78rem;font-weight:600;display:inline-flex;align-items:center;gap:6px}
 .ficha-pill strong{font-size:0.95rem}
 .ficha-h{font-family:'Playfair Display',serif;color:var(--primary-dark);font-size:0.9rem;margin:14px 0 6px}
+.ficha-collapse{margin-top:6px;border:1px solid var(--border);border-radius:6px;background:#fafdff}
+.ficha-collapse summary{padding:8px 12px;cursor:pointer;font-size:0.82rem;font-weight:600;color:var(--primary-dark);list-style:none;display:flex;align-items:center;gap:6px}
+.ficha-collapse summary::-webkit-details-marker{display:none}
+.ficha-collapse summary::before{content:'\25B6';color:var(--primary);font-size:0.7rem;transition:transform 0.2s}
+.ficha-collapse[open] summary::before{transform:rotate(90deg)}
+.ficha-collapse summary:hover{background:var(--primary-light)}
+.ficha-collapse table{margin:0!important}
 .ficha-h:first-of-type{margin-top:6px}
 .ficha-general{background:#fafdff;border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px}
 .ficha-general .form-row{display:flex;gap:8px;margin-bottom:8px}
@@ -3879,7 +3886,7 @@ function abrirFichaGrupo(grupo){
         ?`<div class="ficha-row" style="margin-bottom:8px;"><div class="ficha-pill" style="background:var(--primary-light);color:var(--primary-dark);"><strong>${cuposTotal}</strong> Cupos totales</div><div class="ficha-pill" style="background:#e9f9ee;color:#1f7a3a;"><strong>${ocupados}</strong> Vendidos</div><div class="ficha-pill" style="background:${libres>0?'#fff3e0':'#fdecec'};color:${libres>0?'#d4830f':'#c0392b'};"><strong>${libres}</strong> Sin vender</div></div>`
         :`<p style="color:var(--text-light);font-size:0.78rem;font-style:italic;margin-bottom:8px;">Cargue "Cupos totales" en datos generales para calcular espacios sin vender. Viajeros cargados: <strong>${ocupados}</strong>.</p>`;
     const filasViajeros=viajeros.length?viajeros.map((p,i)=>`<tr><td style="text-align:center;color:var(--text-light);font-size:0.78rem;">${i+1}</td><td>${esc(p.nombre)}</td><td style="font-size:0.78rem;color:${p.rol==='Titular'?'var(--primary-dark)':'var(--text-light)'};font-weight:${p.rol==='Titular'?'600':'400'};">${esc(p.rol)}</td></tr>`).join(''):`<tr><td colspan="3" style="text-align:center;color:var(--text-light);font-style:italic;">Sin viajeros cargados.</td></tr>`;
-    const viajerosTabla=`<table class="list-table" style="margin-top:6px;"><thead><tr><th style="width:40px;">#</th><th>Nombre</th><th>Rol</th></tr></thead><tbody>${filasViajeros}</tbody></table>`;
+    const viajerosTabla=`<details class="ficha-collapse"><summary>Ver lista de viajeros (${viajeros.length})</summary><table class="list-table" style="margin-top:6px;"><thead><tr><th style="width:40px;">#</th><th>Nombre</th><th>Rol</th></tr></thead><tbody>${filasViajeros}</tbody></table></details>`;
     document.getElementById('fichaGrupoBody').innerHTML=`<p style="color:var(--text-light);font-size:0.82rem;margin-bottom:10px;">${ventas.length} ${ventas.length===1?'cliente titular':'clientes titulares'} en este grupo · ${viajeros.length} ${viajeros.length===1?'viajero':'viajeros'} en total.</p><h4 class="ficha-h">Datos generales del grupo</h4>${generalHtml}<h4 class="ficha-h">Cupos y viajeros</h4>${cuposBlock}${viajerosTabla}<h4 class="ficha-h">Totales</h4>${totalesHtml||'<p style="color:var(--text-light);">Sin montos cargados.</p>'}<h4 class="ficha-h">Estado de pago</h4>${fichaPagosHtml}<h4 class="ficha-h">Estado de la venta</h4>${fichaEstHtml}<h4 class="ficha-h">Detalle por cliente</h4>${tablaHtml}`;
     document.getElementById('modalFichaGrupo').classList.add('open');
 }
