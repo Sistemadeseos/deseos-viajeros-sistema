@@ -3193,8 +3193,10 @@ function recalcRow(opId,autoFill){
 // ===== HOSPEDAJE INCLUIDO =====
 function addHospedaje(hotel,fechaInicio,fechaFin){
     const c=document.getElementById('hospedajeContainer');const d=document.createElement('div');d.className='service-item';d.draggable=true;
-    d.innerHTML=`<span class="drag-handle" draggable="false">&#9776;</span><input type="text" class="h-hotel" list="hotelesDatalist" value="${esc(hotel||'')}" placeholder="Nombre del hotel" style="flex:1;" oninput="updatePreview()"><input type="date" class="h-fi" value="${esc(fechaInicio||'')}" style="width:135px;flex:none;" oninput="updatePreview()" title="Fecha entrada"><input type="date" class="h-ff" value="${esc(fechaFin||'')}" style="width:135px;flex:none;" oninput="updatePreview()" title="Fecha salida"><button class="btn-icon remove" onclick="this.parentElement.remove();updatePreview();">&times;</button>`;
-    c.appendChild(d);updatePreview();
+    d.innerHTML=`<span class="drag-handle" draggable="false">&#9776;</span><input type="text" class="h-hotel" list="hotelesDatalist" value="${esc(hotel||'')}" placeholder="Nombre del hotel" style="flex:1;" oninput="updatePreview()"><input type="text" class="h-fi" value="${esc(fechaInicio||'')}" placeholder="dd/mm/aaaa" style="width:135px;flex:none;" oninput="updatePreview()" title="Fecha entrada"><input type="text" class="h-ff" value="${esc(fechaFin||'')}" placeholder="dd/mm/aaaa" style="width:135px;flex:none;" oninput="updatePreview()" title="Fecha salida"><button class="btn-icon remove" onclick="this.parentElement.remove();updatePreview();">&times;</button>`;
+    c.appendChild(d);
+    attachFlatpickrRangeRow(d);
+    updatePreview();
 }
 
 // ===== TOURS INCLUIDOS =====
@@ -3218,9 +3220,11 @@ function formatHospedajeRange(fi,ff){
 // ===== ITINERARIO PROPUESTO (tabla Excel) =====
 function addItinerario(dia,actividad){
     const tbody=document.getElementById('itinerarioContainer');const tr=document.createElement('tr');
-    tr.innerHTML=`<td style="width:30px;"><span class="drag-handle" draggable="false" style="cursor:grab;">&#9776;</span></td><td style="width:120px;"><input type="date" class="it-dia" value="${esc(dia||'')}" oninput="updatePreview()" onpaste="handleItinerarioPaste(event,this)"></td><td><input type="text" class="it-act" value="${esc(actividad||'')}" placeholder="Actividad del d\u00eda" oninput="updatePreview()" onpaste="handleItinerarioPaste(event,this)"></td><td style="width:30px;"><button class="btn-icon remove" onclick="this.closest('tr').remove();updatePreview();">&times;</button></td>`;
+    tr.innerHTML=`<td style="width:30px;"><span class="drag-handle" draggable="false" style="cursor:grab;">&#9776;</span></td><td style="width:120px;"><input type="text" class="it-dia" value="${esc(dia||'')}" placeholder="dd/mm/aaaa" oninput="updatePreview()" onpaste="handleItinerarioPaste(event,this)"></td><td><input type="text" class="it-act" value="${esc(actividad||'')}" placeholder="Actividad del d\u00eda" oninput="updatePreview()" onpaste="handleItinerarioPaste(event,this)"></td><td style="width:30px;"><button class="btn-icon remove" onclick="this.closest('tr').remove();updatePreview();">&times;</button></td>`;
     tr.draggable=true;
-    tbody.appendChild(tr);updatePreview();
+    tbody.appendChild(tr);
+    attachFlatpickrSingle(tr.querySelector('.it-dia'));
+    updatePreview();
     return tr;
 }
 
@@ -5325,6 +5329,22 @@ function eliminarCliente(id){if(!confirm('\u00bfEliminar este contacto?'))return
 function closeModal(id){document.getElementById(id).classList.remove('open');}
 
 // ===== RESET =====
+// Aplica flatpickr a la fila de hospedaje (h-fi como inicio y h-ff como fin del rango).
+function attachFlatpickrRangeRow(rowEl){
+    if(typeof flatpickr==='undefined'||typeof rangePlugin==='undefined')return;
+    const fi=rowEl.querySelector('.h-fi');const ff=rowEl.querySelector('.h-ff');
+    if(!fi||!ff)return;
+    try{
+        flatpickr(fi,{locale:'es',dateFormat:'Y-m-d',altInput:true,altFormat:'d/m/Y',allowInput:true,plugins:[new rangePlugin({input:ff,altFormat:'d/m/Y'})],onChange:function(){updatePreview();}});
+    }catch(e){console.warn('[flatpickr] no se pudo iniciar:',e);}
+}
+// Aplica flatpickr a un input simple (un solo dia).
+function attachFlatpickrSingle(inp){
+    if(typeof flatpickr==='undefined'||!inp)return;
+    try{
+        flatpickr(inp,{locale:'es',dateFormat:'Y-m-d',altInput:true,altFormat:'d/m/Y',allowInput:true,onChange:function(){updatePreview();}});
+    }catch(e){console.warn('[flatpickr] no se pudo iniciar:',e);}
+}
 // Inicializa el rango de fechas del viaje en el editor: un click en fechaInicio abre el calendario y un segundo click setea fechaFin (rangePlugin de flatpickr).
 function setupDateRangePicker(){
     if(typeof flatpickr==='undefined'||typeof rangePlugin==='undefined')return; // CDN no disponible, fallback al input nativo
