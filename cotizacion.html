@@ -932,6 +932,11 @@ onAuthStateChanged(fbAuth, (user) => {
     }
 });
 </script>
+<!-- Flatpickr: date range picker -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.css">
+<script src="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/l10n/es.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/plugins/rangePlugin.js"></script>
 </head>
 <body>
 
@@ -1407,6 +1412,8 @@ let currentFormat='america',tipoCliente='persona',logoDataUrl=null,editingId=nul
 let loadedReservaLegacy={ad:'',n:'',b:''};
 // Flag: si el modal de contacto se abrio desde "+ Nuevo Cliente", al guardar se crea automaticamente una venta vinculada.
 let _pendingVentaForNewCliente=false;
+// Instancia de flatpickr para el rango de fechas del viaje (Editor de cotizacion).
+let _fpFechaViaje=null;
 // Edicion de venta grupal: cuando es null se crea, cuando trae un id se actualiza.
 let _editingVentaGrupalId=null;
 
@@ -2791,7 +2798,7 @@ function init(){
         if(thumb){thumb.src=watermarkDataUrl;}
         if(thumbBox){thumbBox.style.display='';}
     }
-    addOpcion();populatePaisSelect();initAllDrag();initFormPanelResize();restoreFormPanelWidth();updatePreview();updateBadges();
+    addOpcion();populatePaisSelect();initAllDrag();initFormPanelResize();restoreFormPanelWidth();updatePreview();updateBadges();setupDateRangePicker();
 }
 
 // ===== SECTION TOGGLE =====
@@ -3648,7 +3655,7 @@ switchFormat(d.formato||'america');switchTipoCliente(d.tipoCliente||'persona');
 document.getElementById('mostrarClienteEnCot').checked=d.mostrarCliente!==false;
 document.getElementById('clienteNombre').value=d.clienteNombre||'';document.getElementById('clienteTelefono').value=d.clienteTelefono||'';document.getElementById('clienteEmail').value=d.clienteEmail||'';document.getElementById('empresaNombre').value=d.empresaNombre||'';document.getElementById('empresaContacto').value=d.empresaContacto||'';document.getElementById('empresaTelefono').value=d.empresaTelefono||'';document.getElementById('empresaEmail').value=d.empresaEmail||'';
 populatePaisSelect();if(d.pais){document.getElementById('paisSelect').value=d.pais;onPaisChange();if(d.destinoSelect&&d.destinoSelect!=='__custom'){document.getElementById('destinoSelect').value=d.destinoSelect;onDestinoSelect();}else{document.getElementById('destinoSelect').value='__custom';onDestinoSelect();document.getElementById('destino').value=d.destino||'';}}else{document.getElementById('destino').style.display='';document.getElementById('destinoSelect').style.display='none';document.getElementById('destino').value=d.destino||'';selectedHeaderImg=null;}
-document.getElementById('fechaInicio').value=d.fechaInicio||'';document.getElementById('fechaFin').value=d.fechaFin||'';document.getElementById('alertaDestino').value=d.alerta||'';document.getElementById('infoDestino').value=d.infoDestino||'';document.getElementById('moneda').value=d.moneda||'USD';loadedReservaLegacy={ad:d.precioReserva||'',n:d.precioReservaNino||'',b:d.precioReservaBebe||''};document.getElementById('razonSocial').value=d.razonSocial||'Deseos Viajeros MYX SRL';document.getElementById('cedulaEmpresa').value=d.cedulaEmpresa||'3-102-862093';document.getElementById('encargado').value=d.encargado||'';
+document.getElementById('fechaInicio').value=d.fechaInicio||'';document.getElementById('fechaFin').value=d.fechaFin||'';syncFechaViajePicker();document.getElementById('alertaDestino').value=d.alerta||'';document.getElementById('infoDestino').value=d.infoDestino||'';document.getElementById('moneda').value=d.moneda||'USD';loadedReservaLegacy={ad:d.precioReserva||'',n:d.precioReservaNino||'',b:d.precioReservaBebe||''};document.getElementById('razonSocial').value=d.razonSocial||'Deseos Viajeros MYX SRL';document.getElementById('cedulaEmpresa').value=d.cedulaEmpresa||'3-102-862093';document.getElementById('encargado').value=d.encargado||'';
 adjuntos=(d.adjuntos||[]).map(a=>({id:a.id,categoria:a.categoria,descripcion:a.descripcion,dataUrl:a.dataUrl}));renderAdjuntos();
 const sc=document.getElementById('serviciosContainer');sc.innerHTML='';(d.servicios||[]).forEach(s=>addServicioItem(s,true));
 const ob=document.getElementById('opcionesBody');ob.innerHTML='';(d.opciones||[]).forEach(o=>{
@@ -5318,13 +5325,43 @@ function eliminarCliente(id){if(!confirm('\u00bfEliminar este contacto?'))return
 function closeModal(id){document.getElementById(id).classList.remove('open');}
 
 // ===== RESET =====
+// Inicializa el rango de fechas del viaje en el editor: un click en fechaInicio abre el calendario y un segundo click setea fechaFin (rangePlugin de flatpickr).
+function setupDateRangePicker(){
+    if(typeof flatpickr==='undefined'||typeof rangePlugin==='undefined')return; // CDN no disponible, fallback al input nativo
+    const fi=document.getElementById('fechaInicio');
+    const ff=document.getElementById('fechaFin');
+    if(!fi||!ff)return;
+    if(_fpFechaViaje){try{_fpFechaViaje.destroy();}catch(e){}}
+    // Cambiar a type=text para que flatpickr controle el formato y popup
+    fi.setAttribute('type','text');ff.setAttribute('type','text');
+    fi.setAttribute('placeholder','dd/mm/aaaa');ff.setAttribute('placeholder','dd/mm/aaaa');
+    _fpFechaViaje=flatpickr(fi,{
+        locale:'es',
+        dateFormat:'Y-m-d',
+        altInput:true,
+        altFormat:'d/m/Y',
+        allowInput:true,
+        plugins:[new rangePlugin({input:'#fechaFin',altFormat:'d/m/Y'})],
+        onChange:function(){updatePreview();}
+    });
+}
+function syncFechaViajePicker(){
+    if(!_fpFechaViaje)return;
+    const fi=document.getElementById('fechaInicio').value;
+    const ff=document.getElementById('fechaFin').value;
+    try{
+        if(fi&&ff)_fpFechaViaje.setDate([fi,ff],false);
+        else if(fi)_fpFechaViaje.setDate(fi,false);
+        else _fpFechaViaje.clear(false);
+    }catch(e){}
+}
 function resetForm(){if(!confirm('\u00bfLimpiar todos los campos?'))return;editingId=null;selectedHeaderImg=null;adjuntos=[];renderAdjuntos();setEditorReadOnly(false);
 loadedReservaLegacy={ad:'',n:'',b:''};
 ['destino','fechaInicio','fechaFin','alertaDestino','infoDestino','clienteNombre','clienteTelefono','clienteEmail','empresaNombre','empresaContacto','empresaTelefono','empresaEmail','lineaCrucero','nombreBarco','puertoSalida','duracionCrucero','planPagos','cruceroRecomendaciones'].forEach(id=>{document.getElementById(id).value='';});
 document.getElementById('hospedajeContainer').innerHTML='';
 document.getElementById('toursContainer').innerHTML='';
 document.getElementById('itinerarioContainer').innerHTML='';
-document.getElementById('paisSelect').value='';document.getElementById('encargado').value='';document.getElementById('destinoPreviewImg').classList.remove('visible');onPaisChange();document.getElementById('opcionesBody').innerHTML='';document.getElementById('puertosContainer').innerHTML='';switchTipoCliente('persona');switchFormat(currentFormat);addOpcion();populateEncargadosSelect();updatePreview();}
+document.getElementById('paisSelect').value='';document.getElementById('encargado').value='';document.getElementById('destinoPreviewImg').classList.remove('visible');onPaisChange();document.getElementById('opcionesBody').innerHTML='';document.getElementById('puertosContainer').innerHTML='';switchTipoCliente('persona');switchFormat(currentFormat);addOpcion();populateEncargadosSelect();syncFechaViajePicker();updatePreview();}
 
 // ===== UTILS =====
 function esc(t){const d=document.createElement('div');d.textContent=t;return d.innerHTML;}
