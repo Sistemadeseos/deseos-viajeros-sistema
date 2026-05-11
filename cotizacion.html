@@ -3193,7 +3193,10 @@ function recalcRow(opId,autoFill){
 // ===== HOSPEDAJE INCLUIDO =====
 function addHospedaje(hotel,fechaInicio,fechaFin){
     const c=document.getElementById('hospedajeContainer');const d=document.createElement('div');d.className='service-item';d.draggable=true;
-    d.innerHTML=`<span class="drag-handle" draggable="false">&#9776;</span><input type="text" class="h-hotel" list="hotelesDatalist" value="${esc(hotel||'')}" placeholder="Nombre del hotel" style="flex:1;" oninput="updatePreview()"><input type="text" class="h-fi" value="${esc(fechaInicio||'')}" placeholder="dd/mm/aaaa" style="width:135px;flex:none;" oninput="updatePreview()" title="Fecha entrada"><input type="text" class="h-ff" value="${esc(fechaFin||'')}" placeholder="dd/mm/aaaa" style="width:135px;flex:none;" oninput="updatePreview()" title="Fecha salida"><button class="btn-icon remove" onclick="this.parentElement.remove();updatePreview();">&times;</button>`;
+    // Si vienen en YYYY-MM-DD desde el historial, los pasamos a dd/mm/yyyy para que flatpickr los reconozca al inicializar.
+    const fiDisp=isoToDmy(fechaInicio||'');
+    const ffDisp=isoToDmy(fechaFin||'');
+    d.innerHTML=`<span class="drag-handle" draggable="false">&#9776;</span><input type="text" class="h-hotel" list="hotelesDatalist" value="${esc(hotel||'')}" placeholder="Nombre del hotel" style="flex:1;" oninput="updatePreview()"><input type="text" class="h-fi" value="${esc(fiDisp)}" placeholder="dd/mm/aaaa" style="width:135px;flex:none;" oninput="updatePreview()" title="Fecha entrada"><input type="text" class="h-ff" value="${esc(ffDisp)}" placeholder="dd/mm/aaaa" style="width:135px;flex:none;" oninput="updatePreview()" title="Fecha salida"><button class="btn-icon remove" onclick="this.parentElement.remove();updatePreview();">&times;</button>`;
     c.appendChild(d);
     attachFlatpickrRangeRow(d);
     updatePreview();
@@ -3220,7 +3223,8 @@ function formatHospedajeRange(fi,ff){
 // ===== ITINERARIO PROPUESTO (tabla Excel) =====
 function addItinerario(dia,actividad){
     const tbody=document.getElementById('itinerarioContainer');const tr=document.createElement('tr');
-    tr.innerHTML=`<td style="width:30px;"><span class="drag-handle" draggable="false" style="cursor:grab;">&#9776;</span></td><td style="width:120px;"><input type="text" class="it-dia" value="${esc(dia||'')}" placeholder="dd/mm/aaaa" oninput="updatePreview()" onpaste="handleItinerarioPaste(event,this)"></td><td><input type="text" class="it-act" value="${esc(actividad||'')}" placeholder="Actividad del d\u00eda" oninput="updatePreview()" onpaste="handleItinerarioPaste(event,this)"></td><td style="width:30px;"><button class="btn-icon remove" onclick="this.closest('tr').remove();updatePreview();">&times;</button></td>`;
+    const diaDisp=isoToDmy(dia||'');
+    tr.innerHTML=`<td style="width:30px;"><span class="drag-handle" draggable="false" style="cursor:grab;">&#9776;</span></td><td style="width:120px;"><input type="text" class="it-dia" value="${esc(diaDisp)}" placeholder="dd/mm/aaaa" oninput="updatePreview()" onpaste="handleItinerarioPaste(event,this)"></td><td><input type="text" class="it-act" value="${esc(actividad||'')}" placeholder="Actividad del d\u00eda" oninput="updatePreview()" onpaste="handleItinerarioPaste(event,this)"></td><td style="width:30px;"><button class="btn-icon remove" onclick="this.closest('tr').remove();updatePreview();">&times;</button></td>`;
     tr.draggable=true;
     tbody.appendChild(tr);
     attachFlatpickrSingle(tr.querySelector('.it-dia'));
@@ -3555,6 +3559,14 @@ function normalizeFechaIso(v){
     const m=v.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/);
     if(m)return`${m[3]}-${String(m[2]).padStart(2,'0')}-${String(m[1]).padStart(2,'0')}`;
     return v;
+}
+// Convierte YYYY-MM-DD a dd/mm/yyyy. Si recibe ya dd/mm/yyyy, lo deja igual.
+function isoToDmy(s){
+    if(!s)return'';
+    s=String(s).trim();
+    const m=s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if(m)return`${m[3]}/${m[2]}/${m[1]}`;
+    return s;
 }
 function formatDateRange(sRaw,eRaw){const s=normalizeFechaIso(sRaw),e=normalizeFechaIso(eRaw);if(!s||!e)return'';const sd=new Date(s+'T12:00:00'),ed=new Date(e+'T12:00:00');if(isNaN(sd)||isNaN(ed))return'';const m=['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];if(sd.getMonth()===ed.getMonth()&&sd.getFullYear()===ed.getFullYear())return`${sd.getDate()} al ${ed.getDate()} de ${m[sd.getMonth()]} ${sd.getFullYear()}`;return`${sd.getDate()} de ${m[sd.getMonth()]} al ${ed.getDate()} de ${m[ed.getMonth()]} ${ed.getFullYear()}`;}
 
@@ -5339,19 +5351,20 @@ function closeModal(id){document.getElementById(id).classList.remove('open');}
 
 // ===== RESET =====
 // Aplica flatpickr a la fila de hospedaje (h-fi como inicio y h-ff como fin del rango).
+// Formato visible: d/m/Y. normalizeFechaIso() convierte a Y-m-d donde corresponda.
 function attachFlatpickrRangeRow(rowEl){
     if(typeof flatpickr==='undefined'||typeof rangePlugin==='undefined')return;
     const fi=rowEl.querySelector('.h-fi');const ff=rowEl.querySelector('.h-ff');
     if(!fi||!ff)return;
     try{
-        flatpickr(fi,{locale:'es',dateFormat:'Y-m-d',altInput:true,altFormat:'d/m/Y',allowInput:true,plugins:[new rangePlugin({input:ff,altFormat:'d/m/Y'})],onChange:function(){updatePreview();}});
+        flatpickr(fi,{locale:'es',dateFormat:'d/m/Y',allowInput:true,plugins:[new rangePlugin({input:ff})],onChange:function(){updatePreview();}});
     }catch(e){console.warn('[flatpickr] no se pudo iniciar:',e);}
 }
 // Aplica flatpickr a un input simple (un solo dia).
 function attachFlatpickrSingle(inp){
     if(typeof flatpickr==='undefined'||!inp)return;
     try{
-        flatpickr(inp,{locale:'es',dateFormat:'Y-m-d',altInput:true,altFormat:'d/m/Y',allowInput:true,onChange:function(){updatePreview();}});
+        flatpickr(inp,{locale:'es',dateFormat:'d/m/Y',allowInput:true,onChange:function(){updatePreview();}});
     }catch(e){console.warn('[flatpickr] no se pudo iniciar:',e);}
 }
 // Inicializa el rango de fechas del viaje en el editor: un click en fechaInicio abre el calendario y un segundo click setea fechaFin (rangePlugin de flatpickr).
@@ -5366,18 +5379,19 @@ function setupDateRangePicker(){
     fi.setAttribute('placeholder','dd/mm/aaaa');ff.setAttribute('placeholder','dd/mm/aaaa');
     _fpFechaViaje=flatpickr(fi,{
         locale:'es',
-        dateFormat:'Y-m-d',
-        altInput:true,
-        altFormat:'d/m/Y',
+        dateFormat:'d/m/Y',
         allowInput:true,
-        plugins:[new rangePlugin({input:'#fechaFin',altFormat:'d/m/Y'})],
+        plugins:[new rangePlugin({input:'#fechaFin'})],
         onChange:function(){updatePreview();}
     });
 }
 function syncFechaViajePicker(){
     if(!_fpFechaViaje)return;
-    const fi=document.getElementById('fechaInicio').value;
-    const ff=document.getElementById('fechaFin').value;
+    // Convertimos a Date objects para evitar problemas de parseo con strings YYYY-MM-DD vs DD/MM/YYYY.
+    const fiRaw=normalizeFechaIso(document.getElementById('fechaInicio').value);
+    const ffRaw=normalizeFechaIso(document.getElementById('fechaFin').value);
+    const fi=fiRaw?new Date(fiRaw+'T12:00:00'):null;
+    const ff=ffRaw?new Date(ffRaw+'T12:00:00'):null;
     try{
         if(fi&&ff)_fpFechaViaje.setDate([fi,ff],false);
         else if(fi)_fpFechaViaje.setDate(fi,false);
