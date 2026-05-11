@@ -3186,7 +3186,7 @@ function recalcRow(opId,autoFill){
 // ===== HOSPEDAJE INCLUIDO =====
 function addHospedaje(hotel,fechaInicio,fechaFin){
     const c=document.getElementById('hospedajeContainer');const d=document.createElement('div');d.className='service-item';d.draggable=true;
-    d.innerHTML=`<span class="drag-handle" draggable="false">&#9776;</span><input type="text" class="h-hotel" value="${esc(hotel||'')}" placeholder="Nombre del hotel" style="flex:1;" oninput="updatePreview()"><input type="date" class="h-fi" value="${esc(fechaInicio||'')}" style="width:135px;flex:none;" oninput="updatePreview()" title="Fecha entrada"><input type="date" class="h-ff" value="${esc(fechaFin||'')}" style="width:135px;flex:none;" oninput="updatePreview()" title="Fecha salida"><button class="btn-icon remove" onclick="this.parentElement.remove();updatePreview();">&times;</button>`;
+    d.innerHTML=`<span class="drag-handle" draggable="false">&#9776;</span><input type="text" class="h-hotel" list="hotelesDatalist" value="${esc(hotel||'')}" placeholder="Nombre del hotel" style="flex:1;" oninput="updatePreview()"><input type="date" class="h-fi" value="${esc(fechaInicio||'')}" style="width:135px;flex:none;" oninput="updatePreview()" title="Fecha entrada"><input type="date" class="h-ff" value="${esc(fechaFin||'')}" style="width:135px;flex:none;" oninput="updatePreview()" title="Fecha salida"><button class="btn-icon remove" onclick="this.parentElement.remove();updatePreview();">&times;</button>`;
     c.appendChild(d);updatePreview();
 }
 
