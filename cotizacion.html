@@ -1140,7 +1140,7 @@ onAuthStateChanged(fbAuth, (user) => {
 
 <!-- VIEW: CONTACTOS (sin ventas) -->
 <div class="app-view view-list" id="viewClientes">
-    <div class="list-search"><input type="text" id="clientesSearch" placeholder="Buscar por nombre, email, documento..." oninput="renderClientes()"><select id="clientesFilterCreador" onchange="renderClientes()"><option value="">Todos los que ingresaron</option></select></div>
+    <div class="list-search"><input type="text" id="clientesSearch" placeholder="Buscar por nombre, email, documento..." oninput="renderClientes()"><select id="clientesFilterCreador" onchange="onContactosFilterCreadorChange()"><option value="">Todos los que ingresaron</option></select></div>
     <div class="list-view" id="clientesGrid"></div>
 </div>
 
@@ -4730,10 +4730,21 @@ function renderListadoContactos(mode){
     if(!isClientes){
         const sel=document.getElementById('clientesFilterCreador');
         if(sel){
-            const cur=sel.value;
+            // Determinar el valor a preservar: prioridad
+            //   1) Lo que ya estaba seleccionado en este render (cur).
+            //   2) Lo que la usuaria eligio anteriormente (localStorage).
+            //   3) Default: el nombre del usuario actualmente logueado.
+            let cur=sel.value;
+            if(!cur){try{cur=localStorage.getItem('dv_contactos_filter_creador')||'';}catch(e){}}
             const setU=new Set();base.forEach(c=>{const u=creadorNombreDe(c);if(u)setU.add(u);});
             const lista=Array.from(setU).sort((a,b)=>a.localeCompare(b));
             sel.innerHTML='<option value="">Todos los que ingresaron</option>'+lista.map(u=>`<option value="${esc(u)}">${esc(u)}</option>`).join('');
+            // Si no hay preferencia previa, intentar arrancar filtrando por el usuario actual
+            if(!cur){
+                const myEmail=(window.currentUser&&window.currentUser.email)||'';
+                const myName=myEmail?(matchEncargadoDesdeEmail(myEmail,encargados)||myEmail):'';
+                if(myName&&lista.includes(myName))cur=myName;
+            }
             if(cur&&lista.includes(cur))sel.value=cur;
         }
     }
@@ -4781,6 +4792,11 @@ function renderListadoContactos(mode){
 }
 function renderClientes(){renderListadoContactos('contactos');}
 function renderClientesVentas(){renderListadoContactos('clientes');}
+function onContactosFilterCreadorChange(){
+    const sel=document.getElementById('clientesFilterCreador');
+    try{localStorage.setItem('dv_contactos_filter_creador',sel?sel.value:'');}catch(e){}
+    renderClientes();
+}
 
 // ===== CAPTURA RAPIDA (FAB) =====
 let _crEtiquetas=[];
