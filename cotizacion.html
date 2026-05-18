@@ -4713,24 +4713,32 @@ function renderListadoContactos(mode){
     const search=(document.getElementById(searchId)?.value||'').toLowerCase();
     const base=clientes.filter(c=>isClientes?idsConVenta.has(c.id):!idsConVenta.has(c.id));
     // Helper para obtener quien creo el contacto (con fallback a bitacora vieja o asignadoA)
-    const creadorDe=c=>{
+    const creadorEmailDe=c=>{
         if(c.creadoPor)return c.creadoPor;
         if(Array.isArray(c.bitacora)){const cap=c.bitacora.find(b=>b&&b.tipo==='captura');if(cap&&cap.usuarioEmail)return cap.usuarioEmail;}
         return c.asignadoA||'';
     };
-    // Poblar el select de creador (solo para la vista de Contactos)
+    // Mapea email a nombre del encargado (usando los nombres de Configuracion). Si no hay match, devuelve el email tal cual.
+    const encargados=(cfgGet().encargados||[]).filter(Boolean);
+    const creadorNombreDe=c=>{
+        const email=creadorEmailDe(c);
+        if(!email)return '';
+        const m=matchEncargadoDesdeEmail(email,encargados);
+        return m||email;
+    };
+    // Poblar el select de creador (solo para la vista de Contactos), mostrando nombre del usuario
     if(!isClientes){
         const sel=document.getElementById('clientesFilterCreador');
         if(sel){
             const cur=sel.value;
-            const setU=new Set();base.forEach(c=>{const u=creadorDe(c);if(u)setU.add(u);});
-            const lista=Array.from(setU).sort();
+            const setU=new Set();base.forEach(c=>{const u=creadorNombreDe(c);if(u)setU.add(u);});
+            const lista=Array.from(setU).sort((a,b)=>a.localeCompare(b));
             sel.innerHTML='<option value="">Todos los que ingresaron</option>'+lista.map(u=>`<option value="${esc(u)}">${esc(u)}</option>`).join('');
             if(cur&&lista.includes(cur))sel.value=cur;
         }
     }
     const filterCreador=isClientes?'':(document.getElementById('clientesFilterCreador')?.value||'');
-    const filtered=base.filter(c=>{const text=[c.nombreCompleto,c.email,c.telefono,c.numeroDocumento,c.empresa,c.estado,c.origen,(c.etiquetas||[]).join(' ')].join(' ').toLowerCase();const matchSearch=!search||text.includes(search);const matchCre=!filterCreador||creadorDe(c)===filterCreador;return matchSearch&&matchCre;});
+    const filtered=base.filter(c=>{const text=[c.nombreCompleto,c.email,c.telefono,c.numeroDocumento,c.empresa,c.estado,c.origen,(c.etiquetas||[]).join(' ')].join(' ').toLowerCase();const matchSearch=!search||text.includes(search);const matchCre=!filterCreador||creadorNombreDe(c)===filterCreador;return matchSearch&&matchCre;});
     if(!filtered.length){
         const titulo=search?'Sin resultados':(isClientes?'Sin clientes':'Sin contactos');
         const subt=isClientes?'Los contactos pasan a Clientes cuando se les registra una venta.':'Los contactos se crean al guardar cotizaciones o manualmente.';
