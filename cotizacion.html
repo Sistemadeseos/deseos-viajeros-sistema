@@ -2495,6 +2495,7 @@ function renderConfigAlertas(){
 function renderConfigAgencia(){
     const cfg=cfgGet();
     const a=cfg.agencyInfo;
+    const claveActual=getLSObj('dv_config').pagoLockClave||'';
     const pane=document.getElementById('cfgPane-agencia');
     pane.innerHTML=`<p class="config-hint">Datos de contacto de la agencia que aparecen en el encabezado de la cotizaci\u00f3n.</p>
     <div class="config-fee-grid">
@@ -2503,7 +2504,10 @@ function renderConfigAgencia(){
         <div><label>Tel\u00e9fono</label><input type="text" id="cfgAg-telefono" value="${esc(a.telefono)}" placeholder="Ej: 8888-8888"></div>
         <div><label>C\u00e9dula jur\u00eddica</label><input type="text" id="cfgAg-cedula" value="${esc(a.cedula)}" placeholder="Ej: 3-102-000000"></div>
         <div><label>Eslogan (breve)</label><input type="text" id="cfgAg-slogan" value="${esc(a.slogan)}" placeholder="Aqu\u00ed inicia tu viaje..."></div>
-    </div>`;
+    </div>
+    <h3 style="margin-top:18px;">Seguridad de pagos</h3>
+    <p class="config-hint" style="margin-top:0;">Clave que se va a pedir antes de <strong>modificar o eliminar</strong> un pago registrado. Si la dej\u00e1s vac\u00eda, no se pide clave (solo confirmaci\u00f3n). Es una clave compartida del equipo, no la contrase\u00f1a de Firebase.</p>
+    <div class="config-fee-grid"><div><label>Clave para pagos</label><input type="text" id="cfgPagoLockClave" value="${esc(claveActual)}" placeholder="Ej: 1234 (dejar vac\u00edo para desactivar)"></div></div>`;
 }
 
 function switchConfigSubTab(name){
@@ -2763,6 +2767,9 @@ function saveConfigFromUI(){
     const prev=getLSObj('dv_config');
     if(prev.reciboHeader)c.reciboHeader=prev.reciboHeader;
     if(prev.edcHeader)c.edcHeader=prev.edcHeader;
+    // Clave de pagos (configurada en la pestaña Agencia)
+    const claveInput=document.getElementById('cfgPagoLockClave');
+    c.pagoLockClave=claveInput?(claveInput.value||''):(prev.pagoLockClave||'');
     saveConfig(c);
     populateEncargadosSelect();
     populateAlertaPresets();
@@ -4689,7 +4696,17 @@ function updatePagoFormUI(){
     }
 }
 
+// Pide la clave configurada para modificar/eliminar pagos. Si no hay clave configurada, deja pasar.
+function requerirClavePago(accion){
+    const clave=(getLSObj('dv_config').pagoLockClave||'').trim();
+    if(!clave)return true; // sin proteccion
+    const intento=prompt('Ingrese la clave para '+accion+' este pago:');
+    if(intento===null)return false; // cancel
+    if(String(intento).trim()!==clave){alert('Clave incorrecta. No se puede '+accion+' el pago.');return false;}
+    return true;
+}
 function editarPago(pagoId){
+    if(!requerirClavePago('modificar'))return;
     const ventaId=document.getElementById('cobVentaId').value;
     const ventas=getVentas();
     const v=ventas.find(x=>x.id===ventaId);
@@ -4758,6 +4775,7 @@ function cancelarEdicionPago(){
 }
 
 function removePago(pagoId){
+    if(!requerirClavePago('eliminar'))return;
     if(!confirm('\u00bfEliminar este pago?'))return;
     const ventaId=document.getElementById('cobVentaId').value;
     const ventas=getVentas();
