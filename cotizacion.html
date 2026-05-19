@@ -4785,6 +4785,9 @@ function renderDocumento(tipo,ventaId,pagoId){
     // Cliente display
     const clienteNombre=v.clienteNombre||(cli&&cli.nombreCompleto)||'Sin nombre';
     const clienteDoc=(cli&&(cli.tipoDocumento||cli.numeroDocumento))?[cli.tipoDocumento,cli.numeroDocumento].filter(Boolean).join(' '):'';
+    // Acompañantes del viaje (cargados en el modal de info de venta o en venta grupal)
+    const acompList=(Array.isArray(v.acompanantes)?v.acompanantes:[]).map(a=>typeof a==='string'?a:(a&&a.nombre?a.nombre:'')).filter(Boolean);
+    const acompanantesHtml=acompList.length?`<div style="margin-top:6px;font-size:0.78rem;color:var(--text-light);"><strong style="color:var(--text);">Acompa&ntilde;antes:</strong><ul style="margin:2px 0 0 16px;padding:0;">${acompList.map(n=>`<li>${esc(n)}</li>`).join('')}</ul></div>`:'';
     const clienteEmail=cli?cli.email:'';
     const clienteTel=cli?cli.telefono:'';
     // Encabezado fijo configurado en Configuración (imagen distinta para recibo vs estado de cuenta)
@@ -4807,7 +4810,7 @@ function renderDocumento(tipo,ventaId,pagoId){
         </div>
         <div class="recibo-body">
             <div class="recibo-meta">
-                <div class="meta-block"><div class="meta-label">Recibimos de</div><div class="meta-value">${esc(clienteNombre)}</div>${clienteDoc?'<div style="font-size:0.78rem;color:var(--text-light);">'+esc(clienteDoc)+'</div>':''}${clienteEmail?'<div style="font-size:0.78rem;color:var(--text-light);">'+esc(clienteEmail)+'</div>':''}${clienteTel?'<div style="font-size:0.78rem;color:var(--text-light);">Tel: '+esc(clienteTel)+'</div>':''}</div>
+                <div class="meta-block"><div class="meta-label">Recibimos de</div><div class="meta-value">${esc(clienteNombre)}</div>${clienteDoc?'<div style="font-size:0.78rem;color:var(--text-light);">'+esc(clienteDoc)+'</div>':''}${clienteEmail?'<div style="font-size:0.78rem;color:var(--text-light);">'+esc(clienteEmail)+'</div>':''}${clienteTel?'<div style="font-size:0.78rem;color:var(--text-light);">Tel: '+esc(clienteTel)+'</div>':''}${acompanantesHtml}</div>
                 <div class="meta-block" style="text-align:right;"><div class="meta-label">Fecha de emisi\u00f3n</div><div class="meta-value">${fechaDoc}</div><div class="meta-label" style="margin-top:8px;">Fecha del pago</div><div class="meta-value">${esc(pago.fecha)}</div></div>
             </div>
             <div class="recibo-section-title">Concepto del pago</div>
@@ -4840,7 +4843,7 @@ function renderDocumento(tipo,ventaId,pagoId){
         </div>
         <div class="recibo-body">
             <div class="recibo-meta">
-                <div class="meta-block"><div class="meta-label">Cliente</div><div class="meta-value">${esc(clienteNombre)}</div>${clienteDoc?'<div style="font-size:0.78rem;color:var(--text-light);">'+esc(clienteDoc)+'</div>':''}${clienteEmail?'<div style="font-size:0.78rem;color:var(--text-light);">'+esc(clienteEmail)+'</div>':''}${clienteTel?'<div style="font-size:0.78rem;color:var(--text-light);">Tel: '+esc(clienteTel)+'</div>':''}</div>
+                <div class="meta-block"><div class="meta-label">Cliente</div><div class="meta-value">${esc(clienteNombre)}</div>${clienteDoc?'<div style="font-size:0.78rem;color:var(--text-light);">'+esc(clienteDoc)+'</div>':''}${clienteEmail?'<div style="font-size:0.78rem;color:var(--text-light);">'+esc(clienteEmail)+'</div>':''}${clienteTel?'<div style="font-size:0.78rem;color:var(--text-light);">Tel: '+esc(clienteTel)+'</div>':''}${acompanantesHtml}</div>
                 <div class="meta-block" style="text-align:right;"><div class="meta-label">Fecha de emisi\u00f3n</div><div class="meta-value">${fechaDoc}</div><div class="meta-label" style="margin-top:8px;">Viaje</div><div class="meta-value">${esc(v.destino)}</div>${v.fechaInicio?'<div style="font-size:0.78rem;color:var(--text-light);">'+formatDateRange(v.fechaInicio,v.fechaFin)+'</div>':''}</div>
             </div>
             <div class="recibo-section-title">Historial de pagos</div>
