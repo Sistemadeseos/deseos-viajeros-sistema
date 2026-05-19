@@ -4764,7 +4764,7 @@ function renderDocumento(tipo,ventaId,pagoId){
     const docNum=(tipo==='recibo'?'REC-':'EDC-')+new Date(v.fechaCreacion||Date.now()).getFullYear()+'-'+String(v.id||'').slice(-6);
     // Cliente display
     const clienteNombre=v.clienteNombre||(cli&&cli.nombreCompleto)||'Sin nombre';
-    const clienteDoc=cli?(cli.tipoDocumento+' '+cli.numeroDocumento):'';
+    const clienteDoc=(cli&&(cli.tipoDocumento||cli.numeroDocumento))?[cli.tipoDocumento,cli.numeroDocumento].filter(Boolean).join(' '):'';
     const clienteEmail=cli?cli.email:'';
     const clienteTel=cli?cli.telefono:'';
     // Encabezado fijo configurado en Configuración (imagen distinta para recibo vs estado de cuenta)
