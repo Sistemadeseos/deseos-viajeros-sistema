@@ -1425,7 +1425,7 @@ onAuthStateChanged(fbAuth, (user) => {
         <div class="form-group"><label style="display:flex;align-items:center;gap:8px;">Plan de pago <button type="button" class="btn btn-sm btn-ghost" style="font-size:0.7rem;padding:3px 8px;" onclick="distribuirPlanPagoVe()" title="Divide el monto total en partes iguales">Distribuir total</button></label><p style="font-size:0.7rem;color:var(--text-light);margin-top:0;margin-bottom:6px;">Una fila por mes desde la fecha de la venta hasta la fecha de inicio del viaje.</p><div id="vePlanPagoBox"></div></div>
         <div class="form-group"><label>Notas</label><textarea id="veNotas" rows="2" placeholder="Notas adicionales..."></textarea></div>
     </div>
-    <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modalVentaInfoExtra')">Saltar</button><button class="btn btn-success" onclick="guardarVentaInfoExtra()">Guardar info de venta</button></div>
+    <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modalVentaInfoExtra')">Saltar</button><button class="btn btn-success" id="veBtnGuardar" onclick="guardarVentaInfoExtra()">Guardar info de venta</button></div>
 </div></div>
 
 <script>
@@ -3930,6 +3930,16 @@ function actualizarTotalPlanPagoVe(){
         else if(diff>0){delta.textContent='Falta '+sym+diff.toFixed(2);delta.style.color='var(--danger)';}
         else{delta.textContent='Excede en '+sym+Math.abs(diff).toFixed(2);delta.style.color='var(--accent-dark)';}
     }
+    // Bloquear "Guardar info de venta" si el plan de pago no cuadra con el total de la venta
+    const btn=document.getElementById('veBtnGuardar');
+    if(btn){
+        const tieneFilas=document.querySelectorAll('input.ve-pp-monto').length>0;
+        const bloquear=total>0&&tieneFilas&&Math.abs(diff)>=0.01;
+        btn.disabled=bloquear;
+        btn.style.opacity=bloquear?'0.5':'';
+        btn.style.cursor=bloquear?'not-allowed':'';
+        btn.title=bloquear?'El plan de pago no coincide con el total de la venta. Ajustalo antes de guardar.':'';
+    }
 }
 function distribuirPlanPagoVe(){
     const inputs=Array.from(document.querySelectorAll('input.ve-pp-monto'));
@@ -3947,6 +3957,12 @@ function guardarVentaInfoExtra(){
     const v=ventas.find(x=>x.id===ventaId);
     if(!v){alert('Venta no encontrada.');return;}
     const monto=parseFloat(document.getElementById('veMonto').value)||0;
+    // Validar plan de pago vs total
+    const inputsPP=Array.from(document.querySelectorAll('input.ve-pp-monto'));
+    if(monto>0&&inputsPP.length>0){
+        const sumaPP=inputsPP.reduce((s,i)=>s+(parseFloat(i.value)||0),0);
+        if(Math.abs(monto-sumaPP)>=0.01){alert('El plan de pago no coincide con el total de la venta. Ajustalo antes de guardar.');return;}
+    }
     const moneda=document.getElementById('veMoneda').value||'USD';
     const nAd=Math.max(0,parseInt(document.getElementById('veAcompAd').value||'0',10));
     const nNi=Math.max(0,parseInt(document.getElementById('veAcompNino').value||'0',10));
