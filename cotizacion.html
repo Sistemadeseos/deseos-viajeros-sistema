@@ -429,6 +429,12 @@ body{font-family:'Open Sans',sans-serif;background:var(--bg);color:var(--text);m
 .hotel-row{display:grid;grid-template-columns:1.2fr 1fr 1fr auto;gap:6px;align-items:center}
 .hotel-row input{padding:5px 8px;font-size:0.8rem;border:1px solid var(--border);border-radius:4px}
 .hotel-row input:focus{outline:none;border-color:var(--primary)}
+/* Pantalla de inicio: solo logo centrado */
+.inicio-hero{display:flex;align-items:center;justify-content:center;min-height:calc(100vh - 120px);text-align:center;padding:40px 20px}
+.inicio-logo{max-width:480px}
+.inicio-brand{font-family:'Playfair Display',serif;color:var(--primary-dark);font-size:2.6rem;font-weight:700;letter-spacing:1px;line-height:1.1}
+.inicio-slogan{font-family:'Dancing Script',cursive;color:var(--primary);font-size:1.8rem;margin-top:10px;font-weight:700}
+@media (max-width:600px){.inicio-brand{font-size:1.9rem}.inicio-slogan{font-size:1.4rem}}
 /* Quitar flechas de spinner en los inputs de plan de pago (venta grupal y personalizada) */
 input.vg-pp-monto::-webkit-inner-spin-button,input.vg-pp-monto::-webkit-outer-spin-button,input.ve-pp-monto::-webkit-inner-spin-button,input.ve-pp-monto::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
 input.vg-pp-monto,input.ve-pp-monto{-moz-appearance:textfield;appearance:textfield}
@@ -694,7 +700,7 @@ input.vg-pp-monto,input.ve-pp-monto{-moz-appearance:textfield;appearance:textfie
 @media print{
     *{print-color-adjust:exact!important;-webkit-print-color-adjust:exact!important}
     html,body{margin:0!important;padding:0!important;overflow:visible!important;background:white!important;width:100%!important;height:auto!important}
-    .app-sidebar,.form-panel,.form-panel-splitter,.app-header,.cot-adjuntos-page,.modal-overlay,.img-lightbox,#viewDashboard,#viewConfiguracion,#viewHistorial,#viewEncabezados,#viewVentas,#viewClientes,#viewClientesVentas{display:none!important}
+    .app-sidebar,.form-panel,.form-panel-splitter,.app-header,.cot-adjuntos-page,.modal-overlay,.img-lightbox,#viewInicio,#viewDashboard,#viewConfiguracion,#viewHistorial,#viewEncabezados,#viewVentas,#viewClientes,#viewClientesVentas{display:none!important}
     .app-layout,.app-main,.main-views{display:block!important;height:auto!important;overflow:visible!important;width:100%!important}
 
     /* Modo imprimir COTIZACI\u00d3N: solo se ve el editor */
@@ -976,11 +982,12 @@ onAuthStateChanged(fbAuth, (user) => {
     </div>
     <div class="sidebar-section">
         <div class="sidebar-section-label">Inicio</div>
+        <div class="sidebar-item active" onclick="nav('inicio')"><span class="si-icon">&#127968;</span>Inicio</div>
         <div class="sidebar-item" onclick="nav('dashboard')"><span class="si-icon">&#128202;</span>Dashboard</div>
     </div>
     <div class="sidebar-section">
         <div class="sidebar-section-label">Cotizaciones</div>
-        <div class="sidebar-item active" onclick="nav('editor')"><span class="si-icon">&#9998;</span>Editor</div>
+        <div class="sidebar-item" onclick="nav('editor')"><span class="si-icon">&#9998;</span>Editor</div>
         <div class="sidebar-item" onclick="nav('historial')"><span class="si-icon">&#128203;</span>Historial<span class="si-badge" id="badgeHistorial"></span></div>
     </div>
     <div class="sidebar-section">
@@ -1015,7 +1022,17 @@ onAuthStateChanged(fbAuth, (user) => {
 </div>
 
 <!-- VIEW: EDITOR -->
-<div class="app-view view-editor active" id="viewEditor">
+<!-- VIEW: INICIO (pantalla limpia con el logo) -->
+<div class="app-view view-list active" id="viewInicio">
+    <div class="inicio-hero">
+        <div class="inicio-logo">
+            <div class="inicio-brand">Deseos Viajeros</div>
+            <div class="inicio-slogan">Aqu&iacute; inicia tu viaje...</div>
+        </div>
+    </div>
+</div>
+
+<div class="app-view view-editor" id="viewEditor">
 <div class="form-panel">
     <div class="format-tabs">
         <button class="format-tab active" data-format="america" onclick="switchFormat('america')">Am&eacute;rica</button>
@@ -2110,10 +2127,10 @@ function nav(view){
     if(view==='encabezados'){nav('configuracion');setTimeout(()=>{switchConfigTab('cotizacion');switchConfigSubTab('destinos');},0);return;}
     document.querySelectorAll('.sidebar-item').forEach(el=>el.classList.remove('active'));
     const items=document.querySelectorAll('.sidebar-item');
-    const map={dashboard:0,editor:1,historial:2,ventas:3,clientes:4,clientesventas:5,configuracion:6};
+    const map={inicio:0,dashboard:1,editor:2,historial:3,ventas:4,clientes:5,clientesventas:6,configuracion:7};
     if(map[view]!==undefined)items[map[view]].classList.add('active');
     document.querySelectorAll('.app-view').forEach(v=>v.classList.remove('active'));
-    const titles={dashboard:'Dashboard',editor:'Editor de Cotizaci\u00f3n',historial:'Historial de Cotizaciones',encabezados:'Destinos',ventas:'Ventas',clientes:'Contactos',clientesventas:'Clientes',configuracion:'Configuraci\u00f3n',documento:'Documento'};
+    const titles={inicio:'',dashboard:'Dashboard',editor:'Editor de Cotizaci\u00f3n',historial:'Historial de Cotizaciones',encabezados:'Destinos',ventas:'Ventas',clientes:'Contactos',clientesventas:'Clientes',configuracion:'Configuraci\u00f3n',documento:'Documento'};
     document.getElementById('headerTitle').textContent=titles[view]||'';
     const ha=document.getElementById('headerActions');
     if(view==='editor')ha.innerHTML='<button class="btn btn-outline" onclick="resetForm()">&#128260; Nueva</button><button class="btn btn-accent" onclick="window.print()">&#128424; Exportar PDF</button>';
@@ -2121,7 +2138,7 @@ function nav(view){
     else if(view==='clientesventas')ha.innerHTML='<button class="btn btn-accent" onclick="nuevoClienteConVenta()">+ Nuevo Cliente</button>';
     else if(view==='dashboard')ha.innerHTML='<button class="btn btn-outline" onclick="renderDashboard()">&#8635; Actualizar</button>';
     else ha.innerHTML='';
-    const viewIds={dashboard:'viewDashboard',editor:'viewEditor',historial:'viewHistorial',encabezados:'viewEncabezados',ventas:'viewVentas',clientes:'viewClientes',clientesventas:'viewClientesVentas',configuracion:'viewConfiguracion',documento:'viewDocumento'};
+    const viewIds={inicio:'viewInicio',dashboard:'viewDashboard',editor:'viewEditor',historial:'viewHistorial',encabezados:'viewEncabezados',ventas:'viewVentas',clientes:'viewClientes',clientesventas:'viewClientesVentas',configuracion:'viewConfiguracion',documento:'viewDocumento'};
     document.getElementById(viewIds[view]).classList.add('active');
     if(view==='dashboard')renderDashboard();
     if(view==='historial')renderHistorial();
@@ -2832,6 +2849,8 @@ function init(){
         if(thumbBox){thumbBox.style.display='';}
     }
     addOpcion();populatePaisSelect();initAllDrag();initFormPanelResize();restoreFormPanelWidth();updatePreview();updateBadges();setupDateRangePicker();
+    // Arrancar siempre en la pantalla Inicio (no en el Editor)
+    try{nav('inicio');}catch(e){}
 }
 
 // ===== SECTION TOGGLE =====
