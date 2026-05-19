@@ -1412,7 +1412,14 @@ onAuthStateChanged(fbAuth, (user) => {
         <p style="color:var(--text-light);font-size:0.78rem;margin-bottom:10px;">La cotizaci&oacute;n fue aceptada y se cre&oacute; la venta. Complet&aacute; los detalles adicionales (opcional, pod&eacute;s saltarlo y editarlo despu&eacute;s).</p>
         <input type="hidden" id="veVentaId">
         <div class="form-row"><div class="form-group"><label>Monto total de la venta</label><input type="number" id="veMonto" step="0.01" placeholder="0" oninput="renderVePlanPago()"></div><div class="form-group"><label>Moneda</label><select id="veMoneda" onchange="renderVePlanPago()"><option value="USD">USD</option><option value="CRC">CRC</option><option value="EUR">EUR</option></select></div></div>
-        <div class="form-row"><div class="form-group"><label>Fecha de la venta</label><input type="date" id="veFechaVenta" onchange="renderVePlanPago()"></div><div class="form-group"><label>N&uacute;mero de acompa&ntilde;antes</label><input type="number" id="veAcompCount" min="0" step="1" value="0" oninput="renderVeAcompanantes()"></div></div>
+        <div class="form-group"><label>Fecha de la venta</label><input type="date" id="veFechaVenta" onchange="renderVePlanPago()"></div>
+        <div class="form-group"><label>Acompa&ntilde;antes <span style="font-weight:400;font-size:0.7rem;color:var(--text-light);">(no se cuenta el titular)</span></label>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <div style="flex:1;min-width:90px;"><label style="font-size:0.7rem;color:var(--text-light);">Adultos</label><input type="number" id="veAcompAd" min="0" step="1" value="0" oninput="renderVeAcompanantes()"></div>
+                <div style="flex:1;min-width:90px;"><label style="font-size:0.7rem;color:var(--text-light);">Ni&ntilde;os 2-11</label><input type="number" id="veAcompNino" min="0" step="1" value="0" oninput="renderVeAcompanantes()"></div>
+                <div style="flex:1;min-width:90px;"><label style="font-size:0.7rem;color:var(--text-light);">Beb&eacute;s 0-23m</label><input type="number" id="veAcompBebe" min="0" step="1" value="0" oninput="renderVeAcompanantes()"></div>
+            </div>
+        </div>
         <div id="veAcompContainer" style="display:none;margin-bottom:10px;"><label style="display:block;font-weight:600;font-size:0.78rem;color:var(--text-light);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.5px;">Nombres de acompa&ntilde;antes</label><div id="veAcompList" style="display:flex;flex-direction:column;gap:5px;"></div></div>
         <div class="form-group"><label style="display:flex;align-items:center;gap:8px;">Plan de pago <button type="button" class="btn btn-sm btn-ghost" style="font-size:0.7rem;padding:3px 8px;" onclick="distribuirPlanPagoVe()" title="Divide el monto total en partes iguales">Distribuir total</button></label><p style="font-size:0.7rem;color:var(--text-light);margin-top:0;margin-bottom:6px;">Una fila por mes desde la fecha de la venta hasta la fecha de inicio del viaje.</p><div id="vePlanPagoBox"></div></div>
         <div class="form-group"><label>Notas</label><textarea id="veNotas" rows="2" placeholder="Notas adicionales..."></textarea></div>
@@ -3803,38 +3810,75 @@ function openModalVentaInfoExtra(ventaId){
     document.getElementById('veMonto').value=cob.montoTotal||'';
     document.getElementById('veMoneda').value=cob.moneda||'USD';
     document.getElementById('veFechaVenta').value=v.fechaVenta||(v.fechaCreacion?String(v.fechaCreacion).slice(0,10):new Date().toISOString().slice(0,10));
-    let numAc=v.numAcompanantes!=null?v.numAcompanantes:(Array.isArray(v.acompanantes)?v.acompanantes.length:0);
-    // Auto-completar desde "Pax del grupo" de la cotizacion si la venta aun no tiene acompañantes definidos
-    if(numAc===0&&v.cotizacionId){
+    // Determinar conteo de acompañantes por tipo. Prioridad:
+    //   1) Campos detallados ya guardados en la venta (numAcompAdultos/Ninos/Bebes).
+    //   2) Si solo hay numAcompanantes legacy, lo asignamos todo a adultos.
+    //   3) Si esta vacio, lo tomamos de "Pax del grupo" de la cotizacion (ad-1, n11, n3).
+    let nAd=0,nNi=0,nBe=0;
+    if(v.numAcompAdultos!=null||v.numAcompNinos!=null||v.numAcompBebes!=null){
+        nAd=parseInt(v.numAcompAdultos||0,10)||0;
+        nNi=parseInt(v.numAcompNinos||0,10)||0;
+        nBe=parseInt(v.numAcompBebes||0,10)||0;
+    }else if(v.numAcompanantes>0){
+        nAd=v.numAcompanantes;
+    }else if(v.cotizacionId){
         const cot=getHistorial().find(h=>h.id===v.cotizacionId);
         const opciones=cot&&cot.data&&Array.isArray(cot.data.opciones)?cot.data.opciones:[];
         const opConPax=opciones.find(o=>o&&o.calc&&o.calc.paxCount);
         if(opConPax){
             const pc=opConPax.calc.paxCount||{};
-            const total=(parseInt(pc.ad||0,10)||0)+(parseInt(pc.n11||0,10)||0)+(parseInt(pc.n3||0,10)||0);
-            if(total>0)numAc=Math.max(0,total-1); // el titular cuenta como 1; los demas son acompañantes
+            const ad=parseInt(pc.ad||0,10)||0;
+            nAd=Math.max(0,ad-1); // descontamos al titular
+            nNi=parseInt(pc.n11||0,10)||0;
+            nBe=parseInt(pc.n3||0,10)||0;
         }
     }
-    document.getElementById('veAcompCount').value=numAc;
+    document.getElementById('veAcompAd').value=nAd;
+    document.getElementById('veAcompNino').value=nNi;
+    document.getElementById('veAcompBebe').value=nBe;
     document.getElementById('veNotas').value=v.notas||'';
     renderVeAcompanantes();
-    // Rellenar nombres ya guardados
-    const inputs=document.querySelectorAll('#veAcompList input.ve-acomp');
-    (v.acompanantes||[]).forEach((nom,i)=>{if(inputs[i])inputs[i].value=nom;});
+    // Rellenar nombres ya guardados (acompanantes puede ser array de strings legacy o de objetos {nombre,tipo})
+    const prevNames={adulto:[],nino:[],bebe:[]};
+    (v.acompanantes||[]).forEach(a=>{
+        if(typeof a==='string'){prevNames.adulto.push(a);}
+        else if(a&&typeof a==='object'){const t=a.tipo==='nino'||a.tipo==='bebe'?a.tipo:'adulto';prevNames[t].push(a.nombre||'');}
+    });
+    ['adulto','nino','bebe'].forEach(t=>{
+        const inputs=document.querySelectorAll(`#veAcompList input.ve-acomp[data-tipo="${t}"]`);
+        prevNames[t].forEach((nom,i)=>{if(inputs[i])inputs[i].value=nom;});
+    });
     renderVePlanPago();
     // Rellenar montos del plan de pago si ya existian
     (v.planPago||[]).forEach(p=>{const inp=document.querySelector(`input.ve-pp-monto[data-mes="${p.mes}"]`);if(inp)inp.value=p.monto!=null?p.monto:'';});
     document.getElementById('modalVentaInfoExtra').classList.add('open');
 }
 function renderVeAcompanantes(){
-    const n=Math.max(0,parseInt(document.getElementById('veAcompCount').value||'0',10));
+    const nAd=Math.max(0,parseInt(document.getElementById('veAcompAd').value||'0',10));
+    const nNi=Math.max(0,parseInt(document.getElementById('veAcompNino').value||'0',10));
+    const nBe=Math.max(0,parseInt(document.getElementById('veAcompBebe').value||'0',10));
     const cont=document.getElementById('veAcompContainer');
     const list=document.getElementById('veAcompList');
-    const prev=Array.from(list.querySelectorAll('input.ve-acomp')).map(i=>i.value);
-    if(n<=0){cont.style.display='none';list.innerHTML='';return;}
+    // Conservar los valores ya tipeados por tipo
+    const prev={adulto:[],nino:[],bebe:[]};
+    Array.from(list.querySelectorAll('input.ve-acomp')).forEach(inp=>{const t=inp.dataset.tipo||'adulto';prev[t].push(inp.value);});
+    const total=nAd+nNi+nBe;
+    if(total<=0){cont.style.display='none';list.innerHTML='';return;}
     cont.style.display='';
+    const grupos=[
+        {tipo:'adulto',label:'Adultos',n:nAd},
+        {tipo:'nino',label:'Ni&ntilde;os (2-11)',n:nNi},
+        {tipo:'bebe',label:'Beb&eacute;s (0-23m)',n:nBe}
+    ];
     let html='';
-    for(let i=0;i<n;i++){html+=`<input type="text" class="ve-acomp" placeholder="Acompa&ntilde;ante ${i+1}" value="${esc(prev[i]||'')}" style="padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:0.85rem;">`;}
+    grupos.forEach(g=>{
+        if(g.n<=0)return;
+        html+=`<div style="margin-top:4px;"><div style="font-size:0.7rem;color:var(--text-light);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:2px;">${g.label}</div>`;
+        for(let i=0;i<g.n;i++){
+            html+=`<input type="text" class="ve-acomp" data-tipo="${g.tipo}" placeholder="${g.label.replace(/&[a-z]+;/g,'').trim()} ${i+1}" value="${esc(prev[g.tipo][i]||'')}" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:0.82rem;margin-bottom:3px;width:100%;">`;
+        }
+        html+='</div>';
+    });
     list.innerHTML=html;
 }
 function renderVePlanPago(){
@@ -3883,11 +3927,17 @@ function guardarVentaInfoExtra(){
     if(!v){alert('Venta no encontrada.');return;}
     const monto=parseFloat(document.getElementById('veMonto').value)||0;
     const moneda=document.getElementById('veMoneda').value||'USD';
-    const numAc=Math.max(0,parseInt(document.getElementById('veAcompCount').value||'0',10));
-    const acompanantes=Array.from(document.querySelectorAll('#veAcompList input.ve-acomp')).map(i=>i.value.trim()).filter(Boolean);
+    const nAd=Math.max(0,parseInt(document.getElementById('veAcompAd').value||'0',10));
+    const nNi=Math.max(0,parseInt(document.getElementById('veAcompNino').value||'0',10));
+    const nBe=Math.max(0,parseInt(document.getElementById('veAcompBebe').value||'0',10));
+    const numAc=nAd+nNi+nBe;
+    const acompanantes=Array.from(document.querySelectorAll('#veAcompList input.ve-acomp')).map(i=>({nombre:i.value.trim(),tipo:i.dataset.tipo||'adulto'})).filter(a=>a.nombre);
     const planPago=Array.from(document.querySelectorAll('input.ve-pp-monto')).map(i=>{const m=parseFloat(i.value);return{mes:i.dataset.mes,monto:isFinite(m)?m:0};});
     v.fechaVenta=document.getElementById('veFechaVenta').value||v.fechaVenta||'';
     v.numAcompanantes=numAc;
+    v.numAcompAdultos=nAd;
+    v.numAcompNinos=nNi;
+    v.numAcompBebes=nBe;
     v.acompanantes=acompanantes;
     v.planPago=planPago;
     v.notas=document.getElementById('veNotas').value.trim();
