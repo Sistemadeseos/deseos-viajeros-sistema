@@ -429,6 +429,9 @@ body{font-family:'Open Sans',sans-serif;background:var(--bg);color:var(--text);m
 .hotel-row{display:grid;grid-template-columns:1.2fr 1fr 1fr auto;gap:6px;align-items:center}
 .hotel-row input{padding:5px 8px;font-size:0.8rem;border:1px solid var(--border);border-radius:4px}
 .hotel-row input:focus{outline:none;border-color:var(--primary)}
+/* Quitar flechas de spinner en los inputs de plan de pago (venta grupal y personalizada) */
+input.vg-pp-monto::-webkit-inner-spin-button,input.vg-pp-monto::-webkit-outer-spin-button,input.ve-pp-monto::-webkit-inner-spin-button,input.ve-pp-monto::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+input.vg-pp-monto,input.ve-pp-monto{-moz-appearance:textfield;appearance:textfield}
 @media (max-width:700px){.hotel-row{grid-template-columns:1fr auto;gap:4px}.hotel-row input:nth-child(2),.hotel-row input:nth-child(3){grid-column:1/-1}}
 .config-pane h3{font-family:'Playfair Display',serif;color:var(--primary-dark);font-size:1rem;margin-bottom:10px;margin-top:14px}
 .config-pane h3:first-child{margin-top:0}
