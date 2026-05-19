@@ -1405,6 +1405,21 @@ onAuthStateChanged(fbAuth, (user) => {
     <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modalVentaGrupal')">Cancelar</button><button class="btn btn-success" onclick="guardarVentaGrupal()">Guardar venta grupal</button></div>
 </div></div>
 
+<!-- Modal: Informacion extra de venta personalizada (despues de aceptar una cotizacion) -->
+<div class="modal-overlay" id="modalVentaInfoExtra"><div class="modal" style="max-width:560px;">
+    <div class="modal-header"><h3>Informaci&oacute;n de la venta</h3><button class="modal-close" onclick="closeModal('modalVentaInfoExtra')">&times;</button></div>
+    <div class="modal-body">
+        <p style="color:var(--text-light);font-size:0.78rem;margin-bottom:10px;">La cotizaci&oacute;n fue aceptada y se cre&oacute; la venta. Complet&aacute; los detalles adicionales (opcional, pod&eacute;s saltarlo y editarlo despu&eacute;s).</p>
+        <input type="hidden" id="veVentaId">
+        <div class="form-row"><div class="form-group"><label>Monto total de la venta</label><input type="number" id="veMonto" step="0.01" placeholder="0" oninput="renderVePlanPago()"></div><div class="form-group"><label>Moneda</label><select id="veMoneda" onchange="renderVePlanPago()"><option value="USD">USD</option><option value="CRC">CRC</option><option value="EUR">EUR</option></select></div></div>
+        <div class="form-row"><div class="form-group"><label>Fecha de la venta</label><input type="date" id="veFechaVenta" onchange="renderVePlanPago()"></div><div class="form-group"><label>N&uacute;mero de acompa&ntilde;antes</label><input type="number" id="veAcompCount" min="0" step="1" value="0" oninput="renderVeAcompanantes()"></div></div>
+        <div id="veAcompContainer" style="display:none;margin-bottom:10px;"><label style="display:block;font-weight:600;font-size:0.78rem;color:var(--text-light);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.5px;">Nombres de acompa&ntilde;antes</label><div id="veAcompList" style="display:flex;flex-direction:column;gap:5px;"></div></div>
+        <div class="form-group"><label style="display:flex;align-items:center;gap:8px;">Plan de pago <button type="button" class="btn btn-sm btn-ghost" style="font-size:0.7rem;padding:3px 8px;" onclick="distribuirPlanPagoVe()" title="Divide el monto total en partes iguales">Distribuir total</button></label><p style="font-size:0.7rem;color:var(--text-light);margin-top:0;margin-bottom:6px;">Una fila por mes desde la fecha de la venta hasta la fecha de inicio del viaje.</p><div id="vePlanPagoBox"></div></div>
+        <div class="form-group"><label>Notas</label><textarea id="veNotas" rows="2" placeholder="Notas adicionales..."></textarea></div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modalVentaInfoExtra')">Saltar</button><button class="btn btn-success" onclick="guardarVentaInfoExtra()">Guardar info de venta</button></div>
+</div></div>
+
 <script>
 // ===== STATE =====
 let currentFormat='america',tipoCliente='persona',logoDataUrl=null,editingId=null,selectedHeaderImg=null,watermarkDataUrl=null,adjuntos=[],dragEl=null;
@@ -3771,6 +3786,107 @@ function toggleAceptada(id){
         }
     }
     saveHistorial(hist);renderHistorial();updateBadges();
+    // Si se acepto recien, abrir modal de info extra para capturar acompañantes, plan de pago, etc.
+    if(entry.aceptada){
+        const ventas=getVentas();
+        const v=ventas.find(x=>x.cotizacionId===id);
+        if(v)openModalVentaInfoExtra(v.id);
+    }
+}
+
+// ===== INFO EXTRA DE VENTA PERSONALIZADA =====
+function openModalVentaInfoExtra(ventaId){
+    const v=getVentas().find(x=>x.id===ventaId);
+    if(!v){alert('Venta no encontrada.');return;}
+    document.getElementById('veVentaId').value=ventaId;
+    const cob=v.cobranza||{};
+    document.getElementById('veMonto').value=cob.montoTotal||'';
+    document.getElementById('veMoneda').value=cob.moneda||'USD';
+    document.getElementById('veFechaVenta').value=v.fechaVenta||(v.fechaCreacion?String(v.fechaCreacion).slice(0,10):new Date().toISOString().slice(0,10));
+    const numAc=v.numAcompanantes!=null?v.numAcompanantes:(Array.isArray(v.acompanantes)?v.acompanantes.length:0);
+    document.getElementById('veAcompCount').value=numAc;
+    document.getElementById('veNotas').value=v.notas||'';
+    renderVeAcompanantes();
+    // Rellenar nombres ya guardados
+    const inputs=document.querySelectorAll('#veAcompList input.ve-acomp');
+    (v.acompanantes||[]).forEach((nom,i)=>{if(inputs[i])inputs[i].value=nom;});
+    renderVePlanPago();
+    // Rellenar montos del plan de pago si ya existian
+    (v.planPago||[]).forEach(p=>{const inp=document.querySelector(`input.ve-pp-monto[data-mes="${p.mes}"]`);if(inp)inp.value=p.monto!=null?p.monto:'';});
+    document.getElementById('modalVentaInfoExtra').classList.add('open');
+}
+function renderVeAcompanantes(){
+    const n=Math.max(0,parseInt(document.getElementById('veAcompCount').value||'0',10));
+    const cont=document.getElementById('veAcompContainer');
+    const list=document.getElementById('veAcompList');
+    const prev=Array.from(list.querySelectorAll('input.ve-acomp')).map(i=>i.value);
+    if(n<=0){cont.style.display='none';list.innerHTML='';return;}
+    cont.style.display='';
+    let html='';
+    for(let i=0;i<n;i++){html+=`<input type="text" class="ve-acomp" placeholder="Acompa&ntilde;ante ${i+1}" value="${esc(prev[i]||'')}" style="padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:0.85rem;">`;}
+    list.innerHTML=html;
+}
+function renderVePlanPago(){
+    const box=document.getElementById('vePlanPagoBox');if(!box)return;
+    const desde=document.getElementById('veFechaVenta').value;
+    const v=getVentas().find(x=>x.id===document.getElementById('veVentaId').value);
+    const hasta=v?(v.fechaInicio||''):'';
+    const meses=mesesEntre(desde,hasta);
+    const prev={};Array.from(box.querySelectorAll('input.ve-pp-monto')).forEach(i=>{prev[i.dataset.mes]=i.value;});
+    if(!meses.length){box.innerHTML='<p style="font-size:0.78rem;color:var(--text-light);font-style:italic;">Cargue fecha de venta y la cotizaci&oacute;n debe tener fecha de inicio del viaje para generar el plan.</p>';return;}
+    const moneda=document.getElementById('veMoneda').value||'USD';
+    const sym=currencySymbol(moneda);
+    const filas=meses.map(ym=>`<tr><td style="font-size:0.82rem;">${esc(labelMes(ym))}</td><td><div style="display:flex;align-items:center;gap:4px;"><span style="color:var(--text-light);font-size:0.78rem;">${sym}</span><input type="number" class="ve-pp-monto" data-mes="${ym}" step="0.01" placeholder="0" value="${esc(prev[ym]||'')}" oninput="actualizarTotalPlanPagoVe()" style="flex:1;padding:5px 8px;border:1px solid var(--border);border-radius:4px;font-size:0.82rem;"></div></td></tr>`).join('');
+    box.innerHTML=`<table class="list-table" style="margin:0;"><thead><tr><th style="width:55%;">Mes</th><th>Monto acordado</th></tr></thead><tbody>${filas}</tbody><tfoot><tr><td style="text-align:right;font-weight:600;">Total plan</td><td><strong id="vePpTotal">${sym}0.00</strong> <span id="vePpDelta" style="font-size:0.72rem;margin-left:6px;color:var(--text-light);"></span></td></tr></tfoot></table>`;
+    actualizarTotalPlanPagoVe();
+}
+function actualizarTotalPlanPagoVe(){
+    const tot=document.getElementById('vePpTotal');if(!tot)return;
+    const moneda=document.getElementById('veMoneda').value||'USD';
+    const sym=currencySymbol(moneda);
+    let suma=0;document.querySelectorAll('input.ve-pp-monto').forEach(i=>{suma+=parseFloat(i.value)||0;});
+    tot.textContent=sym+suma.toLocaleString('es-CR',{minimumFractionDigits:2,maximumFractionDigits:2});
+    const total=parseFloat(document.getElementById('veMonto').value)||0;
+    const diff=total-suma;
+    const delta=document.getElementById('vePpDelta');if(delta){
+        if(total<=0){delta.textContent='';delta.style.color='var(--text-light)';}
+        else if(Math.abs(diff)<0.01){delta.textContent='✓ coincide con el total';delta.style.color='var(--success)';}
+        else if(diff>0){delta.textContent='Falta '+sym+diff.toFixed(2);delta.style.color='var(--danger)';}
+        else{delta.textContent='Excede en '+sym+Math.abs(diff).toFixed(2);delta.style.color='var(--accent-dark)';}
+    }
+}
+function distribuirPlanPagoVe(){
+    const inputs=Array.from(document.querySelectorAll('input.ve-pp-monto'));
+    if(!inputs.length){alert('Cargue fecha de venta para generar las filas.');return;}
+    const total=parseFloat(document.getElementById('veMonto').value)||0;
+    if(total<=0){alert('Cargue el monto total de la venta.');return;}
+    const cuota=Math.floor((total/inputs.length)*100)/100;
+    let restante=total;
+    inputs.forEach((inp,i)=>{if(i===inputs.length-1){inp.value=restante.toFixed(2);}else{inp.value=cuota.toFixed(2);restante-=cuota;}});
+    actualizarTotalPlanPagoVe();
+}
+function guardarVentaInfoExtra(){
+    const ventaId=document.getElementById('veVentaId').value;
+    const ventas=getVentas();
+    const v=ventas.find(x=>x.id===ventaId);
+    if(!v){alert('Venta no encontrada.');return;}
+    const monto=parseFloat(document.getElementById('veMonto').value)||0;
+    const moneda=document.getElementById('veMoneda').value||'USD';
+    const numAc=Math.max(0,parseInt(document.getElementById('veAcompCount').value||'0',10));
+    const acompanantes=Array.from(document.querySelectorAll('#veAcompList input.ve-acomp')).map(i=>i.value.trim()).filter(Boolean);
+    const planPago=Array.from(document.querySelectorAll('input.ve-pp-monto')).map(i=>{const m=parseFloat(i.value);return{mes:i.dataset.mes,monto:isFinite(m)?m:0};});
+    v.fechaVenta=document.getElementById('veFechaVenta').value||v.fechaVenta||'';
+    v.numAcompanantes=numAc;
+    v.acompanantes=acompanantes;
+    v.planPago=planPago;
+    v.notas=document.getElementById('veNotas').value.trim();
+    v.cobranza=v.cobranza||{};
+    if(monto>0)v.cobranza.montoTotal=monto;
+    v.cobranza.moneda=moneda;
+    v.cobranza.pagos=v.cobranza.pagos||[];
+    v.fechaActualizacion=new Date().toISOString();
+    saveVentas(ventas);
+    closeModal('modalVentaInfoExtra');
 }
 
 function getHistorialView(){return localStorage.getItem('dv_historial_view')||'cards';}
