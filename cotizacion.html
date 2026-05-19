@@ -1120,7 +1120,7 @@ onAuthStateChanged(fbAuth, (user) => {
 <!-- VIEW: HISTORIAL -->
 <div class="app-view view-list" id="viewHistorial">
     <div class="list-header"><h2>Historial de Cotizaciones</h2><button class="btn btn-danger btn-sm" onclick="limpiarHistorial()">Limpiar</button></div>
-    <div class="list-search"><input type="text" id="historialSearch" placeholder="Buscar por destino, cliente, encargado..." oninput="renderHistorial()"><select id="historialFilterEncargado" onchange="renderHistorial()"><option value="">Todos los encargados</option></select><select id="historialFilterAceptada" onchange="renderHistorial()"><option value="">Todas</option><option value="aceptada">Aceptadas</option><option value="pendiente">Pendientes</option></select><div class="view-toggle" id="historialViewToggle"><button type="button" data-view="cards" onclick="setHistorialView('cards')" title="Vista en tarjetas">&#9638; Tarjetas</button><button type="button" data-view="list" onclick="setHistorialView('list')" title="Vista en lista">&#9776; Lista</button></div></div>
+    <div class="list-search"><input type="text" id="historialSearch" placeholder="Buscar por destino, cliente, encargado..." oninput="renderHistorial()"><select id="historialFilterEncargado" onchange="onHistorialFilterEncargadoChange()"><option value="">Todos los encargados</option></select><select id="historialFilterAceptada" onchange="renderHistorial()"><option value="">Todas</option><option value="aceptada">Aceptadas</option><option value="pendiente">Pendientes</option></select><div class="view-toggle" id="historialViewToggle"><button type="button" data-view="cards" onclick="setHistorialView('cards')" title="Vista en tarjetas">&#9638; Tarjetas</button><button type="button" data-view="list" onclick="setHistorialView('list')" title="Vista en lista">&#9776; Lista</button></div></div>
     <div id="historialGrid"></div>
 </div>
 
@@ -3971,6 +3971,11 @@ function guardarVentaInfoExtra(){
     closeModal('modalVentaInfoExtra');
 }
 
+function onHistorialFilterEncargadoChange(){
+    const sel=document.getElementById('historialFilterEncargado');
+    try{localStorage.setItem('dv_historial_filter_encargado',sel?sel.value:'');}catch(e){}
+    renderHistorial();
+}
 function getHistorialView(){return localStorage.getItem('dv_historial_view')||'cards';}
 function setHistorialView(v){localStorage.setItem('dv_historial_view',v==='list'?'list':'cards');renderHistorial();}
 function renderHistorial(){
@@ -3979,18 +3984,29 @@ const grid=document.getElementById('historialGrid');
 const search=document.getElementById('historialSearch').value.toLowerCase();
 const filterA=document.getElementById('historialFilterAceptada').value;
 const encSel=document.getElementById('historialFilterEncargado');
-const filterE=encSel.value;
 const view=getHistorialView();
 const tog=document.getElementById('historialViewToggle');
 if(tog){tog.querySelectorAll('button').forEach(b=>{b.classList.toggle('active',b.dataset.view===view);});}
 // Poblar dropdown con encargados únicos de las cotizaciones + los del config
 const encSet=new Set();
-cfgGet().encargados.forEach(e=>{if(e)encSet.add(e);});
+const encargadosCfg=(cfgGet().encargados||[]).filter(Boolean);
+encargadosCfg.forEach(e=>encSet.add(e));
 hist.forEach(h=>{if(h.data&&h.data.encargado)encSet.add(h.data.encargado);});
-const encList=Array.from(encSet).sort();
-const curE=encSel.value;
+const encList=Array.from(encSet).sort((a,b)=>a.localeCompare(b));
+// Determinar el valor a preservar:
+//   1) Lo que ya estaba seleccionado en este render.
+//   2) Lo que la usuaria eligio anteriormente (localStorage).
+//   3) Default: el nombre del usuario actualmente logueado.
+let curE=encSel.value;
+if(!curE){try{curE=localStorage.getItem('dv_historial_filter_encargado')||'';}catch(e){}}
 encSel.innerHTML='<option value="">Todos los encargados</option>'+encList.map(e=>`<option value="${esc(e)}">${esc(e)}</option>`).join('');
+if(!curE){
+    const myEmail=(window.currentUser&&window.currentUser.email)||'';
+    const myName=myEmail?(matchEncargadoDesdeEmail(myEmail,encargadosCfg)||''):'';
+    if(myName&&encList.includes(myName))curE=myName;
+}
 if(curE&&encList.includes(curE))encSel.value=curE;
+const filterE=encSel.value;
 const filtered=hist.filter(h=>{const d=h.data;const text=[d.destino,d.clienteNombre,d.empresaNombre,d.empresaContacto,d.formato,d.encargado].join(' ').toLowerCase();const matchSearch=!search||text.includes(search);const matchFilter=!filterA||(filterA==='aceptada'&&h.aceptada)||(filterA==='pendiente'&&!h.aceptada);const matchEnc=!filterE||(d.encargado===filterE);return matchSearch&&matchFilter&&matchEnc;});
 if(!filtered.length){grid.className='';grid.innerHTML=`<div class="grid-empty"><h3>${search||filterA||filterE?'Sin resultados':'Sin cotizaciones'}</h3><p>Cree una cotizaci\u00f3n y gu\u00e1rdela.</p></div>`;return;}
 if(view==='list'){
