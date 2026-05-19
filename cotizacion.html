@@ -4852,7 +4852,9 @@ function renderDocumento(tipo,ventaId,pagoId){
     const fechaDoc=now.toLocaleDateString('es-CR',{day:'2-digit',month:'long',year:'numeric'});
     const docNum=(tipo==='recibo'?'REC-':'EDC-')+new Date(v.fechaCreacion||Date.now()).getFullYear()+'-'+String(v.id||'').slice(-6);
     // Cliente display
-    const clienteNombre=v.clienteNombre||(cli&&cli.nombreCompleto)||'Sin nombre';
+    // El nombre del cliente puede haberse corregido en el contacto despues de crearse la venta.
+    // Priorizamos siempre el dato actual del contacto vinculado; v.clienteNombre queda como fallback.
+    const clienteNombre=(cli&&cli.nombreCompleto)||v.clienteNombre||'Sin nombre';
     const clienteDoc=(cli&&(cli.tipoDocumento||cli.numeroDocumento))?[cli.tipoDocumento,cli.numeroDocumento].filter(Boolean).join(' '):'';
     // Acompañantes del viaje (cargados en el modal de info de venta o en venta grupal)
     const acompList=(Array.isArray(v.acompanantes)?v.acompanantes:[]).map(a=>typeof a==='string'?a:(a&&a.nombre?a.nombre:'')).filter(Boolean);
