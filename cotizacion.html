@@ -1362,6 +1362,7 @@ onAuthStateChanged(fbAuth, (user) => {
             <div class="form-group"><label>Referencia / N&uacute;mero</label><input type="text" id="pagoReferencia" placeholder="Opcional"></div>
             <div class="form-group"><label>Nota</label><input type="text" id="pagoNota" placeholder="Opcional"></div>
         </div>
+        <div class="form-group"><label>Descripci&oacute;n (sale en el recibo)</label><input type="text" id="pagoDescripcion" placeholder="Ej: Abono al viaje a Canc&uacute;n. Dejar vac&iacute;o usa la descripci&oacute;n por defecto."></div>
         <button class="btn btn-sm btn-success" id="pagoFormSaveBtn" onclick="savePago()">Guardar pago</button>
         <button class="btn btn-sm btn-ghost" onclick="cancelarEdicionPago()">Cancelar</button>
     </div>
@@ -4614,6 +4615,7 @@ function togglePagoForm(preservarEstado){
             document.getElementById('pagoMonto').value='';
             document.getElementById('pagoReferencia').value='';
             document.getElementById('pagoNota').value='';
+            document.getElementById('pagoDescripcion').value='';
             document.getElementById('pagoMetodo').selectedIndex=0;
         }
         updatePagoFormUI();
@@ -4658,6 +4660,7 @@ function editarPago(pagoId){
     }
     document.getElementById('pagoReferencia').value=pago.referencia||'';
     document.getElementById('pagoNota').value=pago.nota||'';
+    document.getElementById('pagoDescripcion').value=pago.descripcion||'';
     // Abrir el formulario preservando los valores
     const f=document.getElementById('pagoForm');
     if(!f.classList.contains('open'))f.classList.add('open');
@@ -4673,6 +4676,7 @@ function savePago(){
     const metodo=document.getElementById('pagoMetodo').value;
     const referencia=document.getElementById('pagoReferencia').value;
     const nota=document.getElementById('pagoNota').value;
+    const descripcion=document.getElementById('pagoDescripcion').value;
     if(!fecha||monto<=0){alert('Debe ingresar una fecha y un monto mayor a 0.');return;}
     const ventas=getVentas();
     const v=ventas.find(x=>x.id===ventaId);
@@ -4683,11 +4687,11 @@ function savePago(){
         // Modo edición: actualizar el pago existente
         const idx=v.cobranza.pagos.findIndex(p=>p.id===pagoEditandoId);
         if(idx>=0){
-            v.cobranza.pagos[idx]={...v.cobranza.pagos[idx],fecha,monto,metodo,referencia,nota};
+            v.cobranza.pagos[idx]={...v.cobranza.pagos[idx],fecha,monto,metodo,referencia,nota,descripcion};
         }
     }else{
         // Modo creación: agregar nuevo pago
-        v.cobranza.pagos.push({id:'p_'+Date.now(),fecha,monto,metodo,referencia,nota});
+        v.cobranza.pagos.push({id:'p_'+Date.now(),fecha,monto,metodo,referencia,nota,descripcion});
     }
     saveVentas(ventas);
     pagoEditandoId=null;
@@ -4809,7 +4813,7 @@ function renderDocumento(tipo,ventaId,pagoId){
             <div class="recibo-section-title">Concepto del pago</div>
             <table class="recibo-table">
                 <thead><tr><th>Descripci\u00f3n</th><th>M\u00e9todo</th><th>Referencia</th><th style="text-align:right;">Monto</th></tr></thead>
-                <tbody><tr><td>Abono al viaje <strong>${esc(v.destino)}</strong>${v.fechaInicio?' ('+formatDateRange(v.fechaInicio,v.fechaFin)+')':''}</td><td>${esc(pago.metodo||'')}</td><td>${esc(pago.referencia||'-')}</td><td style="text-align:right;font-weight:700;">${fmtMoney(pago.monto,c.moneda)}</td></tr></tbody>
+                <tbody><tr><td>${pago.descripcion?esc(pago.descripcion):'Abono al viaje <strong>'+esc(v.destino)+'</strong>'+(v.fechaInicio?' ('+formatDateRange(v.fechaInicio,v.fechaFin)+')':'')}</td><td>${esc(pago.metodo||'')}</td><td>${esc(pago.referencia||'-')}</td><td style="text-align:right;font-weight:700;">${fmtMoney(pago.monto,c.moneda)}</td></tr></tbody>
             </table>
             ${pago.nota?`<p style="font-size:0.82rem;color:var(--text-light);margin:10px 0;"><strong>Nota:</strong> ${esc(pago.nota)}</p>`:''}
             <div class="recibo-totals">
