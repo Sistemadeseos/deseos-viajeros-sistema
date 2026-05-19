@@ -3807,8 +3807,28 @@ function openModalVentaInfoExtra(ventaId){
     if(!v){alert('Venta no encontrada.');return;}
     document.getElementById('veVentaId').value=ventaId;
     const cob=v.cobranza||{};
-    document.getElementById('veMonto').value=cob.montoTotal||'';
-    document.getElementById('veMoneda').value=cob.moneda||'USD';
+    // Auto-completar el monto total y moneda desde la cotizacion si la venta aun no los tiene.
+    // Total = (precio adulto * pax adultos) + (precio niño * pax niños) + (precio bebé * pax bebés)
+    let montoAuto=cob.montoTotal||0;
+    let monedaAuto=cob.moneda||'';
+    if((!montoAuto||montoAuto<=0)&&v.cotizacionId){
+        const cot=getHistorial().find(h=>h.id===v.cotizacionId);
+        const opciones=cot&&cot.data&&Array.isArray(cot.data.opciones)?cot.data.opciones:[];
+        const opConPax=opciones.find(o=>o&&o.calc&&o.calc.paxCount);
+        if(opConPax){
+            const pc=opConPax.calc.paxCount||{};
+            const pAd=parseFloat(String(opConPax.adulto||'0').replace(/[^\d.\-]/g,''))||0;
+            const pNi=parseFloat(String(opConPax.nino||'0').replace(/[^\d.\-]/g,''))||0;
+            const pBe=parseFloat(String(opConPax.bebe||'0').replace(/[^\d.\-]/g,''))||0;
+            const cAd=parseInt(pc.ad||0,10)||0;
+            const cNi=parseInt(pc.n11||0,10)||0;
+            const cBe=parseInt(pc.n3||0,10)||0;
+            montoAuto=(pAd*cAd)+(pNi*cNi)+(pBe*cBe);
+        }
+        if(!monedaAuto&&cot&&cot.data&&cot.data.moneda)monedaAuto=cot.data.moneda;
+    }
+    document.getElementById('veMonto').value=montoAuto>0?montoAuto:'';
+    document.getElementById('veMoneda').value=monedaAuto||'USD';
     document.getElementById('veFechaVenta').value=v.fechaVenta||(v.fechaCreacion?String(v.fechaCreacion).slice(0,10):new Date().toISOString().slice(0,10));
     // Determinar conteo de acompañantes por tipo. Prioridad:
     //   1) Campos detallados ya guardados en la venta (numAcompAdultos/Ninos/Bebes).
