@@ -3803,7 +3803,18 @@ function openModalVentaInfoExtra(ventaId){
     document.getElementById('veMonto').value=cob.montoTotal||'';
     document.getElementById('veMoneda').value=cob.moneda||'USD';
     document.getElementById('veFechaVenta').value=v.fechaVenta||(v.fechaCreacion?String(v.fechaCreacion).slice(0,10):new Date().toISOString().slice(0,10));
-    const numAc=v.numAcompanantes!=null?v.numAcompanantes:(Array.isArray(v.acompanantes)?v.acompanantes.length:0);
+    let numAc=v.numAcompanantes!=null?v.numAcompanantes:(Array.isArray(v.acompanantes)?v.acompanantes.length:0);
+    // Auto-completar desde "Pax del grupo" de la cotizacion si la venta aun no tiene acompañantes definidos
+    if(numAc===0&&v.cotizacionId){
+        const cot=getHistorial().find(h=>h.id===v.cotizacionId);
+        const opciones=cot&&cot.data&&Array.isArray(cot.data.opciones)?cot.data.opciones:[];
+        const opConPax=opciones.find(o=>o&&o.calc&&o.calc.paxCount);
+        if(opConPax){
+            const pc=opConPax.calc.paxCount||{};
+            const total=(parseInt(pc.ad||0,10)||0)+(parseInt(pc.n11||0,10)||0)+(parseInt(pc.n3||0,10)||0);
+            if(total>0)numAc=Math.max(0,total-1); // el titular cuenta como 1; los demas son acompañantes
+        }
+    }
     document.getElementById('veAcompCount').value=numAc;
     document.getElementById('veNotas').value=v.notas||'';
     renderVeAcompanantes();
