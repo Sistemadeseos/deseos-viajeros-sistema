@@ -2076,11 +2076,15 @@ function normalizarParaMatch(s){
         .replace(/[^a-z0-9]/g,''); // quita espacios, puntos, guiones, etc.
 }
 
-// Overrides explícitos: emails genéricos que se asignan a un encargado específico.
-// Se aplica ANTES de la lógica de match por nombre.
+// Overrides explícitos: cada email se asigna a un encargado específico.
+// Se aplica ANTES de la lógica de match por nombre, así un cambio en la lista
+// de Configuración no rompe la asignación.
 const EMAIL_ENCARGADO_OVERRIDES={
     'operaciones@deseosviajeros.com':'Maria Perez',
-    'reservas@deseosviajeros.com':'Xavier Castro'
+    'reservas@deseosviajeros.com':'Xavier Castro',
+    'brendagomez@deseosviajeros.com':'Brenda Gomez',
+    'miladyzuniga@deseosviajeros.com':'Milady Zuñiga',
+    'susanacastro@deseosviajeros.com':'Susana Castro'
 };
 
 // Emails que NO pueden cambiar el encargado manualmente (campo bloqueado).
@@ -2102,12 +2106,13 @@ function usuarioTieneEncargadoBloqueado(){
 // Primero revisa overrides explícitos, luego match por nombre.
 // Ejemplo: "susanacastro@deseosviajeros.com" → "Susana Castro"
 function matchEncargadoDesdeEmail(email,encargados){
-    if(!email||!encargados||!encargados.length)return '';
+    if(!email)return '';
     const emailLower=email.toLowerCase().trim();
-    // 1. Override explícito
+    // 1. Override explícito (gana siempre, aunque no este en la lista de Configuracion)
     const override=EMAIL_ENCARGADO_OVERRIDES[emailLower];
-    if(override&&encargados.includes(override))return override;
-    // 2. Match por nombre (prefijo del email vs nombre del encargado)
+    if(override)return override;
+    // 2. Match por nombre (prefijo del email vs nombre del encargado de la lista)
+    if(!encargados||!encargados.length)return '';
     const prefix=emailLower.split('@')[0];
     const normPrefix=normalizarParaMatch(prefix);
     if(!normPrefix)return '';
@@ -2138,7 +2143,13 @@ function populateEncargadosSelect(){
         // Sin valor previo: intentar auto-seleccionar segun el email del usuario logueado
         const email=window.currentUser&&window.currentUser.email;
         const match=matchEncargadoDesdeEmail(email,cfg.encargados);
-        if(match)sel.value=match;
+        if(match){
+            // Si el nombre devuelto por el override no existe en la lista, lo agregamos al select para que se pueda seleccionar
+            if(!cfg.encargados.includes(match)){
+                const o=document.createElement('option');o.value=match;o.textContent=match;sel.appendChild(o);
+            }
+            sel.value=match;
+        }
     }
     // Bloquear el campo si el usuario no puede cambiar el encargado manualmente
     if(usuarioTieneEncargadoBloqueado()){
