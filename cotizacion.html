@@ -1177,8 +1177,16 @@ onAuthStateChanged(fbAuth, (user) => {
 <div class="app-view view-list" id="viewReportePagos">
     <div class="list-search" style="flex-wrap:wrap;">
         <input type="text" id="rpSearch" placeholder="Buscar por cliente, destino, referencia, nota..." oninput="renderReportePagos()" style="flex:1;min-width:200px;">
-        <input type="date" id="rpDesde" onchange="renderReportePagos()" title="Fecha desde">
-        <input type="date" id="rpHasta" onchange="renderReportePagos()" title="Fecha hasta">
+        <input type="date" id="rpDesde" onchange="onReportePagosDesdeHasta()" title="Fecha desde">
+        <input type="date" id="rpHasta" onchange="onReportePagosDesdeHasta()" title="Fecha hasta">
+        <input type="month" id="rpMes" onchange="onReportePagosMesChange()" title="Filtrar por mes completo">
+        <select id="rpMesRapido" onchange="onReportePagosMesRapido()" title="Atajo">
+            <option value="">-- Atajo --</option>
+            <option value="hoy">Hoy</option>
+            <option value="actual">Mes actual</option>
+            <option value="anterior">Mes anterior</option>
+            <option value="anio">A&ntilde;o actual</option>
+        </select>
         <select id="rpEncargado" onchange="renderReportePagos()"><option value="">Todas las encargadas</option></select>
         <select id="rpMetodo" onchange="renderReportePagos()"><option value="">Todos los m&eacute;todos</option></select>
         <select id="rpTipo" onchange="renderReportePagos()"><option value="">Todas las ventas</option><option value="personalizada">Personalizadas</option><option value="grupal">Grupales</option></select>
@@ -5229,6 +5237,38 @@ function renderReportePagos(){
         <thead><tr><th>Fecha</th><th>Cliente</th><th>Venta / Grupo</th><th>Encargada</th><th>M&eacute;todo</th><th>Referencia</th><th style="text-align:right;">Monto</th></tr></thead>
         <tbody>${rows}</tbody>
     </table>`;
+}
+// Cuando el usuario edita manualmente fechaDesde/Hasta, limpiamos el filtro de mes para que no quede inconsistente.
+function onReportePagosDesdeHasta(){
+    const m=document.getElementById('rpMes');if(m)m.value='';
+    const r=document.getElementById('rpMesRapido');if(r)r.value='';
+    renderReportePagos();
+}
+// Cuando el usuario elige un mes, llenamos desde/hasta con el primer y ultimo dia del mes.
+function onReportePagosMesChange(){
+    const v=document.getElementById('rpMes').value;
+    const r=document.getElementById('rpMesRapido');if(r)r.value='';
+    if(!v){renderReportePagos();return;}
+    const [y,m]=v.split('-').map(n=>parseInt(n,10));
+    const ultimoDia=new Date(y,m,0).getDate();
+    document.getElementById('rpDesde').value=`${y}-${String(m).padStart(2,'0')}-01`;
+    document.getElementById('rpHasta').value=`${y}-${String(m).padStart(2,'0')}-${String(ultimoDia).padStart(2,'0')}`;
+    renderReportePagos();
+}
+// Atajos: hoy, mes actual, mes anterior, año actual.
+function onReportePagosMesRapido(){
+    const v=document.getElementById('rpMesRapido').value;
+    const m=document.getElementById('rpMes');if(m)m.value='';
+    const desdeEl=document.getElementById('rpDesde');const hastaEl=document.getElementById('rpHasta');
+    if(!v){renderReportePagos();return;}
+    const hoy=new Date();const y=hoy.getFullYear();const mo=hoy.getMonth();
+    const pad=n=>String(n).padStart(2,'0');
+    const iso=d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+    if(v==='hoy'){desdeEl.value=iso(hoy);hastaEl.value=iso(hoy);}
+    else if(v==='actual'){const ult=new Date(y,mo+1,0);desdeEl.value=iso(new Date(y,mo,1));hastaEl.value=iso(ult);if(m)m.value=`${y}-${pad(mo+1)}`;}
+    else if(v==='anterior'){const ini=new Date(y,mo-1,1);const ult=new Date(y,mo,0);desdeEl.value=iso(ini);hastaEl.value=iso(ult);if(m)m.value=`${ini.getFullYear()}-${pad(ini.getMonth()+1)}`;}
+    else if(v==='anio'){desdeEl.value=`${y}-01-01`;hastaEl.value=`${y}-12-31`;}
+    renderReportePagos();
 }
 // Aplica los mismos filtros que el render para obtener las filas a exportar
 function filtrarReportePagosParaExport(){
