@@ -700,7 +700,7 @@ input.vg-pp-monto,input.ve-pp-monto{-moz-appearance:textfield;appearance:textfie
 @media print{
     *{print-color-adjust:exact!important;-webkit-print-color-adjust:exact!important}
     html,body{margin:0!important;padding:0!important;overflow:visible!important;background:white!important;width:100%!important;height:auto!important}
-    .app-sidebar,.form-panel,.form-panel-splitter,.app-header,.cot-adjuntos-page,.modal-overlay,.img-lightbox,#viewInicio,#viewDashboard,#viewConfiguracion,#viewHistorial,#viewEncabezados,#viewVentas,#viewClientes,#viewClientesVentas{display:none!important}
+    .app-sidebar,.form-panel,.form-panel-splitter,.app-header,.cot-adjuntos-page,.modal-overlay,.img-lightbox,#viewInicio,#viewDashboard,#viewConfiguracion,#viewHistorial,#viewEncabezados,#viewVentas,#viewClientes,#viewClientesVentas,#viewReportePagos{display:none!important}
     .app-layout,.app-main,.main-views{display:block!important;height:auto!important;overflow:visible!important;width:100%!important}
 
     /* Modo imprimir COTIZACI\u00d3N: solo se ve el editor */
@@ -995,6 +995,7 @@ onAuthStateChanged(fbAuth, (user) => {
         <div class="sidebar-item" onclick="nav('ventas')"><span class="si-icon">&#128176;</span>Ventas<span class="si-badge" id="badgeVentas"></span></div>
         <div class="sidebar-item" onclick="nav('clientes')"><span class="si-icon">&#128101;</span>Contactos<span class="si-badge" id="badgeClientes"></span></div>
         <div class="sidebar-item" onclick="nav('clientesventas')"><span class="si-icon">&#127881;</span>Clientes<span class="si-badge" id="badgeClientesVentas"></span></div>
+        <div class="sidebar-item" onclick="nav('reportePagos')"><span class="si-icon">&#129534;</span>Reporte de pagos</div>
         <div class="sidebar-item" onclick="nav('configuracion')"><span class="si-icon">&#9881;</span>Configuraci&oacute;n</div>
     </div>
 </div>
@@ -1168,6 +1169,21 @@ onAuthStateChanged(fbAuth, (user) => {
 <div class="app-view view-list" id="viewClientesVentas">
     <div class="list-search"><input type="text" id="clientesVentasSearch" placeholder="Buscar por nombre, email, documento..." oninput="renderClientesVentas()"></div>
     <div class="list-view" id="clientesVentasGrid"></div>
+</div>
+
+<!-- VIEW: REPORTE DE PAGOS -->
+<div class="app-view view-list" id="viewReportePagos">
+    <div class="list-search" style="flex-wrap:wrap;">
+        <input type="text" id="rpSearch" placeholder="Buscar por cliente, destino, referencia, nota..." oninput="renderReportePagos()" style="flex:1;min-width:200px;">
+        <input type="date" id="rpDesde" onchange="renderReportePagos()" title="Fecha desde">
+        <input type="date" id="rpHasta" onchange="renderReportePagos()" title="Fecha hasta">
+        <select id="rpEncargado" onchange="renderReportePagos()"><option value="">Todas las encargadas</option></select>
+        <select id="rpMetodo" onchange="renderReportePagos()"><option value="">Todos los m&eacute;todos</option></select>
+        <select id="rpTipo" onchange="renderReportePagos()"><option value="">Todas las ventas</option><option value="personalizada">Personalizadas</option><option value="grupal">Grupales</option></select>
+        <button class="btn btn-sm btn-ghost" onclick="exportarReportePagosCSV()" title="Descargar CSV">&#11015; CSV</button>
+    </div>
+    <div id="rpResumen" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;"></div>
+    <div class="list-view" id="rpGrid"></div>
 </div>
 
 <!-- VIEW: CONFIGURACION -->
@@ -2127,10 +2143,10 @@ function nav(view){
     if(view==='encabezados'){nav('configuracion');setTimeout(()=>{switchConfigTab('cotizacion');switchConfigSubTab('destinos');},0);return;}
     document.querySelectorAll('.sidebar-item').forEach(el=>el.classList.remove('active'));
     const items=document.querySelectorAll('.sidebar-item');
-    const map={inicio:0,dashboard:1,editor:2,historial:3,ventas:4,clientes:5,clientesventas:6,configuracion:7};
+    const map={inicio:0,dashboard:1,editor:2,historial:3,ventas:4,clientes:5,clientesventas:6,reportePagos:7,configuracion:8};
     if(map[view]!==undefined)items[map[view]].classList.add('active');
     document.querySelectorAll('.app-view').forEach(v=>v.classList.remove('active'));
-    const titles={inicio:'',dashboard:'Dashboard',editor:'Editor de Cotizaci\u00f3n',historial:'Historial de Cotizaciones',encabezados:'Destinos',ventas:'Ventas',clientes:'Contactos',clientesventas:'Clientes',configuracion:'Configuraci\u00f3n',documento:'Documento'};
+    const titles={inicio:'',dashboard:'Dashboard',editor:'Editor de Cotizaci\u00f3n',historial:'Historial de Cotizaciones',encabezados:'Destinos',ventas:'Ventas',clientes:'Contactos',clientesventas:'Clientes',reportePagos:'Reporte de pagos',configuracion:'Configuraci\u00f3n',documento:'Documento'};
     document.getElementById('headerTitle').textContent=titles[view]||'';
     const ha=document.getElementById('headerActions');
     if(view==='editor')ha.innerHTML='<button class="btn btn-outline" onclick="resetForm()">&#128260; Nueva</button><button class="btn btn-accent" onclick="window.print()">&#128424; Exportar PDF</button>';
@@ -2138,7 +2154,7 @@ function nav(view){
     else if(view==='clientesventas')ha.innerHTML='<button class="btn btn-accent" onclick="nuevoClienteConVenta()">+ Nuevo Cliente</button>';
     else if(view==='dashboard')ha.innerHTML='<button class="btn btn-outline" onclick="renderDashboard()">&#8635; Actualizar</button>';
     else ha.innerHTML='';
-    const viewIds={inicio:'viewInicio',dashboard:'viewDashboard',editor:'viewEditor',historial:'viewHistorial',encabezados:'viewEncabezados',ventas:'viewVentas',clientes:'viewClientes',clientesventas:'viewClientesVentas',configuracion:'viewConfiguracion',documento:'viewDocumento'};
+    const viewIds={inicio:'viewInicio',dashboard:'viewDashboard',editor:'viewEditor',historial:'viewHistorial',encabezados:'viewEncabezados',ventas:'viewVentas',clientes:'viewClientes',clientesventas:'viewClientesVentas',reportePagos:'viewReportePagos',configuracion:'viewConfiguracion',documento:'viewDocumento'};
     document.getElementById(viewIds[view]).classList.add('active');
     if(view==='dashboard')renderDashboard();
     if(view==='historial')renderHistorial();
@@ -2146,6 +2162,7 @@ function nav(view){
     if(view==='ventas')renderVentas();
     if(view==='clientes')renderClientes();
     if(view==='clientesventas')renderClientesVentas();
+    if(view==='reportePagos')renderReportePagos();
     if(view==='configuracion')renderConfiguracion();
     if(view==='ventas')applyVentasHeaderActions();
     updateBadges();
@@ -5104,6 +5121,144 @@ function renderListadoContactos(mode){
 }
 function renderClientes(){renderListadoContactos('contactos');}
 function renderClientesVentas(){renderListadoContactos('clientes');}
+
+// ===== REPORTE DE PAGOS =====
+// Consolida todos los pagos registrados en ventas (personalizadas + grupales) para auditoria.
+function collectAllPagos(){
+    const ventas=getVentas();
+    const clientes=getClientes();
+    const cliById=Object.fromEntries(clientes.map(c=>[c.id,c]));
+    const rows=[];
+    ventas.forEach(v=>{
+        const pagos=(v.cobranza&&v.cobranza.pagos)||[];
+        const moneda=(v.cobranza&&v.cobranza.moneda)||'USD';
+        const cli=v.clienteId?cliById[v.clienteId]:null;
+        const nombreCliente=(cli&&cli.nombreCompleto)||v.clienteNombre||'(sin nombre)';
+        const tipo=v.tipo==='grupal'?'grupal':'personalizada';
+        pagos.forEach(p=>{
+            rows.push({
+                pagoId:p.id,
+                ventaId:v.id,
+                fecha:p.fecha||'',
+                cliente:nombreCliente,
+                destino:v.destino||'',
+                grupo:v.grupoNombre||'',
+                encargado:v.encargado||'',
+                metodo:p.metodo||'',
+                referencia:p.referencia||'',
+                nota:p.nota||'',
+                descripcion:p.descripcion||'',
+                monto:Number(p.monto)||0,
+                moneda,
+                tipo
+            });
+        });
+    });
+    return rows;
+}
+function renderReportePagos(){
+    const grid=document.getElementById('rpGrid');
+    if(!grid)return;
+    const all=collectAllPagos();
+    // Poblar selects con opciones disponibles
+    const encSel=document.getElementById('rpEncargado');
+    const metSel=document.getElementById('rpMetodo');
+    if(encSel){
+        const cur=encSel.value;
+        const encList=Array.from(new Set(all.map(r=>r.encargado).filter(Boolean))).sort((a,b)=>a.localeCompare(b));
+        encSel.innerHTML='<option value="">Todas las encargadas</option>'+encList.map(e=>`<option value="${esc(e)}">${esc(e)}</option>`).join('');
+        if(cur&&encList.includes(cur))encSel.value=cur;
+    }
+    if(metSel){
+        const cur=metSel.value;
+        const metList=Array.from(new Set(all.map(r=>r.metodo).filter(Boolean))).sort((a,b)=>a.localeCompare(b));
+        metSel.innerHTML='<option value="">Todos los métodos</option>'+metList.map(m=>`<option value="${esc(m)}">${esc(m)}</option>`).join('');
+        if(cur&&metList.includes(cur))metSel.value=cur;
+    }
+    // Filtros
+    const search=(document.getElementById('rpSearch')?.value||'').toLowerCase();
+    const desde=document.getElementById('rpDesde')?.value||'';
+    const hasta=document.getElementById('rpHasta')?.value||'';
+    const fEnc=encSel?encSel.value:'';
+    const fMet=metSel?metSel.value:'';
+    const fTipo=document.getElementById('rpTipo')?.value||'';
+    const filtered=all.filter(r=>{
+        if(desde&&r.fecha<desde)return false;
+        if(hasta&&r.fecha>hasta)return false;
+        if(fEnc&&r.encargado!==fEnc)return false;
+        if(fMet&&r.metodo!==fMet)return false;
+        if(fTipo&&r.tipo!==fTipo)return false;
+        if(search){
+            const txt=[r.cliente,r.destino,r.grupo,r.referencia,r.nota,r.descripcion,r.metodo,r.encargado].join(' ').toLowerCase();
+            if(!txt.includes(search))return false;
+        }
+        return true;
+    });
+    // Resumen
+    const resumen=document.getElementById('rpResumen');
+    const totalPorMoneda={};
+    filtered.forEach(r=>{totalPorMoneda[r.moneda]=(totalPorMoneda[r.moneda]||0)+r.monto;});
+    let resumenHtml=`<div class="lt-badge" style="background:var(--primary-light);color:var(--primary-dark);font-size:0.85rem;padding:6px 12px;">${filtered.length} pago${filtered.length===1?'':'s'}</div>`;
+    Object.keys(totalPorMoneda).forEach(m=>{resumenHtml+=`<div class="lt-badge" style="background:#e9f9ee;color:#1f7a3a;font-size:0.85rem;padding:6px 12px;">Total ${m}: ${fmtMoney(totalPorMoneda[m],m)}</div>`;});
+    resumen.innerHTML=resumenHtml;
+    // Tabla
+    if(!filtered.length){grid.innerHTML='<div class="grid-empty"><h3>Sin pagos</h3><p>No hay pagos que coincidan con los filtros.</p></div>';return;}
+    // Ordenar por fecha desc, luego cliente
+    const sorted=filtered.slice().sort((a,b)=>{
+        if(b.fecha!==a.fecha)return (b.fecha||'').localeCompare(a.fecha||'');
+        return (a.cliente||'').localeCompare(b.cliente||'');
+    });
+    const rows=sorted.map(r=>{
+        const fechaTxt=r.fecha?(formatFechaCorta(r.fecha)||r.fecha):'';
+        const ventaTxt=r.tipo==='grupal'?(r.grupo?`${esc(r.grupo)}`:'(grupo)'):(r.destino||'');
+        const tipoLabel=r.tipo==='grupal'?'<span class="lt-badge" style="background:var(--accent-light);color:#d4830f;font-size:0.66rem;">GRUPAL</span>':'<span class="lt-badge" style="background:var(--primary-light);color:var(--primary-dark);font-size:0.66rem;">PERSONAL</span>';
+        return`<tr>
+            <td>${esc(fechaTxt)}</td>
+            <td>${esc(r.cliente)}<div class="lt-secondary">${tipoLabel}</div></td>
+            <td>${esc(ventaTxt)}</td>
+            <td>${esc(r.encargado||'-')}</td>
+            <td>${esc(r.metodo||'-')}</td>
+            <td>${esc(r.referencia||'-')}</td>
+            <td style="text-align:right;font-weight:700;color:var(--primary-dark);">${fmtMoney(r.monto,r.moneda)}</td>
+        </tr>`;
+    }).join('');
+    grid.innerHTML=`<table class="list-table">
+        <thead><tr><th>Fecha</th><th>Cliente</th><th>Venta / Grupo</th><th>Encargada</th><th>M&eacute;todo</th><th>Referencia</th><th style="text-align:right;">Monto</th></tr></thead>
+        <tbody>${rows}</tbody>
+    </table>`;
+}
+function exportarReportePagosCSV(){
+    const all=collectAllPagos();
+    const search=(document.getElementById('rpSearch')?.value||'').toLowerCase();
+    const desde=document.getElementById('rpDesde')?.value||'';
+    const hasta=document.getElementById('rpHasta')?.value||'';
+    const fEnc=document.getElementById('rpEncargado')?.value||'';
+    const fMet=document.getElementById('rpMetodo')?.value||'';
+    const fTipo=document.getElementById('rpTipo')?.value||'';
+    const filtered=all.filter(r=>{
+        if(desde&&r.fecha<desde)return false;
+        if(hasta&&r.fecha>hasta)return false;
+        if(fEnc&&r.encargado!==fEnc)return false;
+        if(fMet&&r.metodo!==fMet)return false;
+        if(fTipo&&r.tipo!==fTipo)return false;
+        if(search){const t=[r.cliente,r.destino,r.grupo,r.referencia,r.nota,r.descripcion,r.metodo,r.encargado].join(' ').toLowerCase();if(!t.includes(search))return false;}
+        return true;
+    });
+    if(!filtered.length){alert('No hay pagos para exportar con los filtros actuales.');return;}
+    const headers=['Fecha','Cliente','Tipo','Destino','Grupo','Encargada','Metodo','Referencia','Nota','Monto','Moneda'];
+    const escapeCsv=v=>{const s=String(v==null?'':v);return /[",\n;]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;};
+    const lines=[headers.join(',')];
+    filtered.slice().sort((a,b)=>(b.fecha||'').localeCompare(a.fecha||'')).forEach(r=>{
+        lines.push([r.fecha,r.cliente,r.tipo,r.destino,r.grupo,r.encargado,r.metodo,r.referencia,r.nota,r.monto.toFixed(2),r.moneda].map(escapeCsv).join(','));
+    });
+    const csv='﻿'+lines.join('\n'); // BOM para Excel
+    const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url;a.download='reporte-pagos-'+new Date().toISOString().slice(0,10)+'.csv';
+    document.body.appendChild(a);a.click();document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
 function onContactosFilterCreadorChange(){
     const sel=document.getElementById('clientesFilterCreador');
     try{localStorage.setItem('dv_contactos_filter_creador',sel?sel.value:'');}catch(e){}
