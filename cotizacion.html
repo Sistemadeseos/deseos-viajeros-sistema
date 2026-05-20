@@ -946,6 +946,8 @@ onAuthStateChanged(fbAuth, (user) => {
 <script src="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/l10n/es.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/plugins/rangePlugin.js"></script>
+<!-- SheetJS para exportar a Excel -->
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
 <body>
 
@@ -1181,6 +1183,7 @@ onAuthStateChanged(fbAuth, (user) => {
         <select id="rpMetodo" onchange="renderReportePagos()"><option value="">Todos los m&eacute;todos</option></select>
         <select id="rpTipo" onchange="renderReportePagos()"><option value="">Todas las ventas</option><option value="personalizada">Personalizadas</option><option value="grupal">Grupales</option></select>
         <button class="btn btn-sm btn-ghost" onclick="exportarReportePagosCSV()" title="Descargar CSV">&#11015; CSV</button>
+        <button class="btn btn-sm btn-ghost" onclick="exportarReportePagosExcel()" title="Descargar Excel">&#11015; Excel</button>
     </div>
     <div id="rpResumen" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;"></div>
     <div class="list-view" id="rpGrid"></div>
@@ -5226,6 +5229,56 @@ function renderReportePagos(){
         <thead><tr><th>Fecha</th><th>Cliente</th><th>Venta / Grupo</th><th>Encargada</th><th>M&eacute;todo</th><th>Referencia</th><th style="text-align:right;">Monto</th></tr></thead>
         <tbody>${rows}</tbody>
     </table>`;
+}
+// Aplica los mismos filtros que el render para obtener las filas a exportar
+function filtrarReportePagosParaExport(){
+    const all=collectAllPagos();
+    const search=(document.getElementById('rpSearch')?.value||'').toLowerCase();
+    const desde=document.getElementById('rpDesde')?.value||'';
+    const hasta=document.getElementById('rpHasta')?.value||'';
+    const fEnc=document.getElementById('rpEncargado')?.value||'';
+    const fMet=document.getElementById('rpMetodo')?.value||'';
+    const fTipo=document.getElementById('rpTipo')?.value||'';
+    return all.filter(r=>{
+        if(desde&&r.fecha<desde)return false;
+        if(hasta&&r.fecha>hasta)return false;
+        if(fEnc&&r.encargado!==fEnc)return false;
+        if(fMet&&r.metodo!==fMet)return false;
+        if(fTipo&&r.tipo!==fTipo)return false;
+        if(search){const t=[r.cliente,r.destino,r.grupo,r.referencia,r.nota,r.descripcion,r.metodo,r.encargado].join(' ').toLowerCase();if(!t.includes(search))return false;}
+        return true;
+    }).sort((a,b)=>(b.fecha||'').localeCompare(a.fecha||''));
+}
+function exportarReportePagosExcel(){
+    if(typeof XLSX==='undefined'){alert('La libreria Excel no se cargo. Verifique su conexion a internet y refresque la pagina.');return;}
+    const filtered=filtrarReportePagosParaExport();
+    if(!filtered.length){alert('No hay pagos para exportar con los filtros actuales.');return;}
+    // Datos como array de objetos. Cada llave es una columna del Excel.
+    const rows=filtered.map(r=>({
+        Fecha:r.fecha,
+        Cliente:r.cliente,
+        Tipo:r.tipo==='grupal'?'Grupal':'Personalizada',
+        Destino:r.destino,
+        Grupo:r.grupo,
+        Encargada:r.encargado,
+        Metodo:r.metodo,
+        Referencia:r.referencia,
+        Nota:r.nota,
+        Monto:r.monto,
+        Moneda:r.moneda
+    }));
+    // Totales por moneda al final
+    const totales={};filtered.forEach(r=>{totales[r.moneda]=(totales[r.moneda]||0)+r.monto;});
+    Object.keys(totales).forEach(m=>{
+        rows.push({Fecha:'',Cliente:'',Tipo:'',Destino:'',Grupo:'',Encargada:'',Metodo:'',Referencia:'',Nota:'Total '+m,Monto:totales[m],Moneda:m});
+    });
+    const ws=XLSX.utils.json_to_sheet(rows);
+    // Ajustar ancho de columnas aproximado
+    ws['!cols']=[{wch:12},{wch:28},{wch:13},{wch:24},{wch:22},{wch:18},{wch:22},{wch:18},{wch:24},{wch:12},{wch:8}];
+    const wb=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb,ws,'Pagos');
+    const fileName='reporte-pagos-'+new Date().toISOString().slice(0,10)+'.xlsx';
+    XLSX.writeFile(wb,fileName);
 }
 function exportarReportePagosCSV(){
     const all=collectAllPagos();
