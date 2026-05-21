@@ -4077,12 +4077,22 @@ const encSel=document.getElementById('historialFilterEncargado');
 const view=getHistorialView();
 const tog=document.getElementById('historialViewToggle');
 if(tog){tog.querySelectorAll('button').forEach(b=>{b.classList.toggle('active',b.dataset.view===view);});}
-// Poblar dropdown con encargados únicos de las cotizaciones + los del config
-const encSet=new Set();
+// Poblar dropdown con encargados únicos de las cotizaciones + los del config.
+// Deduplicamos por nombre normalizado (sin tildes, espacios, mayusculas) para evitar
+// duplicados tipo "Brenda Gomez" vs "Brenda Gómez" o "Milady Zuñiga" vs "Milady Zúñiga".
 const encargadosCfg=(cfgGet().encargados||[]).filter(Boolean);
-encargadosCfg.forEach(e=>encSet.add(e));
-hist.forEach(h=>{if(h.data&&h.data.encargado)encSet.add(h.data.encargado);});
-const encList=Array.from(encSet).sort((a,b)=>a.localeCompare(b));
+const encByNorm={}; // norm -> nombre canonico a mostrar
+const addEncargado=name=>{
+    if(!name)return;
+    const k=normalizarParaMatch(name);
+    if(!k)return;
+    // Si ya hay uno guardado y este nuevo coincide con la lista canonica de Configuracion, lo reemplazamos
+    if(!encByNorm[k]){encByNorm[k]=name;return;}
+    if(encargadosCfg.includes(name)&&!encargadosCfg.includes(encByNorm[k]))encByNorm[k]=name;
+};
+encargadosCfg.forEach(addEncargado);
+hist.forEach(h=>{if(h.data&&h.data.encargado)addEncargado(h.data.encargado);});
+const encList=Object.values(encByNorm).sort((a,b)=>a.localeCompare(b));
 // Determinar el valor a preservar:
 //   1) Lo que ya estaba seleccionado en este render.
 //   2) Lo que la usuaria eligio anteriormente (localStorage).
@@ -4097,7 +4107,8 @@ if(!curE){
 }
 if(curE&&encList.includes(curE))encSel.value=curE;
 const filterE=encSel.value;
-const filtered=hist.filter(h=>{const d=h.data;const text=[d.destino,d.clienteNombre,d.empresaNombre,d.empresaContacto,d.formato,d.encargado].join(' ').toLowerCase();const matchSearch=!search||text.includes(search);const matchFilter=!filterA||(filterA==='aceptada'&&h.aceptada)||(filterA==='pendiente'&&!h.aceptada);const matchEnc=!filterE||(d.encargado===filterE);return matchSearch&&matchFilter&&matchEnc;});
+const filterENorm=normalizarParaMatch(filterE);
+const filtered=hist.filter(h=>{const d=h.data;const text=[d.destino,d.clienteNombre,d.empresaNombre,d.empresaContacto,d.formato,d.encargado].join(' ').toLowerCase();const matchSearch=!search||text.includes(search);const matchFilter=!filterA||(filterA==='aceptada'&&h.aceptada)||(filterA==='pendiente'&&!h.aceptada);const matchEnc=!filterE||normalizarParaMatch(d.encargado||'')===filterENorm;return matchSearch&&matchFilter&&matchEnc;});
 if(!filtered.length){grid.className='';grid.innerHTML=`<div class="grid-empty"><h3>${search||filterA||filterE?'Sin resultados':'Sin cotizaciones'}</h3><p>Cree una cotizaci\u00f3n y gu\u00e1rdela.</p></div>`;return;}
 if(view==='list'){
 grid.className='hist-list';
