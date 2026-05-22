@@ -1068,7 +1068,7 @@ onAuthStateChanged(fbAuth, (user) => {
     <!-- Paquete -->
     <div class="form-section"><div class="form-section-header" onclick="toggleSection(this)">Datos del Paquete<span class="toggle">&#9660;</span></div><div class="form-section-body">
         <div class="form-group"><label>Pa&iacute;s</label><select id="paisSelect" onchange="onPaisChange()"><option value="">-- Seleccionar --</option></select></div>
-        <div class="form-group"><label>Destino</label><div class="destino-selector"><select id="destinoSelect" onchange="onDestinoSelect()"><option value="">-- Seleccionar --</option><option value="__custom">Escribir manualmente...</option></select></div><input type="text" id="destino" placeholder="Ej: Canc&uacute;n" oninput="updateHotelesDatalist();updatePreview()" style="display:none;"><div class="destino-selected-preview" id="destinoPreviewImg"><img id="destinoPreviewImgTag" src="" alt=""></div></div>
+        <div class="form-group"><label id="labelDestino">Destino</label><div class="destino-selector"><select id="destinoSelect" onchange="onDestinoSelect()"><option value="">-- Seleccionar --</option><option value="__custom">Escribir manualmente...</option></select></div><input type="text" id="destino" placeholder="Ej: Canc&uacute;n" oninput="updateHotelesDatalist();updatePreview()" style="display:none;"><div class="destino-selected-preview" id="destinoPreviewImg"><img id="destinoPreviewImgTag" src="" alt=""></div></div>
         <div class="form-row"><div class="form-group"><label>Fecha inicio</label><input type="date" id="fechaInicio" oninput="updatePreview()"></div><div class="form-group"><label>Fecha fin</label><input type="date" id="fechaFin" oninput="updatePreview()"></div></div>
         <div class="form-group"><label>Alerta (opcional)</label><select id="alertaPresetSelect" onchange="aplicarAlertaPreset(this)" style="margin-bottom:4px;"><option value="">-- Mensaje r&aacute;pido (opcional) --</option></select><textarea id="alertaDestino" placeholder="Ej: Vacuna obligatoria..." oninput="updatePreview()"></textarea></div>
         <div class="form-group"><label>Info adicional (opcional)</label><textarea id="infoDestino" placeholder="Informaci&oacute;n relevante..." oninput="updatePreview()"></textarea></div>
@@ -2917,6 +2917,8 @@ document.getElementById('itinerarioSection').style.display=f==='europa'?'':'none
 // Column headers
 document.getElementById('colNombreHeader').textContent=f==='crucero'?'Tipo de Cabina':'Paquete / Hotel';
 document.getElementById('opcionesTitle').textContent=f==='crucero'?'Cabinas y Tarifas':'Hoteles y Tarifas';
+// En Europa/Asia el campo "Destino" se etiqueta como "Carátula" porque cumple el rol de imagen de portada del paquete.
+const lblDest=document.getElementById('labelDestino');if(lblDest)lblDest.textContent=f==='europa'?'Carátula':'Destino';
 // Load defaults (from config with fallback)
 const cfg=cfgGet();
 loadServicios(cfg.servicios[f]);
