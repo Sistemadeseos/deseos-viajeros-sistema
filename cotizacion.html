@@ -4266,7 +4266,7 @@ function abrirFichaGrupo(grupo){
     }).join('')}</tbody></table></details>`;
     // Datos generales del grupo (almacenados en coleccion dv_grupos, editables aqui)
     const gInfo=getGrupoByNombre(grupo)||{};
-    const generalHtml=`<div class="ficha-general"><div class="form-row"><div class="form-group"><label>Destino del grupo</label><input type="text" id="fgDestino" value="${esc(gInfo.destino||'')}" placeholder="Ej: Italia + Francia"></div><div class="form-group"><label>Cupos totales</label><input type="number" id="fgCupos" min="0" step="1" value="${gInfo.cupos!=null?esc(String(gInfo.cupos)):''}" placeholder="Ej: 25"></div></div><div class="form-row"><div class="form-group"><label>Fecha de viaje (inicio)</label><input type="date" id="fgFechaInicio" value="${esc(gInfo.fechaInicio||'')}"></div><div class="form-group"><label>Fecha de viaje (fin)</label><input type="date" id="fgFechaFin" value="${esc(gInfo.fechaFin||'')}"></div></div><div class="form-row"><div class="form-group"><label>Fecha l&iacute;mite de pago</label><input type="date" id="fgFechaLimitePago" value="${esc(gInfo.fechaLimitePago||'')}"></div><div class="form-group"><label>Salida desde</label><input type="text" id="fgSalida" value="${esc(gInfo.salidaDesde||'')}" placeholder="Ej: SJO"></div></div><div class="form-group"><label>Notas / descripci&oacute;n del paquete</label><textarea id="fgNotas" rows="2" placeholder="Detalles generales del paquete grupal...">${esc(gInfo.notas||'')}</textarea></div><div style="display:flex;justify-content:flex-end;gap:6px;"><button class="btn btn-sm btn-success" onclick="guardarFichaGrupo('${esc(grupo).replace(/'/g,"\\'")}')">&#128190; Guardar info del grupo</button></div></div>`;
+    const generalHtml=`<div class="ficha-general"><div class="form-row"><div class="form-group"><label>Destino del grupo</label><input type="text" id="fgDestino" value="${esc(gInfo.destino||'')}" placeholder="Ej: Italia + Francia"></div><div class="form-group"><label>Cupos totales</label><input type="number" id="fgCupos" min="0" step="1" value="${gInfo.cupos!=null?esc(String(gInfo.cupos)):''}" placeholder="Ej: 25"></div></div><div class="form-row"><div class="form-group"><label>Fecha de viaje (inicio)</label><input type="date" id="fgFechaInicio" value="${esc(gInfo.fechaInicio||'')}"></div><div class="form-group"><label>Fecha de viaje (fin)</label><input type="date" id="fgFechaFin" value="${esc(gInfo.fechaFin||'')}"></div></div><div class="form-row"><div class="form-group"><label>Fecha l&iacute;mite de pago</label><input type="date" id="fgFechaLimitePago" value="${esc(gInfo.fechaLimitePago||'')}"></div><div class="form-group"><label>Salida desde</label><input type="text" id="fgSalida" value="${esc(gInfo.salidaDesde||'')}" placeholder="Ej: SJO"></div></div><div class="form-group"><label>Notas / descripci&oacute;n del paquete</label><textarea id="fgNotas" rows="2" placeholder="Detalles generales del paquete grupal...">${esc(gInfo.notas||'')}</textarea></div><div style="display:flex;justify-content:flex-end;gap:6px;flex-wrap:wrap;"><button class="btn btn-sm btn-outline" style="color:var(--primary-dark);border-color:var(--primary);" onclick="renombrarGrupo('${esc(grupo).replace(/'/g,"\\'")}')">&#9998; Renombrar grupo</button><button class="btn btn-sm btn-success" onclick="guardarFichaGrupo('${esc(grupo).replace(/'/g,"\\'")}')">&#128190; Guardar info del grupo</button></div></div>`;
     // Lista de viajeros (cliente titular + acompañantes) y comparacion contra cupos del grupo
     const viajeros=[];
     ventas.forEach(v=>{
@@ -4288,6 +4288,39 @@ function abrirFichaGrupo(grupo){
     const viajerosTabla=`<details class="ficha-collapse"><summary>Ver lista de viajeros (${viajeros.length})</summary><table class="list-table" style="margin-top:6px;"><thead><tr><th style="width:40px;">#</th><th>Nombre</th><th>Rol</th></tr></thead><tbody>${filasViajeros}</tbody></table></details>`;
     document.getElementById('fichaGrupoBody').innerHTML=`<p style="color:var(--text-light);font-size:0.82rem;margin-bottom:10px;">${ventas.length} ${ventas.length===1?'cliente titular':'clientes titulares'} en este grupo · ${viajeros.length} ${viajeros.length===1?'viajero':'viajeros'} en total.</p><h4 class="ficha-h">Datos generales del grupo</h4>${generalHtml}<h4 class="ficha-h">Cupos y viajeros</h4>${cuposBlock}${viajerosTabla}<h4 class="ficha-h">Totales</h4>${totalesHtml||'<p style="color:var(--text-light);">Sin montos cargados.</p>'}<h4 class="ficha-h">Estado de pago</h4>${fichaPagosHtml}<h4 class="ficha-h">Estado de la venta</h4>${fichaEstHtml}<h4 class="ficha-h">Detalle por cliente</h4>${tablaHtml}`;
     document.getElementById('modalFichaGrupo').classList.add('open');
+}
+// Renombra un grupo: actualiza el nombre en todas las ventas vinculadas y en dv_grupos.
+function renombrarGrupo(nombreActual){
+    const nuevoRaw=prompt('Nuevo nombre del grupo:',nombreActual||'');
+    if(nuevoRaw===null)return;
+    const nuevo=String(nuevoRaw).trim();
+    if(!nuevo){alert('El nombre no puede quedar vacío.');return;}
+    if(nuevo===nombreActual){return;} // sin cambios
+    // Verificar que no exista otro grupo con ese nombre (case-insensitive)
+    const norm=s=>(s||'').trim().toLowerCase();
+    const ventas=getVentas();
+    const yaExiste=ventas.some(v=>v.tipo==='grupal'&&norm(v.grupoNombre)===norm(nuevo)&&norm(v.grupoNombre)!==norm(nombreActual));
+    if(yaExiste){alert('Ya existe otro grupo con ese nombre. Elija uno distinto.');return;}
+    if(!confirm('Se va a renombrar el grupo "'+nombreActual+'" a "'+nuevo+'". Esto actualiza todas las ventas vinculadas. ¿Continuar?'))return;
+    // 1) Actualizar ventas
+    let cambios=0;
+    ventas.forEach(v=>{if(v.tipo==='grupal'&&norm(v.grupoNombre)===norm(nombreActual)){v.grupoNombre=nuevo;cambios++;}});
+    saveVentas(ventas);
+    // 2) Actualizar entry en dv_grupos
+    const grupos=getGrupos();
+    const g=grupos.find(x=>norm(x.nombre)===norm(nombreActual));
+    if(g){g.nombre=nuevo;g.fechaActualizacion=new Date().toISOString();saveGrupos(grupos);}
+    // 3) Actualizar set de grupos expandidos en localStorage (preservar estado de despliegue)
+    try{
+        const arr=JSON.parse(localStorage.getItem('dv_grupos_expanded')||'[]');
+        if(Array.isArray(arr)){
+            const set=new Set(arr.map(n=>norm(n)===norm(nombreActual)?nuevo:n));
+            localStorage.setItem('dv_grupos_expanded',JSON.stringify(Array.from(set)));
+        }
+    }catch(e){}
+    closeModal('modalFichaGrupo');
+    renderVentas();
+    alert('Grupo renombrado. Se actualizaron '+cambios+' venta'+(cambios===1?'':'s')+'.');
 }
 function guardarFichaGrupo(nombre){
     const patch={
