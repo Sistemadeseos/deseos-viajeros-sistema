@@ -1453,7 +1453,14 @@ onAuthStateChanged(fbAuth, (user) => {
         <div class="form-group"><label>Fecha de la venta</label><input type="date" id="vgFechaVenta" onchange="renderVgPlanPago()"><p style="font-size:0.7rem;color:var(--text-light);margin-top:3px;">Fecha en que se cerr&oacute; la venta. Sirve para registrar ventas hechas antes de empezar a usar el sistema.</p></div>
         <div class="form-row"><div class="form-group"><label>Fecha inicio del viaje</label><input type="date" id="vgFechaInicio" onchange="renderVgPlanPago()"></div><div class="form-group"><label>Fecha fin del viaje</label><input type="date" id="vgFechaFin"></div></div>
         <div class="form-row"><div class="form-group"><label>Precio por persona</label><input type="number" id="vgMonto" step="0.01" placeholder="0" oninput="recalcVgTotal()"></div><div class="form-group"><label>Moneda</label><select id="vgMoneda"><option value="USD">USD</option><option value="CRC">CRC</option><option value="EUR">EUR</option></select></div></div>
-        <div class="form-row"><div class="form-group"><label>N&uacute;mero de acompa&ntilde;antes</label><input type="number" id="vgAcompCount" min="0" step="1" placeholder="0" value="0" oninput="renderVgAcompanantes()"><p style="font-size:0.7rem;color:var(--text-light);margin-top:3px;">Personas que viajan con el cliente (no se cuenta el cliente).</p></div><div class="form-group"><label>Total estimado</label><input type="text" id="vgTotalCalc" readonly style="background:#f5f7fa;font-weight:700;color:var(--primary-dark);"></div></div>
+        <div class="form-row"><div class="form-group"><label>N&uacute;mero de acompa&ntilde;antes</label><input type="number" id="vgAcompCount" min="0" step="1" placeholder="0" value="0" readonly style="background:#f5f7fa;font-weight:700;color:var(--primary-dark);"><p style="font-size:0.7rem;color:var(--text-light);margin-top:3px;">Suma autom&aacute;tica del desglose por edad. No se cuenta el cliente titular.</p></div><div class="form-group"><label>Total estimado</label><input type="text" id="vgTotalCalc" readonly style="background:#f5f7fa;font-weight:700;color:var(--primary-dark);"></div></div>
+        <div class="form-group"><label>Desglose por edad <span style="font-weight:400;font-size:0.7rem;color:var(--text-light);">(no se cuenta el titular)</span></label>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <div style="flex:1;min-width:90px;"><label style="font-size:0.7rem;color:var(--text-light);">Adultos</label><input type="number" id="vgAcompAd" min="0" step="1" value="0" oninput="recalcVgAcompTotal()"></div>
+                <div style="flex:1;min-width:90px;"><label style="font-size:0.7rem;color:var(--text-light);">Ni&ntilde;os 2-11</label><input type="number" id="vgAcompNino" min="0" step="1" value="0" oninput="recalcVgAcompTotal()"></div>
+                <div style="flex:1;min-width:90px;"><label style="font-size:0.7rem;color:var(--text-light);">Beb&eacute;s 0-2</label><input type="number" id="vgAcompBebe" min="0" step="1" value="0" oninput="recalcVgAcompTotal()"></div>
+            </div>
+        </div>
         <div id="vgAcompContainer" style="display:none;margin-bottom:10px;"><label style="display:block;font-weight:600;font-size:0.78rem;color:var(--text-light);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.5px;">Nombres de acompa&ntilde;antes</label><div id="vgAcompList" style="display:flex;flex-direction:column;gap:5px;"></div></div>
         <div class="form-group"><label style="display:flex;align-items:center;gap:8px;">Plan de pago <button type="button" class="btn btn-sm btn-ghost" style="font-size:0.7rem;padding:3px 8px;" onclick="distribuirPlanPago()" title="Divide el total estimado en partes iguales entre todos los meses">Distribuir total</button></label><p style="font-size:0.7rem;color:var(--text-light);margin-top:0;margin-bottom:6px;">Una fila por mes desde la fecha de la venta hasta la fecha de inicio del viaje. Pon&eacute; el monto acordado para cada mes.</p><div id="vgPlanPagoBox"></div></div>
         <div class="form-group"><label>Notas</label><textarea id="vgNotas" rows="2" placeholder="Detalles del paquete grupal..."></textarea></div>
@@ -4217,12 +4224,30 @@ function editarVentaGrupal(ventaId){
     const cob=v.cobranza||{};
     document.getElementById('vgMonto').value=cob.precioPorPersona!=null?cob.precioPorPersona:'';
     document.getElementById('vgMoneda').value=cob.moneda||'USD';
-    const numAc=v.numAcompanantes!=null?v.numAcompanantes:(Array.isArray(v.acompanantes)?v.acompanantes.length:0);
-    document.getElementById('vgAcompCount').value=numAc;
+    // Determinar conteo por tipo. Prioridad: campos detallados → legacy total (todo a adultos).
+    let nAd=0,nNi=0,nBe=0;
+    if(v.numAcompAdultos!=null||v.numAcompNinos!=null||v.numAcompBebes!=null){
+        nAd=parseInt(v.numAcompAdultos||0,10)||0;
+        nNi=parseInt(v.numAcompNinos||0,10)||0;
+        nBe=parseInt(v.numAcompBebes||0,10)||0;
+    }else if(v.numAcompanantes>0){
+        nAd=v.numAcompanantes;
+    }
+    document.getElementById('vgAcompAd').value=nAd;
+    document.getElementById('vgAcompNino').value=nNi;
+    document.getElementById('vgAcompBebe').value=nBe;
+    document.getElementById('vgAcompCount').value=nAd+nNi+nBe;
     renderVgAcompanantes();
-    // Volver a setear los nombres ya tipeados (renderVgAcompanantes los limpia si no estaban en el DOM previo)
-    const inputs=document.querySelectorAll('#vgAcompList input.vg-acomp');
-    (v.acompanantes||[]).forEach((nom,i)=>{if(inputs[i])inputs[i].value=nom;});
+    // Re-aplicar nombres guardados, agrupados por tipo (soporta legacy strings).
+    const prevNames={adulto:[],nino:[],bebe:[]};
+    (v.acompanantes||[]).forEach(a=>{
+        if(typeof a==='string'){prevNames.adulto.push(a);}
+        else if(a&&typeof a==='object'){const t=a.tipo==='nino'||a.tipo==='bebe'?a.tipo:'adulto';prevNames[t].push(a.nombre||'');}
+    });
+    ['adulto','nino','bebe'].forEach(t=>{
+        const inputs=document.querySelectorAll(`#vgAcompList input.vg-acomp[data-tipo="${t}"]`);
+        prevNames[t].forEach((nom,i)=>{if(inputs[i])inputs[i].value=nom;});
+    });
     document.getElementById('vgNotas').value=v.notas||'';
     recalcVgTotal();
     // Plan de pago: regenerar filas y rellenar montos
@@ -4357,6 +4382,9 @@ function openModalVentaGrupal(grupoPredef){
     document.getElementById('vgFechaVenta').value=new Date().toISOString().slice(0,10);
     document.getElementById('vgMoneda').value='USD';
     document.getElementById('vgAcompCount').value='0';
+    document.getElementById('vgAcompAd').value='0';
+    document.getElementById('vgAcompNino').value='0';
+    document.getElementById('vgAcompBebe').value='0';
     document.getElementById('vgAcompList').innerHTML='';
     document.getElementById('vgAcompContainer').style.display='none';
     recalcVgTotal();
@@ -4395,18 +4423,40 @@ function onVgClienteChange(){
     const v=document.getElementById('vgClienteId').value;
     document.getElementById('vgNuevoClienteBox').style.display=v==='__nuevo'?'':'none';
 }
+// Recalcula el total de acompañantes (suma adultos+niños+bebés), actualiza el input de total y re-renderiza los nombres.
+function recalcVgAcompTotal(){
+    const nAd=Math.max(0,parseInt(document.getElementById('vgAcompAd').value||'0',10));
+    const nNi=Math.max(0,parseInt(document.getElementById('vgAcompNino').value||'0',10));
+    const nBe=Math.max(0,parseInt(document.getElementById('vgAcompBebe').value||'0',10));
+    document.getElementById('vgAcompCount').value=nAd+nNi+nBe;
+    renderVgAcompanantes();
+}
 function renderVgAcompanantes(){
-    const n=Math.max(0,parseInt(document.getElementById('vgAcompCount').value||'0',10));
+    const nAd=Math.max(0,parseInt(document.getElementById('vgAcompAd').value||'0',10));
+    const nNi=Math.max(0,parseInt(document.getElementById('vgAcompNino').value||'0',10));
+    const nBe=Math.max(0,parseInt(document.getElementById('vgAcompBebe').value||'0',10));
     const cont=document.getElementById('vgAcompContainer');
     const list=document.getElementById('vgAcompList');
-    // Conservar valores ya tipeados
-    const prev=Array.from(list.querySelectorAll('input.vg-acomp')).map(i=>i.value);
-    if(n<=0){cont.style.display='none';list.innerHTML='';recalcVgTotal();return;}
+    // Conservar valores ya tipeados, agrupados por tipo
+    const prev={adulto:[],nino:[],bebe:[]};
+    Array.from(list.querySelectorAll('input.vg-acomp')).forEach(inp=>{const t=inp.dataset.tipo||'adulto';prev[t].push(inp.value);});
+    const total=nAd+nNi+nBe;
+    if(total<=0){cont.style.display='none';list.innerHTML='';recalcVgTotal();return;}
     cont.style.display='';
+    const grupos=[
+        {tipo:'adulto',label:'Adultos',n:nAd},
+        {tipo:'nino',label:'Ni&ntilde;os (2-11)',n:nNi},
+        {tipo:'bebe',label:'Beb&eacute;s (0-2)',n:nBe}
+    ];
     let html='';
-    for(let i=0;i<n;i++){
-        html+=`<input type="text" class="vg-acomp" placeholder="Acompa&ntilde;ante ${i+1}" value="${esc(prev[i]||'')}" style="padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:0.85rem;">`;
-    }
+    grupos.forEach(g=>{
+        if(g.n<=0)return;
+        html+=`<div style="margin-top:4px;"><div style="font-size:0.7rem;color:var(--text-light);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:2px;">${g.label}</div>`;
+        for(let i=0;i<g.n;i++){
+            html+=`<input type="text" class="vg-acomp" data-tipo="${g.tipo}" placeholder="${g.label.replace(/&[a-z]+;/g,'').trim()} ${i+1}" value="${esc(prev[g.tipo][i]||'')}" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:0.82rem;margin-bottom:3px;width:100%;">`;
+        }
+        html+='</div>';
+    });
     list.innerHTML=html;
     recalcVgTotal();
 }
@@ -4547,8 +4597,11 @@ function guardarVentaGrupal(){
     }
     const usuarioEmail=(window.currentUser&&window.currentUser.email)||'';
     const precioPorPersona=parseFloat(document.getElementById('vgMonto').value)||0;
-    const numAcomp=Math.max(0,parseInt(document.getElementById('vgAcompCount').value||'0',10));
-    const acompanantes=Array.from(document.querySelectorAll('#vgAcompList input.vg-acomp')).map(i=>i.value.trim()).filter(Boolean);
+    const nAd=Math.max(0,parseInt(document.getElementById('vgAcompAd').value||'0',10));
+    const nNi=Math.max(0,parseInt(document.getElementById('vgAcompNino').value||'0',10));
+    const nBe=Math.max(0,parseInt(document.getElementById('vgAcompBebe').value||'0',10));
+    const numAcomp=nAd+nNi+nBe;
+    const acompanantes=Array.from(document.querySelectorAll('#vgAcompList input.vg-acomp')).map(i=>({nombre:i.value.trim(),tipo:i.dataset.tipo||'adulto'})).filter(a=>a.nombre);
     const personasTotal=1+numAcomp;
     const montoTotalCalc=precioPorPersona*personasTotal;
     if(editId&&ventaPrev){
@@ -4564,6 +4617,9 @@ function guardarVentaGrupal(){
         ventaPrev.encargado=document.getElementById('vgEncargado').value||ventaPrev.encargado||usuarioEmail;
         ventaPrev.notas=document.getElementById('vgNotas').value.trim();
         ventaPrev.numAcompanantes=numAcomp;
+        ventaPrev.numAcompAdultos=nAd;
+        ventaPrev.numAcompNinos=nNi;
+        ventaPrev.numAcompBebes=nBe;
         ventaPrev.acompanantes=acompanantes;
         ventaPrev.planPago=collectPlanPagoFromUI();
         ventaPrev.cobranza=ventaPrev.cobranza||{};
@@ -4590,6 +4646,9 @@ function guardarVentaGrupal(){
             estado:'pendiente',
             notas:document.getElementById('vgNotas').value.trim(),
             numAcompanantes:numAcomp,
+            numAcompAdultos:nAd,
+            numAcompNinos:nNi,
+            numAcompBebes:nBe,
             acompanantes,
             planPago:collectPlanPagoFromUI(),
             checklist:defaultChecklistItems.map((t,i)=>({id:Date.now()+'_'+i,texto:t,completado:false})),
