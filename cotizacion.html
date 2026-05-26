@@ -1568,15 +1568,36 @@ let _fsEnabled=false; // true después de loadAllFromFirestore()
 let _fsSyncInProgress=false; // evita loops cuando la carga inicial escribe al cache
 
 function getLS(k){try{return JSON.parse(localStorage.getItem(k)||'[]');}catch(e){return[];}}
+// Verifica si un error es por cuota de almacenamiento llena
+function esErrorCuota(e){
+    return e&&(e.name==='QuotaExceededError'||e.name==='NS_ERROR_DOM_QUOTA_REACHED'||(e.code&&(e.code===22||e.code===1014)));
+}
+// Auto-limpieza segura: elimina los snapshots locales (dv_snapshot_*). La data real esta en Firebase.
+// Devuelve cuantos snapshots se borraron.
+function purgarSnapshotsLocales(){
+    let n=0;
+    const keys=[];
+    for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(k&&k.startsWith('dv_snapshot_'))keys.push(k);}
+    keys.forEach(k=>{try{localStorage.removeItem(k);n++;}catch(e){}});
+    if(n>0)console.warn('[storage] Auto-purga: '+n+' snapshots locales eliminados para liberar espacio.');
+    return n;
+}
 function setLS(k,v){
-    try{
+    const intentarEscribir=()=>{
         localStorage.setItem(k,JSON.stringify(v));
         if(_fsEnabled&&!_fsSyncInProgress)pushToFirestore(k,v).catch(err=>console.error('[FS] push error:',k,err));
-        return true;
-    }catch(e){
-        if(e.name==='QuotaExceededError'||e.name==='NS_ERROR_DOM_QUOTA_REACHED'||(e.code&&(e.code===22||e.code===1014))){
+    };
+    try{intentarEscribir();return true;}
+    catch(e){
+        if(esErrorCuota(e)){
+            // Auto-limpiar snapshots y reintentar una vez (segura: snapshots son backups locales, no fuente de verdad)
+            const purgados=purgarSnapshotsLocales();
+            if(purgados>0){
+                try{intentarEscribir();return true;}
+                catch(e2){if(esErrorCuota(e2)){/* sigue lleno, caer al alert */}else{console.error('[setLS] error tras purga',k,e2);return false;}}
+            }
             const info=getStorageInfo();
-            alert('⚠ El almacenamiento del navegador se llenó.\n\nUso actual: '+info.usedMB+' MB de ~5 MB disponibles.\n\nNo se pudo guardar el cambio. Andá a Configuración → "Limpiar caché local" para liberar espacio (los datos del equipo viven en la nube, no se pierde nada).\n\nDespués refrescá la página y volvé a intentar guardar.');
+            alert('⚠ El almacenamiento del navegador se llenó.\n\nUso actual: '+info.usedMB+' MB de ~5 MB disponibles.\n\nYa se hizo una limpieza automática de los backups locales pero no fue suficiente.\n\nAndá a Configuración → "Limpiar caché local" para liberar más espacio (los datos del equipo viven en la nube, no se pierde nada).\n\nDespués refrescá la página y volvé a intentar guardar.');
         }else{
             console.error('[setLS] error guardando',k,e);
             alert('No se pudo guardar localmente: '+e.message);
@@ -1586,14 +1607,21 @@ function setLS(k,v){
 }
 function getLSObj(k){try{return JSON.parse(localStorage.getItem(k)||'{}');}catch(e){return {};}}
 function setLSObj(k,v){
-    try{
+    const intentarEscribir=()=>{
         localStorage.setItem(k,JSON.stringify(v));
         if(_fsEnabled&&!_fsSyncInProgress)pushToFirestore(k,v).catch(err=>console.error('[FS] push error:',k,err));
-        return true;
-    }catch(e){
-        if(e.name==='QuotaExceededError'||e.name==='NS_ERROR_DOM_QUOTA_REACHED'||(e.code&&(e.code===22||e.code===1014))){
+    };
+    try{intentarEscribir();return true;}
+    catch(e){
+        if(esErrorCuota(e)){
+            // Auto-limpiar snapshots y reintentar una vez
+            const purgados=purgarSnapshotsLocales();
+            if(purgados>0){
+                try{intentarEscribir();return true;}
+                catch(e2){if(!esErrorCuota(e2)){console.error('[setLSObj] error tras purga',k,e2);return false;}}
+            }
             const info=getStorageInfo();
-            alert('\u26A0 El almacenamiento del navegador se llen\u00f3.\n\nUso actual: '+info.usedMB+' MB de ~5 MB disponibles.\n\nSugerencias:\n\u2022 Elimin\u00e1 cotizaciones viejas del historial\n\u2022 Elimin\u00e1 adjuntos internos pesados\n\u2022 Elimin\u00e1 destinos que no uses\n\nLas im\u00e1genes nuevas se comprimen autom\u00e1ticamente, pero si el navegador ya est\u00e1 lleno no pueden guardarse.');
+            alert('\u26A0 El almacenamiento del navegador se llen\u00f3.\n\nUso actual: '+info.usedMB+' MB de ~5 MB disponibles.\n\nYa se hizo una limpieza autom\u00e1tica de los backups locales pero no fue suficiente.\n\nSugerencias:\n\u2022 And\u00e1 a Configuraci\u00f3n \u2192 "Limpiar cach\u00e9 local" para vaciar el cach\u00e9 completo (los datos del equipo viven en la nube)\n\u2022 Elimin\u00e1 cotizaciones viejas del historial\n\u2022 Elimin\u00e1 adjuntos internos pesados');
         }else{
             alert('Error al guardar en localStorage: '+e.message);
             console.error(e);
