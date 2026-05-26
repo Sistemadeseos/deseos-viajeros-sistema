@@ -3754,7 +3754,9 @@ ${adjuntos.length?`<div class="cot-page cot-adjuntos-page" style="min-height:aut
 // ===== HISTORIAL =====
 function guardarCotizacion(){
     const data=collectFormData();
-    if(!data.destino){alert('Ingrese un destino.');return;}
+    // En Europa/Asia se permite usar el campo libre "Destino" (destinoTexto) aunque no se haya elegido caratula.
+    if(!data.destino&&data.destinoTexto){data.destino=data.destinoTexto;}
+    if(!data.destino){alert('Ingrese un destino (o seleccione una carátula).');return;}
     const hist=getHistorial();
     const clienteId=autoCreateCliente(data);
     const savingId=editingId||Date.now().toString();
