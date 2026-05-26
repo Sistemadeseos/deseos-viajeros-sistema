@@ -1569,8 +1569,20 @@ let _fsSyncInProgress=false; // evita loops cuando la carga inicial escribe al c
 
 function getLS(k){try{return JSON.parse(localStorage.getItem(k)||'[]');}catch(e){return[];}}
 function setLS(k,v){
-    localStorage.setItem(k,JSON.stringify(v));
-    if(_fsEnabled&&!_fsSyncInProgress)pushToFirestore(k,v).catch(err=>console.error('[FS] push error:',k,err));
+    try{
+        localStorage.setItem(k,JSON.stringify(v));
+        if(_fsEnabled&&!_fsSyncInProgress)pushToFirestore(k,v).catch(err=>console.error('[FS] push error:',k,err));
+        return true;
+    }catch(e){
+        if(e.name==='QuotaExceededError'||e.name==='NS_ERROR_DOM_QUOTA_REACHED'||(e.code&&(e.code===22||e.code===1014))){
+            const info=getStorageInfo();
+            alert('⚠ El almacenamiento del navegador se llenó.\n\nUso actual: '+info.usedMB+' MB de ~5 MB disponibles.\n\nNo se pudo guardar el cambio. Andá a Configuración → "Limpiar caché local" para liberar espacio (los datos del equipo viven en la nube, no se pierde nada).\n\nDespués refrescá la página y volvé a intentar guardar.');
+        }else{
+            console.error('[setLS] error guardando',k,e);
+            alert('No se pudo guardar localmente: '+e.message);
+        }
+        return false;
+    }
 }
 function getLSObj(k){try{return JSON.parse(localStorage.getItem(k)||'{}');}catch(e){return {};}}
 function setLSObj(k,v){
