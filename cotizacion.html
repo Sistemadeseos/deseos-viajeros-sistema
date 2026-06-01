@@ -3015,7 +3015,15 @@ function addServicio(){addServicioItem('',true);}
 function addServicioItem(t,ch){const c=document.getElementById('serviciosContainer');const d=document.createElement('div');d.className='service-item';d.draggable=true;d.innerHTML=`<span class="drag-handle" draggable="false">&#9776;</span><input type="checkbox" ${ch?'checked':''} onchange="updatePreview()"><input type="text" value="${esc(t)}" placeholder="Servicio..." oninput="updatePreview()"><button class="btn-icon remove" onclick="this.parentElement.remove();updatePreview();">&times;</button>`;c.appendChild(d);updatePreview();}
 
 // ===== NO INCLUYE =====
-function loadNoIncluye(l){const c=document.getElementById('noIncluyeContainer');c.innerHTML='';l.forEach(s=>addNoIncluyeItem(s));}
+// Items de "No incluye" que arrancan tildados por defecto al cargar la lista de config.
+const NOINCLUYE_TILDADOS_DEFAULT=[
+    'Seguro de viaje con coberturas de COVID, se puede adquirir por un costo adicional.',
+    'Servicios no mencionados.',
+    'Equipaje documentado y de mano, se puede adquirir por un costo adicional.'
+];
+const _noIncluyeTildadosNorm=new Set(NOINCLUYE_TILDADOS_DEFAULT.map(s=>normalizarParaMatch(s)));
+function noIncluyeVieneTildadoPorDefault(t){return _noIncluyeTildadosNorm.has(normalizarParaMatch(t));}
+function loadNoIncluye(l){const c=document.getElementById('noIncluyeContainer');c.innerHTML='';l.forEach(s=>addNoIncluyeItem(s,noIncluyeVieneTildadoPorDefault(s)));}
 function addNoIncluye(){addNoIncluyeItem('');}
 function addNoIncluyeItem(t,checked){const c=document.getElementById('noIncluyeContainer');const d=document.createElement('div');d.className='service-item';d.draggable=true;const isChecked=checked!==undefined?checked:true;d.innerHTML=`<span class="drag-handle" draggable="false">&#9776;</span><input type="checkbox" ${isChecked?'checked':''} onchange="updatePreview()"><input type="text" value="${esc(t)}" placeholder="No incluido..." oninput="updatePreview()"><button class="btn-icon remove" onclick="this.parentElement.remove();updatePreview();">&times;</button>`;c.appendChild(d);updatePreview();}
 
