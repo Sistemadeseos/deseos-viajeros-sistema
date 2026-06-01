@@ -2651,9 +2651,9 @@ function switchConfigTab(name){
 // Helpers para renderizar una lista editable con drag handles
 function renderCfgListItem(value,isTextarea){
     const input=isTextarea
-        ?`<textarea style="flex:1;min-height:38px;padding:5px 8px;font-size:0.82rem;border:1px solid var(--border);border-radius:4px;">${esc(value||'')}</textarea>`
-        :`<input type="text" value="${esc(value||'')}" style="flex:1;padding:5px 8px;font-size:0.82rem;border:1px solid var(--border);border-radius:4px;">`;
-    return`<div class="service-item config-list-item" draggable="true"><span class="drag-handle" draggable="false">&#9776;</span>${input}<button class="btn-icon remove" onclick="this.parentElement.remove()">&times;</button></div>`;
+        ?`<textarea onblur="autoSaveConfigSilently()" style="flex:1;min-height:38px;padding:5px 8px;font-size:0.82rem;border:1px solid var(--border);border-radius:4px;">${esc(value||'')}</textarea>`
+        :`<input type="text" onblur="autoSaveConfigSilently()" value="${esc(value||'')}" style="flex:1;padding:5px 8px;font-size:0.82rem;border:1px solid var(--border);border-radius:4px;">`;
+    return`<div class="service-item config-list-item" draggable="true"><span class="drag-handle" draggable="false">&#9776;</span>${input}<button class="btn-icon remove" onclick="this.parentElement.remove();autoSaveConfigSilently();">&times;</button></div>`;
 }
 
 function renderConfigEncargados(){
@@ -2831,7 +2831,7 @@ function collectConfigListFromDOM(containerId,isTextarea){
     return list;
 }
 
-function saveConfigFromUI(){
+function saveConfigFromUI(silent){
     const c={_version:1};
     // Agencia
     c.agencyInfo={
@@ -2900,7 +2900,14 @@ function saveConfigFromUI(){
     const rs=document.getElementById('razonSocial');if(rs&&!rs.value)rs.value=c.agencyInfo.nombre;
     const ced=document.getElementById('cedulaEmpresa');if(ced&&!ced.value)ced.value=c.agencyInfo.cedula;
     updatePreview();
-    alert('Configuraci\u00f3n guardada correctamente.');
+    if(!silent)alert('Configuraci\u00f3n guardada correctamente.');
+}
+// Auto-guardado silencioso con debounce para que la encargada no tenga que recordar apretar
+// "Guardar configuraci\u00f3n" cuando edita listas (servicios, politicas, alertas, etc.).
+let _autoSaveCfgTimer=null;
+function autoSaveConfigSilently(){
+    if(_autoSaveCfgTimer)clearTimeout(_autoSaveCfgTimer);
+    _autoSaveCfgTimer=setTimeout(()=>{try{saveConfigFromUI(true);}catch(e){console.error('[autoSaveCfg]',e);}},600);
 }
 
 // Vacia el localStorage del navegador (excepto las claves de auth de Firebase) y recarga la pagina.
