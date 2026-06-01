@@ -3213,10 +3213,18 @@ document.addEventListener('keydown',function(e){
 
 function populateCalcInputs(opId,calc){
     const v=calc.values||{};
-    ['boleto','hotel','tours','transp','fee','xgrupo','reserva'].forEach(fld=>{
+    // Recorremos TODAS las claves guardadas, no solo las default. Asi las filas
+    // dinamicas agregadas por el usuario (Seguro, Excursion, etc.) tambien
+    // recuperan sus valores al re-abrir la cotizacion del historial.
+    Object.keys(v).forEach(fld=>{
         ['ad','n11','n3'].forEach(col=>{
             const inp=document.querySelector(`input[data-op="${opId}"][data-fld="${fld}"][data-col="${col}"]`);
-            if(inp)inp.value=(v[fld]&&v[fld][col])||'';
+            if(inp){
+                const val=(v[fld]&&v[fld][col])||'';
+                inp.value=val;
+                // Si es una formula, showCalcResult la evalua y deja la celda con el resultado visible + la formula en dataset.
+                if(val&&/[+\-*/]/.test(String(val)))showCalcResult(inp);
+            }
         });
     });
     ['ad','n11','n3'].forEach(col=>{
