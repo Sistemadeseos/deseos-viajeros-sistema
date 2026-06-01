@@ -3849,7 +3849,22 @@ switchFormat(d.formato||'america');switchTipoCliente(d.tipoCliente||'persona');
 document.getElementById('mostrarClienteEnCot').checked=d.mostrarCliente!==false;
 document.getElementById('clienteNombre').value=d.clienteNombre||'';document.getElementById('clienteTelefono').value=d.clienteTelefono||'';document.getElementById('clienteEmail').value=d.clienteEmail||'';document.getElementById('empresaNombre').value=d.empresaNombre||'';document.getElementById('empresaContacto').value=d.empresaContacto||'';document.getElementById('empresaTelefono').value=d.empresaTelefono||'';document.getElementById('empresaEmail').value=d.empresaEmail||'';
 populatePaisSelect();if(d.pais){document.getElementById('paisSelect').value=d.pais;onPaisChange();if(d.destinoSelect&&d.destinoSelect!=='__custom'){document.getElementById('destinoSelect').value=d.destinoSelect;onDestinoSelect();}else{document.getElementById('destinoSelect').value='__custom';onDestinoSelect();document.getElementById('destino').value=d.destino||'';}}else{document.getElementById('destino').style.display='';document.getElementById('destinoSelect').style.display='none';document.getElementById('destino').value=d.destino||'';selectedHeaderImg=null;}
-document.getElementById('fechaInicio').value=d.fechaInicio||'';document.getElementById('fechaFin').value=d.fechaFin||'';syncFechaViajePicker();const destTextoEl=document.getElementById('destinoTexto');if(destTextoEl)destTextoEl.value=d.destinoTexto||'';document.getElementById('alertaDestino').value=d.alerta||'';document.getElementById('infoDestino').value=d.infoDestino||'';document.getElementById('moneda').value=d.moneda||'USD';loadedReservaLegacy={ad:d.precioReserva||'',n:d.precioReservaNino||'',b:d.precioReservaBebe||''};document.getElementById('razonSocial').value=d.razonSocial||'Deseos Viajeros MYX SRL';document.getElementById('cedulaEmpresa').value=d.cedulaEmpresa||'3-102-862093';document.getElementById('encargado').value=d.encargado||'';
+// Cargar fechas viaje: si flatpickr esta activo, usar setDate con Date objects (que escribe el formato d/m/Y).
+// Si no, escribir directamente el ISO en el input (modo nativo).
+(function(){
+    const fi=document.getElementById('fechaInicio');const ff=document.getElementById('fechaFin');
+    const fiIso=normalizeFechaIso(d.fechaInicio||'');const ffIso=normalizeFechaIso(d.fechaFin||'');
+    if(_fpFechaViaje){
+        try{
+            if(fiIso&&ffIso){_fpFechaViaje.setDate([new Date(fiIso+'T12:00:00'),new Date(ffIso+'T12:00:00')],false);}
+            else if(fiIso){_fpFechaViaje.setDate(new Date(fiIso+'T12:00:00'),false);}
+            else{_fpFechaViaje.clear(false);}
+        }catch(e){console.warn('[fechas] setDate fallo, fallback a value directo',e);fi.value=isoToDmy(fiIso);ff.value=isoToDmy(ffIso);}
+    }else{
+        fi.value=fiIso;ff.value=ffIso;
+    }
+})();
+const destTextoEl=document.getElementById('destinoTexto');if(destTextoEl)destTextoEl.value=d.destinoTexto||'';document.getElementById('alertaDestino').value=d.alerta||'';document.getElementById('infoDestino').value=d.infoDestino||'';document.getElementById('moneda').value=d.moneda||'USD';loadedReservaLegacy={ad:d.precioReserva||'',n:d.precioReservaNino||'',b:d.precioReservaBebe||''};document.getElementById('razonSocial').value=d.razonSocial||'Deseos Viajeros MYX SRL';document.getElementById('cedulaEmpresa').value=d.cedulaEmpresa||'3-102-862093';document.getElementById('encargado').value=d.encargado||'';
 adjuntos=(d.adjuntos||[]).map(a=>({id:a.id,categoria:a.categoria,descripcion:a.descripcion,dataUrl:a.dataUrl}));renderAdjuntos();
 const sc=document.getElementById('serviciosContainer');sc.innerHTML='';(d.servicios||[]).forEach(s=>addServicioItem(s,true));
 const ob=document.getElementById('opcionesBody');ob.innerHTML='';(d.opciones||[]).forEach(o=>{
