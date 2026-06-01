@@ -2995,7 +2995,22 @@ updatePreview();
 }
 
 // ===== SERVICIOS =====
-function loadServicios(l){const c=document.getElementById('serviciosContainer');c.innerHTML='';l.forEach(s=>addServicioItem(s,false));}
+// Servicios que se marcan automaticamente al cargar la lista por defecto del config.
+// La comparacion ignora tildes, espacios y mayusculas para tolerar variaciones menores.
+const SERVICIOS_TILDADOS_DEFAULT=[
+    'Boletos aéreos ida y vuelta (incluye objeto personal mochila y carry on 10 kg) NO incluye equipaje documentado de 23kg.',
+    'Hospedajes diarios en el hotel a elegir.',
+    'Traslados aeropuerto-hotel y viceversa.',
+    'Uso de las instalaciones.',
+    'Impuestos hoteleros.',
+    'Impuestos aéreos.',
+    'Asesoría personalizada sobre lugares para conocer y tips de viaje.',
+    'Atención personalizada antes, durante y después de su viaje.',
+    'Alimentación todo incluido.'
+];
+const _serviciosTildadosNorm=new Set(SERVICIOS_TILDADOS_DEFAULT.map(s=>normalizarParaMatch(s)));
+function servicioVieneTildadoPorDefault(texto){return _serviciosTildadosNorm.has(normalizarParaMatch(texto));}
+function loadServicios(l){const c=document.getElementById('serviciosContainer');c.innerHTML='';l.forEach(s=>addServicioItem(s,servicioVieneTildadoPorDefault(s)));}
 function addServicio(){addServicioItem('',true);}
 function addServicioItem(t,ch){const c=document.getElementById('serviciosContainer');const d=document.createElement('div');d.className='service-item';d.draggable=true;d.innerHTML=`<span class="drag-handle" draggable="false">&#9776;</span><input type="checkbox" ${ch?'checked':''} onchange="updatePreview()"><input type="text" value="${esc(t)}" placeholder="Servicio..." oninput="updatePreview()"><button class="btn-icon remove" onclick="this.parentElement.remove();updatePreview();">&times;</button>`;c.appendChild(d);updatePreview();}
 
