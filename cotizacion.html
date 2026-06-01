@@ -3849,19 +3849,34 @@ switchFormat(d.formato||'america');switchTipoCliente(d.tipoCliente||'persona');
 document.getElementById('mostrarClienteEnCot').checked=d.mostrarCliente!==false;
 document.getElementById('clienteNombre').value=d.clienteNombre||'';document.getElementById('clienteTelefono').value=d.clienteTelefono||'';document.getElementById('clienteEmail').value=d.clienteEmail||'';document.getElementById('empresaNombre').value=d.empresaNombre||'';document.getElementById('empresaContacto').value=d.empresaContacto||'';document.getElementById('empresaTelefono').value=d.empresaTelefono||'';document.getElementById('empresaEmail').value=d.empresaEmail||'';
 populatePaisSelect();if(d.pais){document.getElementById('paisSelect').value=d.pais;onPaisChange();if(d.destinoSelect&&d.destinoSelect!=='__custom'){document.getElementById('destinoSelect').value=d.destinoSelect;onDestinoSelect();}else{document.getElementById('destinoSelect').value='__custom';onDestinoSelect();document.getElementById('destino').value=d.destino||'';}}else{document.getElementById('destino').style.display='';document.getElementById('destinoSelect').style.display='none';document.getElementById('destino').value=d.destino||'';selectedHeaderImg=null;}
-// Cargar fechas viaje: si flatpickr esta activo, usar setDate con Date objects (que escribe el formato d/m/Y).
-// Si no, escribir directamente el ISO en el input (modo nativo).
+// Cargar fechas viaje. Importante: el rangePlugin de flatpickr formatea setDate([d1,d2])
+// como "d1 a d2" en el primer input, dejando el segundo vacio. Para evitar eso, formateamos
+// manualmente cada input y luego actualizamos el estado interno de flatpickr.
 (function(){
     const fi=document.getElementById('fechaInicio');const ff=document.getElementById('fechaFin');
     const fiIso=normalizeFechaIso(d.fechaInicio||'');const ffIso=normalizeFechaIso(d.fechaFin||'');
+    fi.value=fiIso?isoToDmy(fiIso):'';
+    ff.value=ffIso?isoToDmy(ffIso):'';
+    // Sincronizar estado interno de flatpickr para que muestre el rango destacado en el calendario
     if(_fpFechaViaje){
         try{
-            if(fiIso&&ffIso){_fpFechaViaje.setDate([new Date(fiIso+'T12:00:00'),new Date(ffIso+'T12:00:00')],false);}
-            else if(fiIso){_fpFechaViaje.setDate(new Date(fiIso+'T12:00:00'),false);}
-            else{_fpFechaViaje.clear(false);}
-        }catch(e){console.warn('[fechas] setDate fallo, fallback a value directo',e);fi.value=isoToDmy(fiIso);ff.value=isoToDmy(ffIso);}
-    }else{
-        fi.value=fiIso;ff.value=ffIso;
+            if(fiIso&&ffIso){
+                const dStart=new Date(fiIso+'T12:00:00');
+                const dEnd=new Date(ffIso+'T12:00:00');
+                _fpFechaViaje.selectedDates=[dStart,dEnd];
+                _fpFechaViaje.latestSelectedDateObj=dEnd;
+                if(typeof _fpFechaViaje.redraw==='function')_fpFechaViaje.redraw();
+            }else if(fiIso){
+                _fpFechaViaje.selectedDates=[new Date(fiIso+'T12:00:00')];
+                if(typeof _fpFechaViaje.redraw==='function')_fpFechaViaje.redraw();
+            }else{
+                _fpFechaViaje.selectedDates=[];
+                if(typeof _fpFechaViaje.redraw==='function')_fpFechaViaje.redraw();
+            }
+            // Re-aplicar valores visibles porque redraw puede sobreescribir
+            fi.value=fiIso?isoToDmy(fiIso):'';
+            ff.value=ffIso?isoToDmy(ffIso):'';
+        }catch(e){console.warn('[fechas] no se pudo sincronizar flatpickr',e);}
     }
 })();
 const destTextoEl=document.getElementById('destinoTexto');if(destTextoEl)destTextoEl.value=d.destinoTexto||'';document.getElementById('alertaDestino').value=d.alerta||'';document.getElementById('infoDestino').value=d.infoDestino||'';document.getElementById('moneda').value=d.moneda||'USD';loadedReservaLegacy={ad:d.precioReserva||'',n:d.precioReservaNino||'',b:d.precioReservaBebe||''};document.getElementById('razonSocial').value=d.razonSocial||'Deseos Viajeros MYX SRL';document.getElementById('cedulaEmpresa').value=d.cedulaEmpresa||'3-102-862093';document.getElementById('encargado').value=d.encargado||'';
