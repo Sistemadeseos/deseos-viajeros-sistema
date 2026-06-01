@@ -534,6 +534,10 @@ input.vg-pp-monto,input.ve-pp-monto{-moz-appearance:textfield;appearance:textfie
 .recibo-totals-row.saldo.pagado{color:var(--success)}
 .recibo-footer{padding:14px 35px 25px;text-align:center;color:var(--text-light);font-size:0.78rem;border-top:1px solid var(--border);margin-top:20px}
 .recibo-footer .firma{margin-top:32px;display:inline-block;border-top:1px solid var(--text);padding-top:5px;min-width:200px}
+.recibo-viaje{text-align:right;margin:6px 0 14px}
+.recibo-viaje .rv-label{font-size:0.72rem;color:var(--text-light);text-transform:uppercase;letter-spacing:2px;font-weight:700}
+.recibo-viaje .rv-destino{font-family:'Playfair Display',serif;color:var(--primary-dark);font-size:1.6rem;font-weight:700;text-transform:uppercase;letter-spacing:1px;line-height:1.1;margin-top:2px}
+.recibo-viaje .rv-fechas{font-size:0.92rem;color:var(--text);margin-top:2px}
 .recibo-stamp{position:absolute;top:50%;right:40px;transform:translateY(-50%) rotate(-15deg);border:4px solid;border-radius:8px;padding:10px 22px;font-weight:900;font-size:1.4rem;letter-spacing:2px;opacity:0.15;font-family:'Playfair Display',serif}
 .recibo-stamp.pagado{color:var(--success);border-color:var(--success)}
 .recibo-stamp.pendiente{color:var(--danger);border-color:var(--danger)}
@@ -5173,6 +5177,11 @@ function renderDocumento(tipo,ventaId,pagoId){
     // Acompañantes del viaje (cargados en el modal de info de venta o en venta grupal)
     const acompList=(Array.isArray(v.acompanantes)?v.acompanantes:[]).map(a=>typeof a==='string'?a:(a&&a.nombre?a.nombre:'')).filter(Boolean);
     const acompanantesHtml=acompList.length?`<div style="margin-top:6px;font-size:0.78rem;color:var(--text-light);"><strong style="color:var(--text);">Acompa&ntilde;antes:</strong><ul style="margin:2px 0 0 16px;padding:0;">${acompList.map(n=>`<li>${esc(n)}</li>`).join('')}</ul></div>`:'';
+    // Bloque destacado del viaje (destino + fechas) que aparece en el recibo de pago.
+    // Toma datos de la venta (v) y como fallback de la cotizacion (cot.data) si v esta vacio.
+    const viajeDestino=(v.destino&&v.destino.trim())||(cot&&cot.data&&(cot.data.destinoTexto||cot.data.destino))||'';
+    const viajeFechas=v.fechaInicio?formatDateRange(v.fechaInicio,v.fechaFin):(cot&&cot.data&&cot.data.fechaInicio?formatDateRange(cot.data.fechaInicio,cot.data.fechaFin):'');
+    const viajeBlockHtml=viajeDestino?`<div class="recibo-viaje"><div class="rv-label">Viaje</div><div class="rv-destino">${esc(viajeDestino)}</div>${viajeFechas?`<div class="rv-fechas">${esc(viajeFechas)}</div>`:''}</div>`:'';
     const clienteEmail=cli?cli.email:'';
     const clienteTel=cli?cli.telefono:'';
     // Encabezado fijo configurado en Configuración (imagen distinta para recibo vs estado de cuenta)
@@ -5198,6 +5207,7 @@ function renderDocumento(tipo,ventaId,pagoId){
                 <div class="meta-block"><div class="meta-label">Recibimos de</div><div class="meta-value">${esc(clienteNombre)}</div>${clienteDoc?'<div style="font-size:0.78rem;color:var(--text-light);">'+esc(clienteDoc)+'</div>':''}${clienteEmail?'<div style="font-size:0.78rem;color:var(--text-light);">'+esc(clienteEmail)+'</div>':''}${clienteTel?'<div style="font-size:0.78rem;color:var(--text-light);">Tel: '+esc(clienteTel)+'</div>':''}${acompanantesHtml}</div>
                 <div class="meta-block" style="text-align:right;"><div class="meta-label">Fecha de emisi\u00f3n</div><div class="meta-value">${fechaDoc}</div><div class="meta-label" style="margin-top:8px;">Fecha del pago</div><div class="meta-value">${esc(pago.fecha)}</div></div>
             </div>
+            ${viajeBlockHtml}
             <div class="recibo-section-title">Concepto del pago</div>
             <table class="recibo-table">
                 <thead><tr><th>Descripci\u00f3n</th><th>M\u00e9todo</th><th>Referencia</th><th style="text-align:right;">Monto</th></tr></thead>
