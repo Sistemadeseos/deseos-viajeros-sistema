@@ -2995,7 +2995,7 @@ updatePreview();
 }
 
 // ===== SERVICIOS =====
-function loadServicios(l){const c=document.getElementById('serviciosContainer');c.innerHTML='';l.forEach(s=>addServicioItem(s,true));}
+function loadServicios(l){const c=document.getElementById('serviciosContainer');c.innerHTML='';l.forEach(s=>addServicioItem(s,false));}
 function addServicio(){addServicioItem('',true);}
 function addServicioItem(t,ch){const c=document.getElementById('serviciosContainer');const d=document.createElement('div');d.className='service-item';d.draggable=true;d.innerHTML=`<span class="drag-handle" draggable="false">&#9776;</span><input type="checkbox" ${ch?'checked':''} onchange="updatePreview()"><input type="text" value="${esc(t)}" placeholder="Servicio..." oninput="updatePreview()"><button class="btn-icon remove" onclick="this.parentElement.remove();updatePreview();">&times;</button>`;c.appendChild(d);updatePreview();}
 
