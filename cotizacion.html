@@ -1888,8 +1888,26 @@ async function loadAllFromFirestore(){
         ventas.sort((a,b)=>(b.fechaCreacion||'').localeCompare(a.fechaCreacion||''));
         const mergedV=mergeArrayDefensivo('ventas',ventas,localVentas);
         ventas=mergedV.merged;recuperadosTotal+=mergedV.recovered;
+        // Merge defensivo a nivel de pagos: para cada venta en el resultado, si la version local tenia
+        // pagos que el server no tiene (por id), los preservamos. Asi no se pierden recibos cargados
+        // localmente que aun no se habian sincronizado a Firestore.
+        let pagosRescatados=0;
+        const localVentasMap=new Map((localVentas||[]).map(lv=>[String(lv.id),lv]));
+        ventas.forEach(v=>{
+            const lv=localVentasMap.get(String(v.id));if(!lv)return;
+            const localPagos=(lv.cobranza&&lv.cobranza.pagos)||[];
+            if(!localPagos.length)return;
+            if(!v.cobranza)v.cobranza={montoTotal:0,moneda:'USD',pagos:[]};
+            if(!Array.isArray(v.cobranza.pagos))v.cobranza.pagos=[];
+            const serverPagoIds=new Set(v.cobranza.pagos.map(p=>String(p.id)));
+            localPagos.forEach(p=>{if(!serverPagoIds.has(String(p.id))){v.cobranza.pagos.push(p);pagosRescatados++;}});
+        });
+        if(pagosRescatados>0){
+            console.warn('[FS] ventas: '+pagosRescatados+' pagos recuperados desde local que no estaban en Firestore.');
+            recuperadosTotal+=pagosRescatados;
+        }
         localStorage.setItem('dv_ventas',JSON.stringify(ventas));
-        if(mergedV.recovered>0)setTimeout(()=>{if(_fsEnabled)pushToFirestore('dv_ventas',ventas).catch(e=>console.error(e));},5000);
+        if(mergedV.recovered>0||pagosRescatados>0)setTimeout(()=>{if(_fsEnabled)pushToFirestore('dv_ventas',ventas).catch(e=>console.error(e));},5000);
         // clientes
         const cSnap=await h.getDocs(h.collection(db,'clientes'));
         let clientes=[];cSnap.forEach(d=>{clientes.push(d.data());_fsDocIds.clientes.add(d.id);});
