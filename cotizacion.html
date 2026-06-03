@@ -1772,6 +1772,27 @@ async function syncArrayCollection(collName,newArray,hasImages){
             // Recorrer el objeto y subir dataUrls. Resultado tiene URLs de Storage.
             toWrite=await uploadImagesInObject(item,`${collName}/${id}`);
         }
+        // Para ventas: merge defensivo de pagos contra la version actual en Firestore antes de escribir.
+        // Evita que dos usuarias editando la misma venta en paralelo se pisen los pagos mutuamente.
+        if(collName==='ventas'){
+            try{
+                const snap=await h.getDoc(h.doc(db,'ventas',id));
+                if(snap.exists()){
+                    const remote=snap.data();
+                    const remotePagos=(remote.cobranza&&remote.cobranza.pagos)||[];
+                    const localPagos=(toWrite.cobranza&&toWrite.cobranza.pagos)||[];
+                    const localIds=new Set(localPagos.map(p=>String(p.id)));
+                    const faltantes=remotePagos.filter(p=>!localIds.has(String(p.id)));
+                    if(faltantes.length>0){
+                        // Hay pagos en Firestore que la copia local no conocia: los preservamos.
+                        const merged=localPagos.concat(faltantes);
+                        if(!toWrite.cobranza)toWrite.cobranza={montoTotal:0,moneda:'USD',pagos:[]};
+                        toWrite.cobranza.pagos=merged;
+                        console.warn('[FS] ventas/'+id+': se preservaron '+faltantes.length+' pagos remotos al hacer push.');
+                    }
+                }
+            }catch(e){console.warn('[FS] no se pudo merge-de-pagos previo a setDoc, escribiendo igual:',id,e);}
+        }
         // Agregar metadata de auditoria antes de guardar
         await h.setDoc(h.doc(db,collName,id),addMetadataToSave(toWrite));
         newArrayWithUrls.push(toWrite);
