@@ -3039,13 +3039,13 @@ updatePreview();
 const SERVICIOS_TILDADOS_DEFAULT=[
     'Boletos aéreos ida y vuelta (incluye objeto personal mochila y carry on 10 kg) NO incluye equipaje documentado de 23kg.',
     'Hospedajes diarios en el hotel a elegir.',
+    'Desayunos diarios.',
     'Traslados aeropuerto-hotel y viceversa.',
     'Uso de las instalaciones.',
     'Impuestos hoteleros.',
     'Impuestos aéreos.',
     'Asesoría personalizada sobre lugares para conocer y tips de viaje.',
-    'Atención personalizada antes, durante y después de su viaje.',
-    'Alimentación todo incluido.'
+    'Atención personalizada antes, durante y después de su viaje.'
 ];
 const _serviciosTildadosNorm=new Set(SERVICIOS_TILDADOS_DEFAULT.map(s=>normalizarParaMatch(s)));
 function servicioVieneTildadoPorDefault(texto){return _serviciosTildadosNorm.has(normalizarParaMatch(texto));}
