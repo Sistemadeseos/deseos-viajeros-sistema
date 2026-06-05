@@ -2961,12 +2961,26 @@ function renderCfgListItem(value,isTextarea){
     return`<div class="service-item config-list-item" draggable="true"><span class="drag-handle" draggable="false">&#9776;</span>${input}<button class="btn-icon remove" onclick="this.parentElement.remove();autoSaveConfigSilently();">&times;</button></div>`;
 }
 
+// Mapa nombre -> email de encargados. Usa lo guardado en config y, como respaldo,
+// el mapeo conocido EMAIL_ENCARGADO_OVERRIDES (email -> nombre) invertido.
+function getEncargadosEmails(){
+    const map=Object.assign({},getConfig().encargadosEmails||{});
+    Object.keys(EMAIL_ENCARGADO_OVERRIDES).forEach(em=>{const nom=EMAIL_ENCARGADO_OVERRIDES[em];if(nom&&!map[nom])map[nom]=em;});
+    return map;
+}
+
+// Una fila de la lista de encargados: nombre + correo (con drag handle y botón eliminar).
+function renderEncargadoConfigItem(nombre,email){
+    return `<div class="service-item config-list-item" draggable="true"><span class="drag-handle" draggable="false">&#9776;</span><input type="text" class="enc-nombre" onblur="autoSaveConfigSilently()" value="${esc(nombre||'')}" placeholder="Nombre del encargado" style="flex:1.2;padding:5px 8px;font-size:0.82rem;border:1px solid var(--border);border-radius:4px;"><input type="email" class="enc-email" onblur="autoSaveConfigSilently()" value="${esc(email||'')}" placeholder="correo@deseosviajeros.com" style="flex:1.5;padding:5px 8px;font-size:0.82rem;border:1px solid var(--border);border-radius:4px;"><button class="btn-icon remove" onclick="this.parentElement.remove();autoSaveConfigSilently();">&times;</button></div>`;
+}
+
 function renderConfigEncargados(){
     const cfg=cfgGet();
+    const emails=getEncargadosEmails();
     const pane=document.getElementById('cfgPane-encargados');
-    pane.innerHTML=`<p class="config-hint">Lista de personas encargadas de cotizaciones. Puede arrastrar para reordenar.</p>
-    <div id="cfgEncargadosList">${cfg.encargados.map(e=>renderCfgListItem(e,false)).join('')}</div>
-    <button class="btn btn-sm btn-primary" onclick="document.getElementById('cfgEncargadosList').insertAdjacentHTML('beforeend',renderCfgListItem('',false));initDrag(document.getElementById('cfgEncargadosList'));" style="margin-top:8px;">+ Agregar encargado</button>`;
+    pane.innerHTML=`<p class="config-hint">Lista de personas encargadas de cotizaciones, con su nombre y su correo. Puede arrastrar para reordenar.</p>
+    <div id="cfgEncargadosList">${cfg.encargados.map(e=>renderEncargadoConfigItem(e,emails[e]||'')).join('')}</div>
+    <button class="btn btn-sm btn-primary" onclick="document.getElementById('cfgEncargadosList').insertAdjacentHTML('beforeend',renderEncargadoConfigItem('',''));initDrag(document.getElementById('cfgEncargadosList'));" style="margin-top:8px;">+ Agregar encargado</button>`;
     initDrag(pane.querySelector('#cfgEncargadosList'));
 }
 
@@ -3137,7 +3151,9 @@ function collectConfigListFromDOM(containerId,isTextarea){
 }
 
 function saveConfigFromUI(silent){
-    const c={_version:1};
+    // Partir de la config existente para PRESERVAR campos que este formulario no maneja
+    // (logo, watermark, roles, usuariosPerm, bitacoraPermisos, etc.). Solo se sobrescriben los campos de abajo.
+    const c=Object.assign({},getLSObj('dv_config'),{_version:1});
     // Agencia
     c.agencyInfo={
         nombre:document.getElementById('cfgAg-nombre')?.value||'',
@@ -3146,8 +3162,15 @@ function saveConfigFromUI(silent){
         cedula:document.getElementById('cfgAg-cedula')?.value||'',
         slogan:document.getElementById('cfgAg-slogan')?.value||'Aqu\u00ed inicia tu viaje...'
     };
-    // Encargados
-    c.encargados=collectConfigListFromDOM('cfgEncargadosList',false);
+    // Encargados (nombre + correo). El nombre sigue siendo la clave usada en todo el sistema;
+    // el correo se guarda como dato extra en c.encargadosEmails (mapa nombre -> email).
+    c.encargados=[];
+    c.encargadosEmails={};
+    document.querySelectorAll('#cfgEncargadosList > div').forEach(div=>{
+        const nombre=(div.querySelector('.enc-nombre')?.value||'').trim();
+        const email=(div.querySelector('.enc-email')?.value||'').trim();
+        if(nombre){c.encargados.push(nombre);if(email)c.encargadosEmails[nombre]=email;}
+    });
     // Servicios
     c.servicios={
         america:collectConfigListFromDOM('cfgServ-america',false),
