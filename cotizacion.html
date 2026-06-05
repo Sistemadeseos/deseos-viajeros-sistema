@@ -454,6 +454,8 @@ input.vg-pp-monto,input.ve-pp-monto{-moz-appearance:textfield;appearance:textfie
 .opcion-row .btn-calc-toggle:hover{background:var(--primary);color:white}
 .opcion-row .btn-calc-toggle.active{background:var(--primary);color:white}
 .calc-row>td{padding:0!important}
+/* Permisos: ocultar la calculadora de costos a quien no tenga 'cotizaciones.ver_costos' */
+body.sin-costos .btn-calc-toggle,body.sin-costos .calc-row{display:none!important}
 .calc-container{background:var(--primary-light);border:1px solid var(--primary);border-radius:6px;padding:10px;margin:4px 0}
 .calc-container h5{font-size:0.72rem;color:var(--primary-dark);text-transform:uppercase;letter-spacing:0.5px;font-weight:700;margin-bottom:6px}
 .calc-table{width:100%;font-size:0.75rem;border-collapse:collapse;background:white;border-radius:4px;overflow:hidden}
@@ -1223,6 +1225,7 @@ onAuthStateChanged(fbAuth, (user) => {
         <button class="config-tab" data-cfgtab="checklist" onclick="switchConfigTab('checklist')">Checklist ventas</button>
         <button class="config-tab" data-cfgtab="recibo" onclick="switchConfigTab('recibo')">Recibo de pago</button>
         <button class="config-tab" data-cfgtab="edc" onclick="switchConfigTab('edc')">Estado de cuenta</button>
+        <button class="config-tab" data-cfgtab="usuarios" data-perm-maestro="1" onclick="switchConfigTab('usuarios')" style="display:none;">Usuarios y permisos</button>
     </div>
     <div class="config-panes">
         <div class="config-pane active" id="cfgPane-agencia"></div>
@@ -1249,6 +1252,7 @@ onAuthStateChanged(fbAuth, (user) => {
         <div class="config-pane" id="cfgPane-checklist"></div>
         <div class="config-pane" id="cfgPane-recibo"></div>
         <div class="config-pane" id="cfgPane-edc"></div>
+        <div class="config-pane" id="cfgPane-usuarios"></div>
     </div>
 </div>
 
@@ -2111,6 +2115,92 @@ function cfgGet(){
     };
 }
 
+// ===================== PERMISOS Y ROLES (modulo fundacional, agnostico de modulo) =====================
+// Email del usuario maestro raiz: SIEMPRE tiene todos los permisos y no se puede degradar ni borrar.
+const MAESTRO_EMAIL_RAIZ='operaciones@deseosviajeros.com';
+
+// Catalogo central de permisos. AGNOSTICO de modulo: cada modulo declara sus filas aca (o via registrarPermisos()).
+// La pantalla de configuracion los agrupa por 'modulo' automaticamente -> agregar filas hace que aparezcan solas.
+// Convencion de clave: modulo.recurso.accion  (o modulo.accion si es simple).
+const PERMISOS_CATALOGO=[
+    // -- Sistema / configuracion --
+    {clave:'config.usuarios.gestionar', nombre:'Gestionar usuarios y permisos', modulo:'Sistema', soloMaestro:true},
+    {clave:'config.roles.gestionar',    nombre:'Crear y editar roles',          modulo:'Sistema'},
+    {clave:'config.general.gestionar',  nombre:'Editar configuracion general (agencia, encargados, cuentas, plantillas)', modulo:'Sistema'},
+    // -- Cotizaciones --
+    {clave:'cotizaciones.ver',            nombre:'Ver historial de cotizaciones',        modulo:'Cotizaciones'},
+    {clave:'cotizaciones.crear_editar',   nombre:'Crear y editar cotizaciones',          modulo:'Cotizaciones'},
+    {clave:'cotizaciones.eliminar',       nombre:'Eliminar cotizaciones',                modulo:'Cotizaciones'},
+    {clave:'cotizaciones.marcar_aceptada',nombre:'Marcar cotizacion como aceptada',      modulo:'Cotizaciones'},
+    {clave:'cotizaciones.ver_costos',     nombre:'Ver costos y margenes (calculadora)',  modulo:'Cotizaciones'},
+    {clave:'cotizaciones.exportar',       nombre:'Exportar / descargar (PDF, Excel)',    modulo:'Cotizaciones'},
+    // -- Ventas --
+    {clave:'ventas.ver',          nombre:'Ver ventas',            modulo:'Ventas'},
+    {clave:'ventas.crear_editar', nombre:'Crear y editar ventas', modulo:'Ventas'},
+    {clave:'ventas.eliminar',     nombre:'Eliminar ventas',       modulo:'Ventas'},
+    // -- Cobranza / Pagos --
+    {clave:'cobranza.ver',            nombre:'Ver reporte de pagos y cobranza', modulo:'Cobranza'},
+    {clave:'cobranza.registrar_pago', nombre:'Registrar y editar pagos',        modulo:'Cobranza'},
+    // -- Contactos / Clientes --
+    {clave:'contactos.ver',          nombre:'Ver contactos y clientes', modulo:'Contactos'},
+    {clave:'contactos.crear_editar', nombre:'Crear y editar contactos', modulo:'Contactos'},
+    {clave:'contactos.eliminar',     nombre:'Eliminar contactos',       modulo:'Contactos'},
+    // -- Dashboard --
+    {clave:'dashboard.ver', nombre:'Ver dashboard y reportes', modulo:'Dashboard'}
+];
+
+// Permite que un modulo futuro (ej. contabilidad) registre sus permisos sin tocar la UI ni este catalogo.
+function registrarPermisos(filas){(filas||[]).forEach(f=>{if(f&&f.clave&&!PERMISOS_CATALOGO.some(p=>p.clave===f.clave))PERMISOS_CATALOGO.push(f);});}
+// Agrupa el catalogo por modulo (lo usa la pantalla de configuracion de forma dinamica).
+function permisosPorModulo(){const g={};PERMISOS_CATALOGO.forEach(p=>{(g[p.modulo]=g[p.modulo]||[]).push(p);});return g;}
+function todasLasClaves(){return PERMISOS_CATALOGO.map(p=>p.clave);}
+
+// Roles base (seed). Editables por el maestro. 'protegido' = no se puede borrar ni renombrar.
+const ROLES_BASE=[
+    {id:'operaciones',    nombre:'Operaciones (Maestro)', esMaestro:true,  protegido:true, permisos:[]},
+    {id:'administracion', nombre:'Administracion',        esMaestro:false, protegido:false, permisos:[
+        'config.general.gestionar','cotizaciones.ver','cotizaciones.crear_editar','cotizaciones.eliminar','cotizaciones.marcar_aceptada','cotizaciones.ver_costos','cotizaciones.exportar','ventas.ver','ventas.crear_editar','ventas.eliminar','cobranza.ver','cobranza.registrar_pago','contactos.ver','contactos.crear_editar','contactos.eliminar','dashboard.ver']},
+    {id:'ventas',         nombre:'Ventas',                esMaestro:false, protegido:false, permisos:[
+        'cotizaciones.ver','cotizaciones.crear_editar','cotizaciones.marcar_aceptada','cotizaciones.exportar','ventas.ver','ventas.crear_editar','cobranza.ver','contactos.ver','contactos.crear_editar','dashboard.ver']},
+    {id:'auditor',        nombre:'Auditor (solo lectura)',esMaestro:false, protegido:false, permisos:[
+        'cotizaciones.ver','ventas.ver','cobranza.ver','contactos.ver','dashboard.ver']}
+];
+
+// Roles efectivos: los de config (editables) o, si no hay, los base. Compat hacia atras.
+function getRoles(){const c=getConfig();return (c.roles&&c.roles.length)?c.roles:ROLES_BASE.map(r=>Object.assign({},r));}
+function getRolById(id){return getRoles().find(r=>r.id===id)||null;}
+
+// Registro de usuarios (asignacion de roles + excepciones puntuales). Matcheo por email en minusculas.
+// Se guarda DENTRO de dv_config (cfg.usuariosPerm) para reutilizar la sincronizacion ya probada de config/default.
+function getUsuariosPerm(){const c=getConfig();return Array.isArray(c.usuariosPerm)?c.usuariosPerm:[];}
+function findUsuarioPerm(email){if(!email)return null;const e=email.toLowerCase().trim();return getUsuariosPerm().find(u=>(u.email||'').toLowerCase().trim()===e)||null;}
+
+// Es maestro si: es el email raiz, o tiene asignado algun rol con esMaestro=true.
+function esMaestroEmail(email){if(!email)return false;const e=email.toLowerCase().trim();if(e===MAESTRO_EMAIL_RAIZ)return true;const u=findUsuarioPerm(email);if(!u)return false;return (u.roles||[]).some(rid=>{const r=getRolById(rid);return r&&r.esMaestro;});}
+
+// Permisos efectivos = union de los permisos de sus roles, ajustada por excepciones. 'revocar' GANA sobre 'conceder'.
+// El maestro tiene TODO de forma implicita, incluidos modulos que todavia no existen.
+// MIGRACION SEGURA: un usuario que TODAVIA no fue agregado al panel conserva acceso total (status quo),
+// para no encerrar a nadie al desplegar. Recien cuando el maestro lo agrega y le asigna un rol queda restringido.
+function permisosEfectivos(email){
+    if(esMaestroEmail(email))return new Set(todasLasClaves());
+    const u=findUsuarioPerm(email);
+    if(!u)return new Set(todasLasClaves()); // sin configurar -> acceso total (evita lockout, compat hacia atras)
+    const set=new Set();
+    if(u){
+        (u.roles||[]).forEach(rid=>{const r=getRolById(rid);if(r)(r.permisos||[]).forEach(p=>set.add(p));});
+        const ex=u.excepciones||{};
+        Object.keys(ex).forEach(cl=>{if(ex[cl]==='conceder')set.add(cl);});   // primero concede
+        Object.keys(ex).forEach(cl=>{if(ex[cl]==='revocar')set.delete(cl);}); // revocar gana al final
+    }
+    return set;
+}
+
+// ----- API publica de chequeo (deny-by-default: sin usuario o sin permiso -> false) -----
+function tienePermiso(clave){const email=window.currentUser&&window.currentUser.email;if(!email)return false;if(esMaestroEmail(email))return true;return permisosEfectivos(email).has(clave);}
+function soyMaestro(){return esMaestroEmail(window.currentUser&&window.currentUser.email);}
+// =====================================================================================
+
 // Helper para parsear números tolerando formatos ($, comas, guiones)
 const num=(v)=>parseFloat(String(v||'').replace(/[^0-9.\-]/g,''))||0;
 
@@ -2262,10 +2352,38 @@ function populateEncargadosSelect(){
     }
 }
 
+// ===== PERMISOS: GUARDRAILS DE UI =====
+// Qué permiso requiere cada vista. inicio/documento siempre permitidos.
+function puedeVerVista(view){
+    if(view==='inicio'||view==='documento'||view==='encabezados')return true;
+    if(view==='configuracion')return soyMaestro()||tienePermiso('config.general.gestionar')||tienePermiso('config.usuarios.gestionar');
+    const m={dashboard:'dashboard.ver',editor:'cotizaciones.crear_editar',historial:'cotizaciones.ver',ventas:'ventas.ver',clientes:'contactos.ver',clientesventas:'contactos.ver',reportePagos:'cobranza.ver'};
+    const p=m[view];
+    return p?tienePermiso(p):true;
+}
+// Guard de acciones: si no tiene el permiso, avisa y devuelve false.
+function exigirPermiso(clave,accionTxt){
+    if(tienePermiso(clave))return true;
+    alert('No tenés permiso para '+(accionTxt||'realizar esta acción')+'.\n\nPedíselo al usuario maestro (Operaciones).');
+    return false;
+}
+// Aplica visibilidad del menú lateral, calculadora de costos y pestaña de usuarios según permisos.
+function aplicarPermisosUI(){
+    if(!window.currentUser)return;
+    const views=['inicio','dashboard','editor','historial','ventas','clientes','clientesventas','reportePagos','configuracion'];
+    const items=document.querySelectorAll('.sidebar-item');
+    items.forEach((el,i)=>{if(i<views.length)el.style.display=puedeVerVista(views[i])?'':'none';});
+    document.body.classList.toggle('sin-costos',!tienePermiso('cotizaciones.ver_costos'));
+    const tabBtn=document.querySelector('.config-tab[data-cfgtab="usuarios"]');
+    if(tabBtn)tabBtn.style.display=soyMaestro()?'':'none';
+}
+
 // ===== NAV =====
 function nav(view){
     // Compat retro: la antigua entrada "encabezados" ahora vive en Configuracion > Cotizacion > Destinos.
     if(view==='encabezados'){nav('configuracion');setTimeout(()=>{switchConfigTab('cotizacion');switchConfigSubTab('destinos');},0);return;}
+    // Guardrail: si no tiene permiso para la vista, redirigir a Inicio (siempre permitido).
+    if(!puedeVerVista(view)){if(view!=='inicio')return nav('inicio');}
     document.querySelectorAll('.sidebar-item').forEach(el=>el.classList.remove('active'));
     const items=document.querySelectorAll('.sidebar-item');
     const map={inicio:0,dashboard:1,editor:2,historial:3,ventas:4,clientes:5,clientesventas:6,reportePagos:7,configuracion:8};
@@ -2274,7 +2392,7 @@ function nav(view){
     const titles={inicio:'',dashboard:'Dashboard',editor:'Editor de Cotizaci\u00f3n',historial:'Historial de Cotizaciones',encabezados:'Destinos',ventas:'Ventas',clientes:'Contactos',clientesventas:'Clientes',reportePagos:'Reporte de pagos',configuracion:'Configuraci\u00f3n',documento:'Documento'};
     document.getElementById('headerTitle').textContent=titles[view]||'';
     const ha=document.getElementById('headerActions');
-    if(view==='editor')ha.innerHTML='<button class="btn btn-outline" onclick="resetForm()">&#128260; Nueva</button><button class="btn btn-accent" onclick="window.print()">&#128424; Exportar PDF</button>';
+    if(view==='editor')ha.innerHTML='<button class="btn btn-outline" onclick="resetForm()">&#128260; Nueva</button>'+(tienePermiso('cotizaciones.exportar')?'<button class="btn btn-accent" onclick="window.print()">&#128424; Exportar PDF</button>':'');
     else if(view==='clientes')ha.innerHTML='<button class="btn btn-accent" onclick="openClienteModal()">+ Nuevo Contacto</button>';
     else if(view==='clientesventas')ha.innerHTML='<button class="btn btn-accent" onclick="nuevoClienteConVenta()">+ Nuevo Cliente</button>';
     else if(view==='dashboard')ha.innerHTML='<button class="btn btn-outline" onclick="renderDashboard()">&#8635; Actualizar</button>';
@@ -2568,6 +2686,7 @@ function renderConfiguracion(){
     renderEncabezados();
     renderConfigRecibo();
     renderConfigEDC();
+    renderConfigUsuarios();
 }
 
 function renderConfigRecibo(){
@@ -2644,6 +2763,153 @@ function removeEdcHeader(){
     const inp=document.getElementById('edcHeaderInput');
     if(inp)inp.value='';
 }
+
+// ===================== PANEL "USUARIOS Y PERMISOS" (solo maestro) =====================
+function _normEmail(e){return (e||'').toLowerCase().trim();}
+
+// Devuelve una copia mutable del array de usuariosPerm desde config.
+function _usuariosPermClon(cfg){return Array.isArray(cfg.usuariosPerm)?cfg.usuariosPerm.map(x=>Object.assign({},x,{roles:(x.roles||[]).slice(),excepciones:Object.assign({},x.excepciones||{})})):[];}
+
+// Auditoria de cambios de permisos: append-only dentro de config (cap 500). Inmutable desde la UI.
+function _appendBitacoraPermiso(cfg,destinatario,detalle){
+    const log=Array.isArray(cfg.bitacoraPermisos)?cfg.bitacoraPermisos.slice():[];
+    log.push({ts:Date.now(),autor:(window.currentUser&&window.currentUser.email)||'desconocido',destinatario:destinatario||'',detalle:detalle||''});
+    cfg.bitacoraPermisos=log.slice(-500);
+}
+
+// Render principal del panel. Solo visible/operable por el maestro.
+function renderConfigUsuarios(){
+    const tabBtn=document.querySelector('.config-tab[data-cfgtab="usuarios"]');
+    const pane=document.getElementById('cfgPane-usuarios');
+    if(!pane)return;
+    if(!soyMaestro()){
+        if(tabBtn)tabBtn.style.display='none';
+        if(pane.classList.contains('active'))switchConfigTab('agencia');
+        pane.innerHTML='';
+        return;
+    }
+    if(tabBtn)tabBtn.style.display='';
+    const roles=getRoles();
+    const usuarios=getUsuariosPerm().filter(u=>_normEmail(u.email)!==MAESTRO_EMAIL_RAIZ);
+    let html=`<p class="config-hint">Gestioná qué puede hacer cada persona del equipo. Las cuentas de acceso se crean en Firebase; acá le asignás un <strong>rol</strong> y, si hace falta, ajustes puntuales por persona. Los cambios se aplican la próxima vez que la persona entra o refresca la página.</p>`;
+    // Tarjeta del maestro raiz (protegida)
+    html+=`<div style="border:1px solid var(--primary);background:var(--primary-light);border-radius:8px;padding:10px 12px;margin-bottom:14px;">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><strong>${esc(MAESTRO_EMAIL_RAIZ)}</strong><span style="background:var(--primary);color:#fff;font-size:0.6rem;font-weight:700;padding:2px 8px;border-radius:8px;letter-spacing:0.5px;">MAESTRO</span></div>
+        <p style="font-size:0.74rem;color:var(--text-light);margin:6px 0 0;">Acceso total a todo el sistema, incluidos los módulos que se agreguen en el futuro. No se puede modificar ni quitar.</p></div>`;
+    // Tarjetas de usuarios
+    html+=usuarios.length?usuarios.map(u=>_renderUsuarioPermCard(u,roles)).join(''):`<p style="font-size:0.8rem;color:var(--text-light);font-style:italic;background:var(--bg);padding:12px;border-radius:6px;">Todavía no agregaste a ninguna persona. Agregá una abajo por su email.</p>`;
+    // Alta de usuario
+    html+=`<div style="margin-top:14px;display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;border-top:1px solid var(--border);padding-top:12px;">
+        <div class="form-group" style="margin:0;flex:1;min-width:240px;"><label>Agregar persona por email</label><input type="email" id="nuevoUsuarioPermEmail" placeholder="persona@deseosviajeros.com" onkeydown="if(event.key==='Enter')permUsuarioAdd()"></div>
+        <button class="btn btn-sm btn-primary" onclick="permUsuarioAdd()">+ Agregar</button></div>
+    <p class="config-hint" style="margin-top:6px;">El email tiene que coincidir exactamente con el de su cuenta de Firebase.</p>`;
+    // Bitacora de cambios
+    const bita=(getConfig().bitacoraPermisos||[]).slice().reverse();
+    html+=`<details style="margin-top:16px;"><summary style="cursor:pointer;font-weight:700;color:var(--primary-dark);font-size:0.85rem;">Registro de cambios de permisos (${bita.length})</summary>
+        <div style="margin-top:8px;max-height:240px;overflow:auto;border:1px solid var(--border);border-radius:6px;">${bita.length?bita.map(b=>`<div style="padding:6px 10px;border-bottom:1px solid var(--border);font-size:0.74rem;"><span style="color:var(--text-light);">${esc(_fmtFechaHora(b.ts))}</span> &middot; <strong>${esc(b.autor)}</strong> &rarr; ${esc(b.destinatario)}<br><span style="color:var(--text);">${esc(b.detalle)}</span></div>`).join(''):'<p style="padding:10px;font-size:0.78rem;color:var(--text-light);font-style:italic;">Sin cambios registrados.</p>'}</div></details>`;
+    pane.innerHTML=html;
+}
+
+function _fmtFechaHora(ts){try{return new Date(ts).toLocaleString('es-CR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});}catch(e){return '';}}
+
+function _renderUsuarioPermCard(u,roles){
+    const email=u.email||'';
+    const esMaes=esMaestroEmail(email);
+    const userRoles=u.roles||[];
+    const efectivos=permisosEfectivos(email);
+    // Checkboxes de roles
+    const rolesHtml=roles.map(r=>{
+        const checked=userRoles.includes(r.id)?'checked':'';
+        const nota=r.esMaestro?' <span style="color:var(--primary);font-weight:700;">(acceso total)</span>':'';
+        return `<label style="display:inline-flex;align-items:center;gap:5px;font-size:0.8rem;margin-right:14px;"><input type="checkbox" ${checked} onchange="permUsuarioToggleRol('${email.replace(/'/g,"\\'")}','${r.id}',this.checked)">${esc(r.nombre)}${nota}</label>`;
+    }).join('');
+    // Excepciones por permiso, agrupadas por modulo
+    let excHtml='';
+    if(esMaes){
+        excHtml=`<p style="font-size:0.76rem;color:var(--primary);margin:6px 0 0;">Esta persona tiene un rol maestro: acceso total. No aplican ajustes puntuales.</p>`;
+    }else{
+        const grupos=permisosPorModulo();
+        excHtml=Object.keys(grupos).map(mod=>{
+            const filas=grupos[mod].map(p=>{
+                const ex=(u.excepciones||{})[p.clave]||'';
+                const activo=efectivos.has(p.clave);
+                const estado=activo?'<span style="color:var(--success);font-weight:700;">Sí</span>':'<span style="color:var(--text-light);">No</span>';
+                const ek=email.replace(/'/g,"\\'");
+                return `<tr><td style="padding:3px 6px;font-size:0.74rem;">${esc(p.nombre)}</td><td style="padding:3px 6px;text-align:center;font-size:0.72rem;">${estado}</td><td style="padding:3px 6px;text-align:right;"><select style="font-size:0.72rem;padding:2px 4px;" onchange="permUsuarioSetExcepcion('${ek}','${p.clave}',this.value)"><option value="" ${ex===''?'selected':''}>Heredar del rol</option><option value="conceder" ${ex==='conceder'?'selected':''}>Conceder</option><option value="revocar" ${ex==='revocar'?'selected':''}>Revocar</option></select></td></tr>`;
+            }).join('');
+            return `<div style="margin-top:6px;"><div style="font-size:0.72rem;font-weight:700;color:var(--primary-dark);text-transform:uppercase;letter-spacing:0.4px;">${esc(mod)}</div><table style="width:100%;border-collapse:collapse;"><tbody>${filas}</tbody></table></div>`;
+        }).join('');
+        excHtml=`<details style="margin-top:8px;"><summary style="cursor:pointer;font-size:0.78rem;font-weight:700;color:var(--primary-dark);">Ajustes puntuales de permisos</summary><div style="margin-top:4px;">${excHtml}</div></details>`;
+    }
+    return `<div style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:10px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:6px;">
+            <strong style="font-size:0.86rem;">${esc(email)}</strong>
+            <button class="btn-icon remove" title="Quitar del panel" onclick="permUsuarioRemove('${email.replace(/'/g,"\\'")}')">&times;</button>
+        </div>
+        <div style="margin-bottom:4px;"><span style="font-size:0.72rem;color:var(--text-light);text-transform:uppercase;letter-spacing:0.4px;font-weight:700;">Roles</span></div>
+        <div>${rolesHtml}</div>
+        ${(!esMaes&&userRoles.length===0)?'<p style="font-size:0.74rem;color:#c0392b;margin:6px 0 0;">Sin roles asignados: esta persona no podrá acceder a ninguna sección hasta que le marques al menos un rol.</p>':''}
+        ${excHtml}
+    </div>`;
+}
+
+function permUsuarioAdd(){
+    const inp=document.getElementById('nuevoUsuarioPermEmail');
+    const email=(inp&&inp.value||'').trim();
+    if(!email||!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){alert('Ingresá un email válido.');return;}
+    if(_normEmail(email)===MAESTRO_EMAIL_RAIZ){alert('Ese es el usuario maestro: ya tiene acceso total.');return;}
+    const cfg=getConfig();
+    const arr=_usuariosPermClon(cfg);
+    if(arr.some(u=>_normEmail(u.email)===_normEmail(email))){alert('Esa persona ya está en la lista.');return;}
+    arr.push({email:email,roles:[],excepciones:{}});
+    cfg.usuariosPerm=arr;
+    _appendBitacoraPermiso(cfg,email,'Agregó a la persona al panel de permisos');
+    saveConfig(cfg);
+    renderConfigUsuarios();
+}
+
+function permUsuarioRemove(email){
+    if(_normEmail(email)===MAESTRO_EMAIL_RAIZ){alert('El usuario maestro no se puede quitar.');return;}
+    if(!confirm('¿Quitar a '+email+' del panel? Va a quedar sin permisos asignados (solo podrá iniciar sesión sin acceso hasta que se le reasigne un rol).'))return;
+    const cfg=getConfig();
+    cfg.usuariosPerm=_usuariosPermClon(cfg).filter(u=>_normEmail(u.email)!==_normEmail(email));
+    _appendBitacoraPermiso(cfg,email,'Quitó a la persona del panel de permisos');
+    saveConfig(cfg);
+    renderConfigUsuarios();
+}
+
+function permUsuarioToggleRol(email,rolId,checked){
+    if(_normEmail(email)===MAESTRO_EMAIL_RAIZ){alert('El usuario maestro no se puede modificar.');renderConfigUsuarios();return;}
+    const rol=getRolById(rolId);
+    const cfg=getConfig();
+    const arr=_usuariosPermClon(cfg);
+    let u=arr.find(x=>_normEmail(x.email)===_normEmail(email));
+    if(!u){u={email:email,roles:[],excepciones:{}};arr.push(u);}
+    u.roles=u.roles||[];
+    if(checked){if(!u.roles.includes(rolId))u.roles.push(rolId);}
+    else{u.roles=u.roles.filter(r=>r!==rolId);}
+    cfg.usuariosPerm=arr;
+    _appendBitacoraPermiso(cfg,email,(checked?'Asignó rol "':'Quitó rol "')+(rol?rol.nombre:rolId)+'"');
+    saveConfig(cfg);
+    renderConfigUsuarios();
+}
+
+function permUsuarioSetExcepcion(email,clave,efecto){
+    if(_normEmail(email)===MAESTRO_EMAIL_RAIZ){renderConfigUsuarios();return;}
+    const cfg=getConfig();
+    const arr=_usuariosPermClon(cfg);
+    let u=arr.find(x=>_normEmail(x.email)===_normEmail(email));
+    if(!u){u={email:email,roles:[],excepciones:{}};arr.push(u);}
+    u.excepciones=u.excepciones||{};
+    if(efecto==='conceder'||efecto==='revocar')u.excepciones[clave]=efecto;
+    else delete u.excepciones[clave];
+    cfg.usuariosPerm=arr;
+    const txtEf=efecto==='conceder'?'Concedió':(efecto==='revocar'?'Revocó':'Volvió a heredar');
+    _appendBitacoraPermiso(cfg,email,txtEf+' el permiso "'+clave+'"');
+    saveConfig(cfg);
+    renderConfigUsuarios();
+}
+// =====================================================================================
 
 function renderConfigAlertas(){
     const cfg=cfgGet();
@@ -3870,6 +4136,7 @@ ${adjuntos.length?`<div class="cot-page cot-adjuntos-page" style="min-height:aut
 
 // ===== HISTORIAL =====
 function guardarCotizacion(){
+    if(!exigirPermiso('cotizaciones.crear_editar','crear o editar cotizaciones'))return;
     const data=collectFormData();
     // En Europa/Asia se permite usar el campo libre "Destino" (destinoTexto) aunque no se haya elegido caratula.
     if(!data.destino&&data.destinoTexto){data.destino=data.destinoTexto;}
@@ -4008,6 +4275,7 @@ function setEditorReadOnly(readOnly){
 }
 
 function toggleAceptada(id){
+    if(!exigirPermiso('cotizaciones.marcar_aceptada','marcar cotizaciones como aceptadas'))return;
     const hist=getHistorial();
     const entry=hist.find(h=>h.id===id);
     if(!entry)return;
@@ -4292,7 +4560,7 @@ grid.innerHTML=filtered.map(h=>{const d=h.data;const cl=d.tipoCliente==='empresa
 return`<div class="hist-card${h.aceptada?' aceptada':''}"><div style="display:flex;justify-content:space-between;align-items:start;"><div class="hist-destino">${esc(d.destino||'Sin destino')}</div><div style="display:flex;gap:4px;align-items:center;"><span class="hist-formato">${fl}</span>${h.aceptada?'<span class="badge-aceptada">ACEPTADA</span>':''}</div></div><div class="hist-cliente"><span class="hist-tipo ${tc}">${tl}</span> ${esc(cl)}</div>${d.encargado?`<div class="hist-fecha" style="color:var(--primary-dark);font-weight:600;">Encargado: ${esc(d.encargado)}</div>`:''}${d.fechaInicio?`<div class="hist-fecha">Viaje: ${formatDateRange(d.fechaInicio,d.fechaFin)}</div>`:''}<div class="hist-fecha">Creada: ${fe}</div><div class="hist-card-actions"><button class="btn btn-sm btn-ghost" onclick="cargarCotizacion('${h.id}',true)" title="Solo visualizar">&#128065; Ver</button><button class="btn btn-sm btn-primary" onclick="cargarCotizacion('${h.id}')">Editar</button><button class="btn btn-sm btn-warning" onclick="duplicarCotizacion('${h.id}')">Duplicar</button><button class="btn btn-sm ${h.aceptada?'btn-ghost':'btn-success'}" onclick="toggleAceptada('${h.id}')">${h.aceptada?'Desmarcar':'Aceptada'}</button><button class="btn btn-sm btn-danger" onclick="eliminarCotizacion('${h.id}')">Eliminar</button></div></div>`;}).join('');}
 
 function duplicarCotizacion(id){const hist=getHistorial();const e=hist.find(h=>h.id===id);if(!e)return;const copy=JSON.parse(JSON.stringify(e));copy.id=Date.now().toString();copy.fecha=new Date().toISOString();copy.data.destino+=' (copia)';copy.aceptada=false;hist.unshift(copy);saveHistorial(hist);renderHistorial();updateBadges();}
-function eliminarCotizacion(id){if(!confirm('\u00bfEliminar cotizaci\u00f3n?'))return;const hist=getHistorial().filter(h=>h.id!==id);saveHistorial(hist);const ventas=getVentas().filter(v=>v.cotizacionId!==id);saveVentas(ventas);renderHistorial();updateBadges();}
+function eliminarCotizacion(id){if(!exigirPermiso('cotizaciones.eliminar','eliminar cotizaciones'))return;if(!confirm('\u00bfEliminar cotizaci\u00f3n?'))return;const hist=getHistorial().filter(h=>h.id!==id);saveHistorial(hist);const ventas=getVentas().filter(v=>v.cotizacionId!==id);saveVentas(ventas);renderHistorial();updateBadges();}
 function limpiarHistorial(){if(!confirm('\u00bfEliminar TODAS las cotizaciones?'))return;saveHistorial([]);renderHistorial();updateBadges();}
 
 // ===== VENTAS =====
@@ -4353,7 +4621,7 @@ function toggleGrupoSection(h){
     if(ahoraColapsado)setG.delete(g);else setG.add(g);
     try{localStorage.setItem('dv_grupos_expanded',JSON.stringify(Array.from(setG)));}catch(e){}
 }
-function eliminarVentaGrupal(id){if(!confirm('¿Eliminar esta venta grupal? El contacto vinculado se mantiene.'))return;saveVentas(getVentas().filter(v=>v.id!==id));renderVentas();updateBadges();}
+function eliminarVentaGrupal(id){if(!exigirPermiso('ventas.eliminar','eliminar ventas'))return;if(!confirm('¿Eliminar esta venta grupal? El contacto vinculado se mantiene.'))return;saveVentas(getVentas().filter(v=>v.id!==id));renderVentas();updateBadges();}
 
 function agregarClienteAlGrupo(grupo){
     openModalVentaGrupal(grupo);
@@ -5059,6 +5327,7 @@ function requerirClavePago(accion){
     return true;
 }
 function editarPago(pagoId){
+    if(!exigirPermiso('cobranza.registrar_pago','editar pagos'))return;
     if(!requerirClavePago('modificar'))return;
     const ventaId=document.getElementById('cobVentaId').value;
     const ventas=getVentas();
@@ -5091,6 +5360,7 @@ function editarPago(pagoId){
 }
 
 function savePago(){
+    if(!exigirPermiso('cobranza.registrar_pago','registrar o editar pagos'))return;
     const ventaId=document.getElementById('cobVentaId').value;
     const fecha=document.getElementById('pagoFecha').value;
     const monto=num(document.getElementById('pagoMonto').value);
@@ -5128,6 +5398,7 @@ function cancelarEdicionPago(){
 }
 
 function removePago(pagoId){
+    if(!exigirPermiso('cobranza.registrar_pago','eliminar pagos'))return;
     if(!requerirClavePago('eliminar'))return;
     if(!confirm('\u00bfEliminar este pago?'))return;
     const ventaId=document.getElementById('cobVentaId').value;
@@ -6256,7 +6527,7 @@ function nuevoClienteConVenta(){
     if(tit)tit.textContent='Nuevo Cliente (con venta vinculada)';
 }
 
-function eliminarCliente(id){if(!confirm('\u00bfEliminar este contacto?'))return;saveClientes(getClientes().filter(c=>c.id!==id));renderClientes();updateBadges();}
+function eliminarCliente(id){if(!exigirPermiso('contactos.eliminar','eliminar contactos'))return;if(!confirm('\u00bfEliminar este contacto?'))return;saveClientes(getClientes().filter(c=>c.id!==id));renderClientes();updateBadges();}
 
 // ===== MODALS =====
 function closeModal(id){document.getElementById(id).classList.remove('open');}
@@ -6378,6 +6649,8 @@ window.onUserReady=async function(user){
     }
     // Activar control de inactividad (auto-logout)
     iniciarInactividad();
+    // Aplicar guardrails de permisos según el usuario logueado
+    aplicarPermisosUI();
 };
 
 // Handler del form de login
