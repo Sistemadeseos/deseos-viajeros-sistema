@@ -1093,7 +1093,7 @@ onAuthStateChanged(fbAuth, (user) => {
     <div class="form-section" id="itinerarioSection" style="display:none;"><div class="form-section-header" onclick="toggleSection(this)">Itinerario propuesto<span class="toggle">&#9660;</span></div><div class="form-section-body">
         <p style="font-size:0.72rem;color:var(--text-light);margin-bottom:6px;">Puede pegar datos desde Excel (copiar fila/columna y pegar en cualquier celda).</p>
         <table class="options-table" style="margin-top:4px;"><thead><tr><th style="width:30px;"></th><th style="width:120px;">Fecha</th><th>Actividad</th><th style="width:30px;"></th></tr></thead><tbody id="itinerarioContainer"></tbody></table>
-        <div style="display:flex;gap:6px;margin-top:5px;"><button class="btn btn-sm btn-primary" onclick="addItinerario()">+ Agregar d&iacute;a</button><button class="btn btn-sm btn-ghost" onclick="autoFillItinerarioFechas()" title="Completa las fechas consecutivas desde la primera fila">&#8635; Auto-rellenar fechas</button></div>
+        <div style="display:flex;gap:6px;margin-top:5px;"><button class="btn btn-sm btn-primary" onclick="addItinerario()">+ Agregar d&iacute;a</button><button class="btn btn-sm btn-ghost" onclick="autoFillItinerarioFechas()" title="Usa las fechas de inicio y fin del viaje para completar el itinerario día por día">&#8635; Auto-rellenar fechas</button></div>
     </div></div>
     <!-- Crucero -->
     <div class="form-section" id="cruceroSection" style="display:none;"><div class="form-section-header" onclick="toggleSection(this)">Datos del Crucero<span class="toggle">&#9660;</span></div><div class="form-section-body">
@@ -3758,20 +3758,35 @@ function addItinerario(dia,actividad){
 }
 
 // Auto-rellena fechas consecutivas desde la primera fecha
+// Suma n dias a una fecha ISO (YYYY-MM-DD) y devuelve ISO. Usa mediodia para evitar saltos por zona horaria.
+function addDaysIso(iso,n){
+    const d=new Date(iso+'T12:00:00');
+    if(isNaN(d))return iso;
+    d.setDate(d.getDate()+n);
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+// Dias entre dos fechas ISO (b - a). Puede ser negativo.
+function diasEntreIso(a,b){
+    const da=new Date(a+'T12:00:00'),db=new Date(b+'T12:00:00');
+    if(isNaN(da)||isNaN(db))return 0;
+    return Math.round((db-da)/86400000);
+}
+// Auto-rellena las fechas del itinerario tomando la fecha de inicio (y fin) del viaje de la cotizacion.
+// Si hay fecha fin, genera una fila por cada dia del rango (inicio..fin inclusive) sin borrar actividades ya escritas.
 function autoFillItinerarioFechas(){
-    const rows=document.querySelectorAll('#itinerarioContainer tr');
-    if(!rows.length)return;
-    const first=rows[0].querySelector('.it-dia');
-    if(!first||!first.value){alert('Ingrese la fecha en la primera fila antes de auto-rellenar.');return;}
-    const baseDate=new Date(first.value+'T12:00:00');
-    rows.forEach((r,i)=>{
-        if(i===0)return;
-        const dateInput=r.querySelector('.it-dia');
-        if(dateInput){
-            const nd=new Date(baseDate);nd.setDate(baseDate.getDate()+i);
-            dateInput.value=nd.toISOString().split('T')[0];
-        }
-    });
+    const fiIso=normalizeFechaIso(document.getElementById('fechaInicio')?.value||'');
+    if(!fiIso){alert('Primero ingresá la "Fecha inicio" del viaje (sección Datos del viaje) para poder rellenar el itinerario.');return;}
+    const ffIso=normalizeFechaIso(document.getElementById('fechaFin')?.value||'');
+    if(ffIso){
+        const diff=diasEntreIso(fiIso,ffIso);
+        if(diff<0){alert('La "Fecha fin" del viaje es anterior a la "Fecha inicio". Revisá las fechas antes de rellenar.');return;}
+        const nDias=diff+1;
+        // Asegurar que haya al menos una fila por dia (las actividades ya escritas se conservan).
+        while(document.querySelectorAll('#itinerarioContainer tr').length<nDias)addItinerario('','');
+    }
+    let rows=document.querySelectorAll('#itinerarioContainer tr');
+    if(!rows.length){addItinerario(fiIso,'');updatePreview();return;}
+    rows.forEach((r,i)=>{const di=r.querySelector('.it-dia');if(di)di.value=addDaysIso(fiIso,i);});
     updatePreview();
 }
 
