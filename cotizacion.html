@@ -1510,6 +1510,7 @@ onAuthStateChanged(fbAuth, (user) => {
 <!-- Modales RRHH (se llenan dinamicamente por JS) -->
 <div class="modal-overlay" id="modalRrhhEmpleado"></div>
 <div class="modal-overlay" id="modalRrhhParam"></div>
+<div class="modal-overlay" id="modalRrhhColilla"></div>
 
 <script>
 // ===== STATE =====
@@ -1654,7 +1655,7 @@ function setLSObj(k,v){
 //   destinos/{pais}/{ciudad}_{timestamp}
 
 // Tracking de IDs que ya subimos a Firestore (para poder detectar eliminaciones)
-const _fsDocIds={cotizaciones:new Set(),ventas:new Set(),clientes:new Set(),destinos:new Set(),hoteles:new Set(),grupos:new Set()};
+const _fsDocIds={cotizaciones:new Set(),ventas:new Set(),clientes:new Set(),destinos:new Set(),hoteles:new Set(),grupos:new Set(),rrhh_colillas:new Set()};
 
 // ===== METADATA (timestamp + autor en cada save) =====
 // Agrega _lastModifiedAt y _lastModifiedBy a un objeto antes de guardarlo.
@@ -1684,6 +1685,7 @@ function guardarSnapshotRespaldo(motivo){
             encabezados:getLSObj('dv_encabezados'),
             hoteles:getLS('dv_hoteles'),
             grupos:getLS('dv_grupos'),
+            rrhh_colillas:getLS('dv_rrhh_colillas'),
             config:getLSObj('dv_config')
         };
         localStorage.setItem(key,JSON.stringify(snap));
@@ -1764,6 +1766,8 @@ async function pushToFirestore(key,value){
             await syncArrayCollection('hoteles',value,false);
         }else if(key==='dv_grupos'){
             await syncArrayCollection('grupos',value,false);
+        }else if(key==='dv_rrhh_colillas'){
+            await syncArrayCollection('rrhh_colillas',value,false);
         }
     }catch(e){
         console.error('[FS] error en pushToFirestore para',key,':',e);
@@ -1998,6 +2002,14 @@ async function loadAllFromFirestore(){
         grupos=mergedG.merged;recuperadosTotal+=mergedG.recovered;
         localStorage.setItem('dv_grupos',JSON.stringify(grupos));
         if(mergedG.recovered>0)setTimeout(()=>{if(_fsEnabled)pushToFirestore('dv_grupos',grupos).catch(e=>console.error(e));},8500);
+        // rrhh_colillas: colillas de pago (array de docs independientes, defensivo)
+        const localColillas=getLS('dv_rrhh_colillas');
+        const colSnap2=await h.getDocs(h.collection(db,'rrhh_colillas'));
+        let colillas=[];colSnap2.forEach(dd=>{colillas.push(dd.data());_fsDocIds.rrhh_colillas.add(dd.id);});
+        const mergedCol=mergeArrayDefensivo('rrhh_colillas',colillas,localColillas);
+        colillas=mergedCol.merged;recuperadosTotal+=mergedCol.recovered;
+        localStorage.setItem('dv_rrhh_colillas',JSON.stringify(colillas));
+        if(mergedCol.recovered>0)setTimeout(()=>{if(_fsEnabled)pushToFirestore('dv_rrhh_colillas',colillas).catch(e=>console.error(e));},9500);
         console.log(`[FS] datos cargados: ${cots.length} cotizaciones, ${ventas.length} ventas, ${clientes.length} clientes, ${Object.keys(destObj).length} pa\u00edses, ${hoteles.length} hoteles${recuperadosTotal>0?' ('+recuperadosTotal+' items recuperados de localStorage)':''}`);
         if(recuperadosTotal>0){
             setTimeout(()=>{
@@ -2930,13 +2942,19 @@ function permUsuarioSetExcepcion(email,clave,efecto){
 registrarPermisos([
     {clave:'rrhh.ver',                 nombre:'Ver módulo de Personal y nómina', modulo:'Recursos Humanos'},
     {clave:'rrhh.empleados.gestionar', nombre:'Crear y editar empleados',        modulo:'Recursos Humanos'},
-    {clave:'rrhh.parametros.gestionar',nombre:'Editar parámetros de nómina',      modulo:'Recursos Humanos'}
+    {clave:'rrhh.parametros.gestionar',nombre:'Editar parámetros de nómina',      modulo:'Recursos Humanos'},
+    {clave:'rrhh.colillas.ver',        nombre:'Ver colillas de pago',            modulo:'Recursos Humanos'},
+    {clave:'rrhh.colillas.gestionar',  nombre:'Generar y editar colillas de pago',modulo:'Recursos Humanos'}
 ]);
 
 // ----- Accesores de datos (viven en config) -----
 function getRrhhEmpleados(){const c=getConfig();return Array.isArray(c.rrhhEmpleados)?c.rrhhEmpleados:[];}
 function getRrhhParametros(){const c=getConfig();return Array.isArray(c.rrhhParametros)?c.rrhhParametros:[];}
 function newRrhhId(){return 'rh_'+Date.now()+'_'+Math.random().toString(36).slice(2,7);}
+// Colillas: coleccion sincronizada propia (dv_rrhh_colillas), NO dentro de config. Crecen con el tiempo y
+// deben conservarse por retencion legal. Heredan la proteccion anti-perdida (mergeArrayDefensivo, snapshots).
+function getRrhhColillas(){return getLS('dv_rrhh_colillas');}
+function saveRrhhColillas(arr){return setLS('dv_rrhh_colillas',Array.isArray(arr)?arr:[]);}
 
 // ----- Helpers de formato -----
 function fmtCRC(n){return '₡'+Math.round(num(n)).toLocaleString('es-CR');}
@@ -2972,9 +2990,11 @@ function renderRrhh(){
     if(!tienePermiso('rrhh.ver')){v.innerHTML='<div style="padding:30px;"><p style="font-size:0.9rem;color:var(--text-light);">No tenés permiso para ver este módulo.</p></div>';return;}
     const banner=`<div style="background:#fff3cd;border:1px solid #ffd966;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:0.78rem;color:#7a5c00;">
         <strong>&#9888; Módulo en construcción (Fase 1).</strong> Por ahora sirve para registrar <strong>empleados</strong> y los <strong>parámetros de nómina</strong>. Todavía no calcula colillas. Las tasas de CCSS y los tramos de renta son valores de referencia y <strong>deben ser validados por un contador</strong> antes de usarse en planilla real.</div>`;
+    const verColillas=tienePermiso('rrhh.colillas.ver');
     const tabs=`<div class="config-tabs" style="margin-bottom:14px;">
         <button class="config-tab ${_rrhhTabActiva==='empleados'?'active':''}" onclick="switchRrhhTab('empleados')">Empleados</button>
         <button class="config-tab ${_rrhhTabActiva==='parametros'?'active':''}" onclick="switchRrhhTab('parametros')">Parámetros de nómina</button>
+        ${verColillas?`<button class="config-tab ${_rrhhTabActiva==='colillas'?'active':''}" onclick="switchRrhhTab('colillas')">Colillas de pago</button>`:''}
     </div>`;
     v.innerHTML=`<div style="max-width:1000px;margin:0 auto;width:100%;padding:4px;">${banner}${tabs}<div id="rrhhPaneBox"></div></div>`;
     _renderRrhhPane();
@@ -2983,7 +3003,9 @@ function switchRrhhTab(name){_rrhhTabActiva=name;renderRrhh();}
 function _renderRrhhPane(){
     const box=document.getElementById('rrhhPaneBox');
     if(!box)return;
-    box.innerHTML=_rrhhTabActiva==='parametros'?_renderRrhhParametros():_renderRrhhEmpleados();
+    if(_rrhhTabActiva==='parametros')box.innerHTML=_renderRrhhParametros();
+    else if(_rrhhTabActiva==='colillas')box.innerHTML=_renderRrhhColillas();
+    else box.innerHTML=_renderRrhhEmpleados();
 }
 
 // ----- EMPLEADOS -----
@@ -3234,6 +3256,373 @@ function eliminarRrhhParam(id){
     _appendBitacoraRrhh(cfg,'Eliminó los parámetros de nómina vigentes desde '+fmtFechaCorta(p.fechaVigencia));
     saveConfig(cfg);
     renderRrhh();
+}
+
+// ----- COLILLAS DE PAGO (Fase 2: motor de cálculo) -----
+// Factor de prorrateo del período respecto al mes (para llevar el bruto a base mensual en el cálculo de renta).
+const _RRHH_FACTOR_PERIODO={mensual:1,quincenal:0.5,semanal:0.230769};
+
+// Devuelve la versión de parámetros vigente a una fecha (la más reciente con fechaVigencia <= fechaRef).
+function _rrhhParamVigente(fechaRef){
+    const all=getRrhhParametros();
+    const aplicables=all.filter(p=>p.fechaVigencia&&String(p.fechaVigencia)<=String(fechaRef)).sort((a,b)=>String(b.fechaVigencia).localeCompare(String(a.fechaVigencia)));
+    if(aplicables[0])return aplicables[0];
+    const ordenadas=all.slice().sort((a,b)=>String(a.fechaVigencia).localeCompare(String(b.fechaVigencia)));
+    if(ordenadas[0])return ordenadas[0];
+    return Object.assign({fechaVigencia:'',_esDefault:true},_rrhhParametrosDefault());
+}
+
+// Impuesto progresivo por tramos. base = ingreso gravable mensual. Redondea a colones enteros.
+function calcImpuestoRentaTramos(base,tramos){
+    base=num(base);if(base<=0)return 0;
+    const ts=(tramos||[]).slice().sort((a,b)=>{const ah=(a.hasta==null||a.hasta==='')?Infinity:num(a.hasta);const bh=(b.hasta==null||b.hasta==='')?Infinity:num(b.hasta);return ah-bh;});
+    let imp=0,prev=0;
+    for(const t of ts){
+        const techo=(t.hasta==null||t.hasta==='')?Infinity:num(t.hasta);
+        const enTramo=Math.max(0,Math.min(base,techo)-prev);
+        imp+=enTramo*num(t.pct)/100;
+        prev=techo;
+        if(base<=techo)break;
+    }
+    return Math.round(imp);
+}
+
+// Motor: a partir de las entradas, calcula todos los montos. Todo redondeado a colones enteros (CRC no usa céntimos).
+function calcularColilla(inp){
+    const factor=_RRHH_FACTOR_PERIODO[inp.periodoTipo]||1;
+    const param=inp.paramSnapshot||_rrhhParamVigente(inp.fechaPago||inp.periodoHasta||new Date().toISOString().slice(0,10));
+    const salarioBase=Math.round(num(inp.salarioBase));
+    const salarioMensualRef=num(inp.salarioMensualRef)||0;
+    const valorHoraOrd=salarioMensualRef>0?(salarioMensualRef/240):0; // mensual /30 días /8 h
+    const valorHoraExtra=(inp.valorHoraExtra!=null&&inp.valorHoraExtra!=='')?num(inp.valorHoraExtra):Math.round(valorHoraOrd*1.5);
+    const horasExtra=num(inp.horasExtra);
+    const montoHorasExtra=Math.round(horasExtra*valorHoraExtra);
+    const otrosIngresos=(inp.otrosIngresos||[]).filter(x=>x&&(x.concepto||x.monto)).map(x=>({concepto:x.concepto||'',monto:Math.round(num(x.monto))}));
+    const otrasDeducciones=(inp.otrasDeducciones||[]).filter(x=>x&&(x.concepto||x.monto)).map(x=>({concepto:x.concepto||'',monto:Math.round(num(x.monto))}));
+    const totalOtrosIngresos=otrosIngresos.reduce((s,x)=>s+x.monto,0);
+    const totalOtrasDeducciones=otrasDeducciones.reduce((s,x)=>s+x.monto,0);
+    const brutoTotal=salarioBase+montoHorasExtra+totalOtrosIngresos;
+    const ccssObreroPct=num(param.ccssObreroPct);
+    const ccssPatronoPct=num(param.ccssPatronoPct);
+    const deduccionCCSS=Math.round(brutoTotal*ccssObreroPct/100);
+    // Renta: los tramos son mensuales. Llevamos el bruto a base mensual equivalente, calculamos y prorrateamos por el período.
+    const baseMensualEq=factor>0?(brutoTotal/factor):brutoTotal;
+    const impuestoMensual=calcImpuestoRentaTramos(baseMensualEq,param.tramos);
+    const deduccionRenta=Math.round(impuestoMensual*factor);
+    const totalDeducciones=deduccionCCSS+deduccionRenta+totalOtrasDeducciones;
+    const neto=brutoTotal-totalDeducciones;
+    const cargaPatronalCCSS=Math.round(brutoTotal*ccssPatronoPct/100);
+    return {salarioBase,valorHoraExtra,horasExtra,montoHorasExtra,otrosIngresos,otrasDeducciones,totalOtrosIngresos,totalOtrasDeducciones,brutoTotal,ccssObreroPct,ccssPatronoPct,deduccionCCSS,deduccionRenta,totalOtrasDeducciones,totalDeducciones,neto,cargaPatronalCCSS,factorPeriodo:factor,
+        paramSnapshot:{fechaVigencia:param.fechaVigencia||'',ccssObreroPct,ccssPatronoPct,tramos:(param.tramos||[]).map(t=>({hasta:(t.hasta==null||t.hasta==='')?null:num(t.hasta),pct:num(t.pct)})),esDefault:!!param._esDefault}};
+}
+
+// ----- COLILLAS: UI -----
+let _rrhhColillaIngTmp=[];   // otros ingresos (temporal en el modal)
+let _rrhhColillaDedTmp=[];   // otras deducciones (temporal en el modal)
+const _RRHH_PERIODO_LABEL={mensual:'Mensual',quincenal:'Quincenal',semanal:'Semanal'};
+
+function _renderRrhhColillas(){
+    const puedeEditar=tienePermiso('rrhh.colillas.gestionar');
+    const emp=getRrhhEmpleados();
+    const colillas=getRrhhColillas().slice().sort((a,b)=>String(b.periodoHasta||'').localeCompare(String(a.periodoHasta||''))||(num(b.creadaTs)-num(a.creadaTs)));
+    let html=`<p class="config-hint">Generá la colilla de pago de cada empleado para un período. El sistema calcula las deducciones de CCSS y del impuesto sobre la renta con los parámetros vigentes a la fecha de pago. Revisá siempre los montos antes de entregar.</p>`;
+    if(!emp.length){
+        html+=`<p style="font-size:0.82rem;color:var(--text-light);font-style:italic;background:var(--bg);padding:14px;border-radius:6px;">Primero registrá empleados en la pestaña <strong>Empleados</strong>.</p>`;
+        return html;
+    }
+    if(!getRrhhParametros().length){
+        html+=`<div style="background:#fff3cd;border:1px solid #ffd966;border-radius:8px;padding:9px 13px;margin-bottom:12px;font-size:0.76rem;color:#7a5c00;">No cargaste parámetros de nómina: se usarán valores de referencia por defecto. Para mayor exactitud, agregá una versión en la pestaña <strong>Parámetros de nómina</strong>.</div>`;
+    }
+    if(puedeEditar)html+=`<div style="margin-bottom:12px;"><button class="btn btn-sm btn-accent" onclick="openRrhhColillaModal('')">+ Generar colilla</button></div>`;
+    if(!colillas.length){
+        html+=`<p style="font-size:0.82rem;color:var(--text-light);font-style:italic;background:var(--bg);padding:14px;border-radius:6px;">Todavía no hay colillas generadas.${puedeEditar?' Generá la primera con el botón de arriba.':''}</p>`;
+        return html;
+    }
+    html+=`<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:0.8rem;">
+        <thead><tr style="text-align:left;border-bottom:2px solid var(--border);color:var(--text-light);text-transform:uppercase;font-size:0.68rem;letter-spacing:0.4px;">
+            <th style="padding:7px 8px;">Empleado</th><th style="padding:7px 8px;">Período</th><th style="padding:7px 8px;">Pago</th><th style="padding:7px 8px;text-align:right;">Bruto</th><th style="padding:7px 8px;text-align:right;">Deducciones</th><th style="padding:7px 8px;text-align:right;">Neto</th><th style="padding:7px 8px;text-align:center;">Estado</th><th style="padding:7px 8px;text-align:right;">Acciones</th>
+        </tr></thead><tbody>`;
+    html+=colillas.map(c=>{
+        const emitida=(c.estado||'borrador')==='emitida';
+        const estadoTag=emitida?'<span style="color:var(--success);font-weight:700;">Emitida</span>':'<span style="color:#b8860b;font-weight:700;">Borrador</span>';
+        const acciones=`<td style="padding:6px 8px;text-align:right;white-space:nowrap;">
+            <button class="btn btn-sm btn-ghost" style="padding:3px 8px;" onclick="verColillaDocumento('${c.id}')">Ver / Imprimir</button>
+            ${puedeEditar?`<button class="btn btn-sm btn-ghost" style="padding:3px 8px;" onclick="openRrhhColillaModal('${c.id}')">Editar</button><button class="btn-icon remove" title="Eliminar" onclick="eliminarRrhhColilla('${c.id}')">&times;</button>`:''}</td>`;
+        return `<tr style="border-bottom:1px solid var(--border);">
+            <td style="padding:6px 8px;font-weight:600;">${esc(c.empleadoNombre||'—')}</td>
+            <td style="padding:6px 8px;font-size:0.74rem;">${fmtFechaCorta(c.periodoDesde)} – ${fmtFechaCorta(c.periodoHasta)}<br><span style="color:var(--text-light);">${esc(_RRHH_PERIODO_LABEL[c.periodoTipo]||c.periodoTipo||'')}</span></td>
+            <td style="padding:6px 8px;">${fmtFechaCorta(c.fechaPago)}</td>
+            <td style="padding:6px 8px;text-align:right;">${fmtCRC(c.brutoTotal)}</td>
+            <td style="padding:6px 8px;text-align:right;color:var(--danger);">-${fmtCRC(c.totalDeducciones)}</td>
+            <td style="padding:6px 8px;text-align:right;font-weight:700;">${fmtCRC(c.neto)}</td>
+            <td style="padding:6px 8px;text-align:center;">${estadoTag}</td>
+            ${acciones}
+        </tr>`;
+    }).join('');
+    html+=`</tbody></table></div>`;
+    return html;
+}
+
+function _rrhhColillaRowsHtml(arr,tipo){
+    return arr.map((x,i)=>`<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">
+        <input type="text" value="${esc(x.concepto||'')}" placeholder="Concepto" onchange="_rrhhColillaSetRow('${tipo}',${i},'concepto',this.value)" style="flex:1;">
+        <span style="font-size:0.74rem;color:var(--text-light);">₡</span>
+        <input type="number" min="0" step="1" value="${x.monto==null||x.monto===''?'':esc(x.monto)}" placeholder="0" onchange="_rrhhColillaSetRow('${tipo}',${i},'monto',this.value)" style="width:110px;">
+        <button type="button" class="btn-icon remove" title="Quitar" onclick="_rrhhColillaRemoveRow('${tipo}',${i})">&times;</button>
+    </div>`).join('')||`<p style="font-size:0.74rem;color:var(--text-light);font-style:italic;margin:2px 0;">Ninguno.</p>`;
+}
+function _rrhhColillaSetRow(tipo,i,campo,val){
+    const arr=tipo==='ing'?_rrhhColillaIngTmp:_rrhhColillaDedTmp;
+    if(!arr[i])return;
+    arr[i][campo]=campo==='monto'?num(val):val;
+    _rrhhColillaRecalc();
+}
+function _rrhhColillaAddRow(tipo){
+    (tipo==='ing'?_rrhhColillaIngTmp:_rrhhColillaDedTmp).push({concepto:'',monto:0});
+    _rrhhColillaRenderRows();
+}
+function _rrhhColillaRemoveRow(tipo,i){
+    (tipo==='ing'?_rrhhColillaIngTmp:_rrhhColillaDedTmp).splice(i,1);
+    _rrhhColillaRenderRows();
+}
+function _rrhhColillaRenderRows(){
+    const bi=document.getElementById('rcIngBox');if(bi)bi.innerHTML=_rrhhColillaRowsHtml(_rrhhColillaIngTmp,'ing');
+    const bd=document.getElementById('rcDedBox');if(bd)bd.innerHTML=_rrhhColillaRowsHtml(_rrhhColillaDedTmp,'ded');
+    _rrhhColillaRecalc();
+}
+
+function openRrhhColillaModal(id){
+    if(!exigirPermiso('rrhh.colillas.gestionar','generar colillas de pago'))return;
+    const emp=getRrhhEmpleados().filter(e=>(e.estado||'activo')==='activo'||id);
+    if(!emp.length){alert('No hay empleados activos. Registrá o activá un empleado primero.');return;}
+    const colillas=getRrhhColillas();
+    const c=id?colillas.find(x=>x.id===id):null;
+    if(id&&!c)return;
+    _rrhhColillaIngTmp=c?(c.otrosIngresos||[]).map(x=>({concepto:x.concepto||'',monto:num(x.monto)})):[];
+    _rrhhColillaDedTmp=c?(c.otrasDeducciones||[]).map(x=>({concepto:x.concepto||'',monto:num(x.monto)})):[];
+    const hoy=new Date().toISOString().slice(0,10);
+    const periodoTipo=c?c.periodoTipo:'mensual';
+    const estado=c?(c.estado||'borrador'):'borrador';
+    const opts=getRrhhEmpleados().map(e=>`<option value="${esc(e.id)}" ${c&&c.empleadoId===e.id?'selected':''}>${esc(e.nombre)}${e.puesto?' — '+esc(e.puesto):''}</option>`).join('');
+    const overlay=document.getElementById('modalRrhhColilla');
+    overlay.innerHTML=`<div class="modal" style="max-width:760px;">
+        <div class="modal-header"><h3>${id?'Editar colilla':'Generar colilla de pago'}</h3><button class="modal-close" onclick="closeModal('modalRrhhColilla')">&times;</button></div>
+        <div class="modal-body">
+            <input type="hidden" id="rcId" value="${esc(c?c.id:'')}">
+            <div class="form-row">
+                <div class="form-group"><label>Empleado *</label><select id="rcEmpleado" onchange="_rrhhColillaEmpleadoChange()"><option value="">-- Seleccionar --</option>${opts}</select></div>
+                <div class="form-group"><label>Tipo de período</label><select id="rcPeriodoTipo" onchange="_rrhhColillaPeriodoChange()">
+                    <option value="mensual" ${periodoTipo==='mensual'?'selected':''}>Mensual</option>
+                    <option value="quincenal" ${periodoTipo==='quincenal'?'selected':''}>Quincenal</option>
+                    <option value="semanal" ${periodoTipo==='semanal'?'selected':''}>Semanal</option>
+                </select></div>
+            </div>
+            <div class="form-row">
+                <div class="form-group"><label>Período: desde *</label><input type="date" id="rcDesde" value="${esc(c?c.periodoDesde:'')}" onchange="_rrhhColillaRecalc()"></div>
+                <div class="form-group"><label>Período: hasta *</label><input type="date" id="rcHasta" value="${esc(c?c.periodoHasta:'')}" onchange="_rrhhColillaRecalc()"></div>
+                <div class="form-group"><label>Fecha de pago *</label><input type="date" id="rcFechaPago" value="${esc(c?c.fechaPago:hoy)}" onchange="_rrhhColillaRecalc()"></div>
+            </div>
+            <div class="form-row">
+                <div class="form-group"><label>Salario del período (₡)</label><input type="number" id="rcSalarioBase" min="0" step="1" value="${esc(c?c.salarioBase:'')}" oninput="_rrhhColillaRecalc()"></div>
+                <div class="form-group"><label>Horas extra</label><input type="number" id="rcHorasExtra" min="0" step="0.5" value="${esc(c?c.horasExtra:0)}" oninput="_rrhhColillaRecalc()"></div>
+                <div class="form-group"><label>Valor hora extra (₡)</label><input type="number" id="rcValorHoraExtra" min="0" step="1" value="${esc(c?c.valorHoraExtra:'')}" oninput="_rrhhColillaRecalc()"></div>
+            </div>
+            <div class="form-row">
+                <div class="form-group"><label style="display:flex;align-items:center;gap:8px;">Otros ingresos <button type="button" class="btn btn-sm btn-ghost" style="font-size:0.7rem;padding:2px 7px;" onclick="_rrhhColillaAddRow('ing')">+ Agregar</button></label><div id="rcIngBox"></div></div>
+                <div class="form-group"><label style="display:flex;align-items:center;gap:8px;">Otras deducciones <button type="button" class="btn btn-sm btn-ghost" style="font-size:0.7rem;padding:2px 7px;" onclick="_rrhhColillaAddRow('ded')">+ Agregar</button></label><div id="rcDedBox"></div></div>
+            </div>
+            <div class="form-row">
+                <div class="form-group"><label>Estado</label><select id="rcEstado">
+                    <option value="borrador" ${estado==='borrador'?'selected':''}>Borrador</option>
+                    <option value="emitida" ${estado==='emitida'?'selected':''}>Emitida</option>
+                </select></div>
+                <div class="form-group" style="flex:2;"><label>Notas</label><input type="text" id="rcNotas" value="${esc(c?c.notas:'')}" placeholder="Notas de la colilla (opcional)" onchange="_rrhhColillaRecalc()"></div>
+            </div>
+            <div id="rcPreview" style="margin-top:8px;"></div>
+        </div>
+        <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modalRrhhColilla')">Cancelar</button><button class="btn btn-success" onclick="guardarRrhhColilla()">Guardar colilla</button></div>
+    </div>`;
+    overlay.classList.add('open');
+    _rrhhColillaRenderRows();
+}
+
+function _rrhhColillaEmpleadoChange(){
+    const empId=document.getElementById('rcEmpleado').value;
+    const emp=getRrhhEmpleados().find(e=>e.id===empId);
+    const factor=_RRHH_FACTOR_PERIODO[document.getElementById('rcPeriodoTipo').value]||1;
+    if(emp){
+        document.getElementById('rcSalarioBase').value=Math.round(num(emp.salarioBruto)*factor);
+        document.getElementById('rcValorHoraExtra').value=Math.round((num(emp.salarioBruto)/240)*1.5);
+    }
+    _rrhhColillaRecalc();
+}
+function _rrhhColillaPeriodoChange(){
+    const empId=document.getElementById('rcEmpleado').value;
+    const emp=getRrhhEmpleados().find(e=>e.id===empId);
+    const factor=_RRHH_FACTOR_PERIODO[document.getElementById('rcPeriodoTipo').value]||1;
+    if(emp)document.getElementById('rcSalarioBase').value=Math.round(num(emp.salarioBruto)*factor);
+    _rrhhColillaRecalc();
+}
+
+function _rrhhColillaLeerForm(){
+    const empId=document.getElementById('rcEmpleado').value;
+    const emp=getRrhhEmpleados().find(e=>e.id===empId);
+    return {
+        empleadoId:empId,
+        empleadoNombre:emp?emp.nombre:'',
+        empleadoCedula:emp?emp.cedula:'',
+        empleadoPuesto:emp?emp.puesto:'',
+        salarioMensualRef:emp?num(emp.salarioBruto):0,
+        periodoTipo:document.getElementById('rcPeriodoTipo').value,
+        periodoDesde:document.getElementById('rcDesde').value,
+        periodoHasta:document.getElementById('rcHasta').value,
+        fechaPago:document.getElementById('rcFechaPago').value,
+        salarioBase:num(document.getElementById('rcSalarioBase').value),
+        horasExtra:num(document.getElementById('rcHorasExtra').value),
+        valorHoraExtra:document.getElementById('rcValorHoraExtra').value,
+        otrosIngresos:_rrhhColillaIngTmp.slice(),
+        otrasDeducciones:_rrhhColillaDedTmp.slice(),
+        estado:document.getElementById('rcEstado').value,
+        notas:document.getElementById('rcNotas').value
+    };
+}
+function _rrhhColillaRecalc(){
+    const box=document.getElementById('rcPreview');
+    if(!box)return;
+    const inp=_rrhhColillaLeerForm();
+    const r=calcularColilla(inp);
+    const filaIng=r.otrosIngresos.map(x=>`<tr><td style="padding:2px 8px;">${esc(x.concepto||'Otro ingreso')}</td><td style="padding:2px 8px;text-align:right;">${fmtCRC(x.monto)}</td></tr>`).join('');
+    const filaDed=r.otrasDeducciones.map(x=>`<tr><td style="padding:2px 8px;">${esc(x.concepto||'Otra deducción')}</td><td style="padding:2px 8px;text-align:right;color:var(--danger);">-${fmtCRC(x.monto)}</td></tr>`).join('');
+    box.innerHTML=`<div style="border:1px solid var(--primary);border-radius:8px;overflow:hidden;">
+        <div style="background:var(--primary-light);padding:6px 12px;font-weight:700;color:var(--primary-dark);font-size:0.82rem;">Vista previa del cálculo${r.paramSnapshot.esDefault?' <span style="font-weight:400;color:#b8860b;">(con parámetros de referencia por defecto)</span>':''}</div>
+        <table style="width:100%;border-collapse:collapse;font-size:0.8rem;">
+            <tbody>
+                <tr><td style="padding:2px 8px;">Salario del período</td><td style="padding:2px 8px;text-align:right;">${fmtCRC(r.salarioBase)}</td></tr>
+                ${r.montoHorasExtra?`<tr><td style="padding:2px 8px;">Horas extra (${num(r.horasExtra)} × ${fmtCRC(r.valorHoraExtra)})</td><td style="padding:2px 8px;text-align:right;">${fmtCRC(r.montoHorasExtra)}</td></tr>`:''}
+                ${filaIng}
+                <tr style="border-top:1px solid var(--border);font-weight:700;"><td style="padding:3px 8px;">Salario bruto</td><td style="padding:3px 8px;text-align:right;">${fmtCRC(r.brutoTotal)}</td></tr>
+                <tr><td style="padding:2px 8px;color:var(--danger);">CCSS obrero (${r.ccssObreroPct}%)</td><td style="padding:2px 8px;text-align:right;color:var(--danger);">-${fmtCRC(r.deduccionCCSS)}</td></tr>
+                <tr><td style="padding:2px 8px;color:var(--danger);">Impuesto sobre la renta</td><td style="padding:2px 8px;text-align:right;color:var(--danger);">-${fmtCRC(r.deduccionRenta)}</td></tr>
+                ${filaDed}
+                <tr style="border-top:1px solid var(--border);font-weight:700;"><td style="padding:3px 8px;">Total deducciones</td><td style="padding:3px 8px;text-align:right;color:var(--danger);">-${fmtCRC(r.totalDeducciones)}</td></tr>
+                <tr style="border-top:2px solid var(--primary);font-weight:800;font-size:0.9rem;background:var(--primary-light);"><td style="padding:5px 8px;">Salario neto a pagar</td><td style="padding:5px 8px;text-align:right;">${fmtCRC(r.neto)}</td></tr>
+            </tbody>
+        </table>
+        <div style="padding:4px 12px;font-size:0.7rem;color:var(--text-light);border-top:1px solid var(--border);">Carga patronal CCSS (informativo, no se descuenta del empleado): ${fmtCRC(r.cargaPatronalCCSS)} (${r.ccssPatronoPct}%)</div>
+    </div>`;
+}
+
+function guardarRrhhColilla(){
+    if(!exigirPermiso('rrhh.colillas.gestionar','generar colillas de pago'))return;
+    const inp=_rrhhColillaLeerForm();
+    if(!inp.empleadoId){alert('Elegí un empleado.');return;}
+    if(!inp.periodoDesde||!inp.periodoHasta){alert('Indicá el período (desde y hasta).');return;}
+    if(!inp.fechaPago){alert('Indicá la fecha de pago.');return;}
+    const r=calcularColilla(inp);
+    const id=document.getElementById('rcId').value||'';
+    const colillas=getRrhhColillas().map(x=>Object.assign({},x));
+    const datos={
+        empleadoId:inp.empleadoId,empleadoNombre:inp.empleadoNombre,empleadoCedula:inp.empleadoCedula,empleadoPuesto:inp.empleadoPuesto,
+        periodoTipo:inp.periodoTipo,periodoDesde:inp.periodoDesde,periodoHasta:inp.periodoHasta,fechaPago:inp.fechaPago,
+        salarioBase:r.salarioBase,horasExtra:r.horasExtra,valorHoraExtra:r.valorHoraExtra,montoHorasExtra:r.montoHorasExtra,
+        otrosIngresos:r.otrosIngresos,otrasDeducciones:r.otrasDeducciones,
+        brutoTotal:r.brutoTotal,deduccionCCSS:r.deduccionCCSS,deduccionRenta:r.deduccionRenta,
+        totalOtrasDeducciones:r.totalOtrasDeducciones,totalDeducciones:r.totalDeducciones,neto:r.neto,
+        cargaPatronalCCSS:r.cargaPatronalCCSS,paramSnapshot:r.paramSnapshot,factorPeriodo:r.factorPeriodo,
+        estado:inp.estado||'borrador',notas:inp.notas||''
+    };
+    if(id){
+        const u=colillas.find(x=>x.id===id);
+        if(!u){alert('No se encontró la colilla.');return;}
+        Object.assign(u,datos);u._lastEditTs=Date.now();
+    }else{
+        datos.id=newRrhhId();datos.creadaTs=Date.now();datos.creadaPor=(window.currentUser&&window.currentUser.email)||'';
+        colillas.push(datos);
+    }
+    saveRrhhColillas(colillas);
+    const cfg=getConfig();
+    _appendBitacoraRrhh(cfg,(id?'Editó':'Generó')+' la colilla de "'+inp.empleadoNombre+'" ('+fmtFechaCorta(inp.periodoDesde)+' a '+fmtFechaCorta(inp.periodoHasta)+'), neto '+fmtCRC(r.neto));
+    saveConfig(cfg);
+    closeModal('modalRrhhColilla');
+    renderRrhh();
+}
+
+function eliminarRrhhColilla(id){
+    if(!exigirPermiso('rrhh.colillas.gestionar','generar colillas de pago'))return;
+    const c=getRrhhColillas().find(x=>x.id===id);
+    if(!c)return;
+    if(!confirm('¿Eliminar la colilla de "'+(c.empleadoNombre||'')+'" del período '+fmtFechaCorta(c.periodoDesde)+' a '+fmtFechaCorta(c.periodoHasta)+'? Esta acción no se puede deshacer.'))return;
+    saveRrhhColillas(getRrhhColillas().filter(x=>x.id!==id));
+    const cfg=getConfig();
+    _appendBitacoraRrhh(cfg,'Eliminó la colilla de "'+(c.empleadoNombre||'')+'" ('+fmtFechaCorta(c.periodoDesde)+' a '+fmtFechaCorta(c.periodoHasta)+')');
+    saveConfig(cfg);
+    renderRrhh();
+}
+
+// ----- COLILLA: documento imprimible (usa el camino existente viewDocumento) -----
+function verColillaDocumento(id){
+    const c=getRrhhColillas().find(x=>x.id===id);
+    if(!c){alert('Colilla no encontrada.');return;}
+    nav('documento');
+    setTimeout(()=>renderColillaDocumento(c),50);
+}
+function renderColillaDocumento(c){
+    const container=document.getElementById('documentoContent');
+    if(!container)return;
+    const ag=(cfgGet().agencyInfo)||{};
+    const fila=(lbl,val,neg)=>`<tr><td style="padding:5px 10px;border-bottom:1px solid #eee;">${esc(lbl)}</td><td style="padding:5px 10px;border-bottom:1px solid #eee;text-align:right;${neg?'color:#c0392b;':''}">${neg?'-':''}${fmtCRC(val)}</td></tr>`;
+    const ing=(c.otrosIngresos||[]).map(x=>fila(x.concepto||'Otro ingreso',x.monto)).join('');
+    const ded=(c.otrasDeducciones||[]).map(x=>fila(x.concepto||'Otra deducción',x.monto,true)).join('');
+    const docNum='COL-'+(new Date(c.fechaPago||c.creadaTs||Date.now()).getFullYear())+'-'+String(c.id||'').slice(-6);
+    const estadoTag=(c.estado==='emitida')?'EMITIDA':'BORRADOR';
+    container.innerHTML=`<div style="max-width:720px;margin:0 auto;background:#fff;padding:34px 40px;box-shadow:0 2px 12px rgba(0,0,0,0.08);font-family:'Open Sans',sans-serif;color:#222;">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #0a7e8c;padding-bottom:12px;margin-bottom:16px;">
+            <div><div style="font-size:1.25rem;font-weight:800;color:#0a7e8c;">${esc(ag.nombre||'Deseos Viajeros')}</div>
+            <div style="font-size:0.74rem;color:#666;">${esc(ag.razonSocial||'')}${ag.cedula?' · Céd. '+esc(ag.cedula):''}${ag.telefono?' · Tel. '+esc(ag.telefono):''}</div></div>
+            <div style="text-align:right;"><div style="font-size:1.05rem;font-weight:800;letter-spacing:0.5px;">COLILLA DE PAGO</div>
+            <div style="font-size:0.74rem;color:#666;">N° ${esc(docNum)}</div>
+            <div style="font-size:0.68rem;font-weight:700;color:${c.estado==='emitida'?'#1e8449':'#b8860b'};">${estadoTag}</div></div>
+        </div>
+        <table style="width:100%;font-size:0.8rem;margin-bottom:14px;"><tbody>
+            <tr><td style="padding:2px 0;color:#666;width:140px;">Empleado:</td><td style="padding:2px 0;font-weight:700;">${esc(c.empleadoNombre||'')}</td>
+                <td style="padding:2px 0;color:#666;width:120px;">Cédula:</td><td style="padding:2px 0;">${esc(c.empleadoCedula||'—')}</td></tr>
+            <tr><td style="padding:2px 0;color:#666;">Puesto:</td><td style="padding:2px 0;">${esc(c.empleadoPuesto||'—')}</td>
+                <td style="padding:2px 0;color:#666;">Período:</td><td style="padding:2px 0;">${esc(_RRHH_PERIODO_LABEL[c.periodoTipo]||c.periodoTipo||'')}</td></tr>
+            <tr><td style="padding:2px 0;color:#666;">Fecha de pago:</td><td style="padding:2px 0;">${fmtFechaCorta(c.fechaPago)}</td>
+                <td style="padding:2px 0;color:#666;">Del:</td><td style="padding:2px 0;">${fmtFechaCorta(c.periodoDesde)} al ${fmtFechaCorta(c.periodoHasta)}</td></tr>
+        </tbody></table>
+        <div style="display:flex;gap:18px;flex-wrap:wrap;">
+            <div style="flex:1;min-width:280px;">
+                <div style="font-weight:700;color:#0a7e8c;font-size:0.8rem;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:4px;">Devengado</div>
+                <table style="width:100%;border-collapse:collapse;font-size:0.8rem;"><tbody>
+                    ${fila('Salario del período',c.salarioBase)}
+                    ${c.montoHorasExtra?fila('Horas extra ('+num(c.horasExtra)+' × '+fmtCRC(c.valorHoraExtra)+')',c.montoHorasExtra):''}
+                    ${ing}
+                    <tr style="font-weight:800;"><td style="padding:6px 10px;border-top:2px solid #0a7e8c;">Salario bruto</td><td style="padding:6px 10px;border-top:2px solid #0a7e8c;text-align:right;">${fmtCRC(c.brutoTotal)}</td></tr>
+                </tbody></table>
+            </div>
+            <div style="flex:1;min-width:280px;">
+                <div style="font-weight:700;color:#c0392b;font-size:0.8rem;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:4px;">Deducciones</div>
+                <table style="width:100%;border-collapse:collapse;font-size:0.8rem;"><tbody>
+                    ${fila('CCSS obrero'+(c.paramSnapshot?' ('+num(c.paramSnapshot.ccssObreroPct)+'%)':''),c.deduccionCCSS,true)}
+                    ${fila('Impuesto sobre la renta',c.deduccionRenta,true)}
+                    ${ded}
+                    <tr style="font-weight:800;"><td style="padding:6px 10px;border-top:2px solid #c0392b;">Total deducciones</td><td style="padding:6px 10px;border-top:2px solid #c0392b;text-align:right;color:#c0392b;">-${fmtCRC(c.totalDeducciones)}</td></tr>
+                </tbody></table>
+            </div>
+        </div>
+        <div style="margin-top:18px;background:#0a7e8c;color:#fff;border-radius:8px;padding:12px 18px;display:flex;justify-content:space-between;align-items:center;">
+            <span style="font-size:0.95rem;font-weight:700;">SALARIO NETO A PAGAR</span>
+            <span style="font-size:1.3rem;font-weight:800;">${fmtCRC(c.neto)}</span>
+        </div>
+        ${c.notas?`<div style="margin-top:12px;font-size:0.76rem;color:#444;"><strong>Notas:</strong> ${esc(c.notas)}</div>`:''}
+        <div style="margin-top:14px;font-size:0.68rem;color:#888;">Carga patronal CCSS (informativo, no se descuenta al empleado): ${fmtCRC(c.cargaPatronalCCSS)}${c.paramSnapshot?' ('+num(c.paramSnapshot.ccssPatronoPct)+'%)':''}.</div>
+        <div style="margin-top:26px;display:flex;justify-content:space-between;gap:30px;">
+            <div style="flex:1;text-align:center;border-top:1px solid #999;padding-top:5px;font-size:0.72rem;color:#666;">Firma del empleado</div>
+            <div style="flex:1;text-align:center;border-top:1px solid #999;padding-top:5px;font-size:0.72rem;color:#666;">Firma del patrono</div>
+        </div>
+        <div style="margin-top:16px;font-size:0.64rem;color:#aaa;text-align:center;">Documento generado por el sistema de ${esc(ag.nombre||'Deseos Viajeros')}. Los montos son calculados automáticamente y deben ser validados por el área contable.</div>
+    </div>`;
 }
 // =====================================================================================
 
