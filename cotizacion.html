@@ -1511,6 +1511,7 @@ onAuthStateChanged(fbAuth, (user) => {
 <div class="modal-overlay" id="modalRrhhEmpleado"></div>
 <div class="modal-overlay" id="modalRrhhParam"></div>
 <div class="modal-overlay" id="modalRrhhColilla"></div>
+<div class="modal-overlay" id="modalRrhhVacacion"></div>
 
 <script>
 // ===== STATE =====
@@ -1655,7 +1656,7 @@ function setLSObj(k,v){
 //   destinos/{pais}/{ciudad}_{timestamp}
 
 // Tracking de IDs que ya subimos a Firestore (para poder detectar eliminaciones)
-const _fsDocIds={cotizaciones:new Set(),ventas:new Set(),clientes:new Set(),destinos:new Set(),hoteles:new Set(),grupos:new Set(),rrhh_colillas:new Set()};
+const _fsDocIds={cotizaciones:new Set(),ventas:new Set(),clientes:new Set(),destinos:new Set(),hoteles:new Set(),grupos:new Set(),rrhh_colillas:new Set(),rrhh_vacaciones:new Set()};
 
 // ===== METADATA (timestamp + autor en cada save) =====
 // Agrega _lastModifiedAt y _lastModifiedBy a un objeto antes de guardarlo.
@@ -1686,6 +1687,7 @@ function guardarSnapshotRespaldo(motivo){
             hoteles:getLS('dv_hoteles'),
             grupos:getLS('dv_grupos'),
             rrhh_colillas:getLS('dv_rrhh_colillas'),
+            rrhh_vacaciones:getLS('dv_rrhh_vacaciones'),
             config:getLSObj('dv_config')
         };
         localStorage.setItem(key,JSON.stringify(snap));
@@ -1768,6 +1770,8 @@ async function pushToFirestore(key,value){
             await syncArrayCollection('grupos',value,false);
         }else if(key==='dv_rrhh_colillas'){
             await syncArrayCollection('rrhh_colillas',value,false);
+        }else if(key==='dv_rrhh_vacaciones'){
+            await syncArrayCollection('rrhh_vacaciones',value,false);
         }
     }catch(e){
         console.error('[FS] error en pushToFirestore para',key,':',e);
@@ -2010,6 +2014,14 @@ async function loadAllFromFirestore(){
         colillas=mergedCol.merged;recuperadosTotal+=mergedCol.recovered;
         localStorage.setItem('dv_rrhh_colillas',JSON.stringify(colillas));
         if(mergedCol.recovered>0)setTimeout(()=>{if(_fsEnabled)pushToFirestore('dv_rrhh_colillas',colillas).catch(e=>console.error(e));},9500);
+        // rrhh_vacaciones: solicitudes de vacaciones (array de docs independientes, defensivo)
+        const localVac=getLS('dv_rrhh_vacaciones');
+        const vacSnap=await h.getDocs(h.collection(db,'rrhh_vacaciones'));
+        let vacaciones=[];vacSnap.forEach(dd=>{vacaciones.push(dd.data());_fsDocIds.rrhh_vacaciones.add(dd.id);});
+        const mergedVac=mergeArrayDefensivo('rrhh_vacaciones',vacaciones,localVac);
+        vacaciones=mergedVac.merged;recuperadosTotal+=mergedVac.recovered;
+        localStorage.setItem('dv_rrhh_vacaciones',JSON.stringify(vacaciones));
+        if(mergedVac.recovered>0)setTimeout(()=>{if(_fsEnabled)pushToFirestore('dv_rrhh_vacaciones',vacaciones).catch(e=>console.error(e));},10500);
         console.log(`[FS] datos cargados: ${cots.length} cotizaciones, ${ventas.length} ventas, ${clientes.length} clientes, ${Object.keys(destObj).length} pa\u00edses, ${hoteles.length} hoteles${recuperadosTotal>0?' ('+recuperadosTotal+' items recuperados de localStorage)':''}`);
         if(recuperadosTotal>0){
             setTimeout(()=>{
@@ -2944,7 +2956,10 @@ registrarPermisos([
     {clave:'rrhh.empleados.gestionar', nombre:'Crear y editar empleados',        modulo:'Recursos Humanos'},
     {clave:'rrhh.parametros.gestionar',nombre:'Editar parámetros de nómina',      modulo:'Recursos Humanos'},
     {clave:'rrhh.colillas.ver',        nombre:'Ver colillas de pago',            modulo:'Recursos Humanos'},
-    {clave:'rrhh.colillas.gestionar',  nombre:'Generar y editar colillas de pago',modulo:'Recursos Humanos'}
+    {clave:'rrhh.colillas.gestionar',  nombre:'Generar y editar colillas de pago',modulo:'Recursos Humanos'},
+    {clave:'rrhh.vacaciones.ver',      nombre:'Ver vacaciones (saldos y solicitudes)', modulo:'Recursos Humanos'},
+    {clave:'rrhh.vacaciones.gestionar',nombre:'Crear y editar solicitudes de vacaciones', modulo:'Recursos Humanos'},
+    {clave:'rrhh.vacaciones.aprobar',  nombre:'Aprobar o rechazar vacaciones',   modulo:'Recursos Humanos'}
 ]);
 
 // ----- Accesores de datos (viven en config) -----
@@ -2955,6 +2970,9 @@ function newRrhhId(){return 'rh_'+Date.now()+'_'+Math.random().toString(36).slic
 // deben conservarse por retencion legal. Heredan la proteccion anti-perdida (mergeArrayDefensivo, snapshots).
 function getRrhhColillas(){return getLS('dv_rrhh_colillas');}
 function saveRrhhColillas(arr){return setLS('dv_rrhh_colillas',Array.isArray(arr)?arr:[]);}
+// Vacaciones: solicitudes en coleccion sincronizada propia (dv_rrhh_vacaciones). Mismo patron anti-perdida.
+function getRrhhVacaciones(){return getLS('dv_rrhh_vacaciones');}
+function saveRrhhVacaciones(arr){return setLS('dv_rrhh_vacaciones',Array.isArray(arr)?arr:[]);}
 
 // ----- Helpers de formato -----
 function fmtCRC(n){return '₡'+Math.round(num(n)).toLocaleString('es-CR');}
@@ -2972,6 +2990,7 @@ function _rrhhParametrosDefault(){
     return {
         ccssObreroPct: 10.67,   // deduccion del trabajador (placeholder)
         ccssPatronoPct: 26.67,  // carga del patrono (placeholder)
+        vacacionesDiasPorMes: 1,// dias de vacaciones devengados por mes trabajado (placeholder, validar con contador)
         tramos: [               // impuesto sobre la renta del trabajo (mensual, placeholder)
             {hasta:922000,  pct:0},
             {hasta:1352000, pct:10},
@@ -2991,10 +3010,12 @@ function renderRrhh(){
     const banner=`<div style="background:#fff3cd;border:1px solid #ffd966;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:0.78rem;color:#7a5c00;">
         <strong>&#9888; Módulo en construcción (Fase 1).</strong> Por ahora sirve para registrar <strong>empleados</strong> y los <strong>parámetros de nómina</strong>. Todavía no calcula colillas. Las tasas de CCSS y los tramos de renta son valores de referencia y <strong>deben ser validados por un contador</strong> antes de usarse en planilla real.</div>`;
     const verColillas=tienePermiso('rrhh.colillas.ver');
+    const verVacaciones=tienePermiso('rrhh.vacaciones.ver');
     const tabs=`<div class="config-tabs" style="margin-bottom:14px;">
         <button class="config-tab ${_rrhhTabActiva==='empleados'?'active':''}" onclick="switchRrhhTab('empleados')">Empleados</button>
         <button class="config-tab ${_rrhhTabActiva==='parametros'?'active':''}" onclick="switchRrhhTab('parametros')">Parámetros de nómina</button>
         ${verColillas?`<button class="config-tab ${_rrhhTabActiva==='colillas'?'active':''}" onclick="switchRrhhTab('colillas')">Colillas de pago</button>`:''}
+        ${verVacaciones?`<button class="config-tab ${_rrhhTabActiva==='vacaciones'?'active':''}" onclick="switchRrhhTab('vacaciones')">Vacaciones</button>`:''}
     </div>`;
     v.innerHTML=`<div style="max-width:1000px;margin:0 auto;width:100%;padding:4px;">${banner}${tabs}<div id="rrhhPaneBox"></div></div>`;
     _renderRrhhPane();
@@ -3005,6 +3026,7 @@ function _renderRrhhPane(){
     if(!box)return;
     if(_rrhhTabActiva==='parametros')box.innerHTML=_renderRrhhParametros();
     else if(_rrhhTabActiva==='colillas')box.innerHTML=_renderRrhhColillas();
+    else if(_rrhhTabActiva==='vacaciones')box.innerHTML=_renderRrhhVacaciones();
     else box.innerHTML=_renderRrhhEmpleados();
 }
 
@@ -3157,6 +3179,7 @@ function _renderRrhhParametros(){
             <div style="display:flex;gap:18px;flex-wrap:wrap;margin-bottom:8px;font-size:0.8rem;">
                 <div><span style="color:var(--text-light);">CCSS obrero:</span> <strong>${num(p.ccssObreroPct)}%</strong></div>
                 <div><span style="color:var(--text-light);">CCSS patrono:</span> <strong>${num(p.ccssPatronoPct)}%</strong></div>
+                <div><span style="color:var(--text-light);">Vacaciones:</span> <strong>${p.vacacionesDiasPorMes!=null?num(p.vacacionesDiasPorMes):1} día(s)/mes</strong></div>
             </div>
             <div><div style="font-size:0.7rem;font-weight:700;color:var(--primary-dark);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:2px;">Impuesto sobre la renta (mensual)</div>
             <table style="width:100%;max-width:360px;border-collapse:collapse;"><tbody>${tramos||'<tr><td style="padding:3px 8px;font-size:0.76rem;color:var(--text-light);">Sin tramos definidos</td></tr>'}</tbody></table></div>
@@ -3185,6 +3208,7 @@ function openRrhhParamModal(id){
             <div class="form-row">
                 <div class="form-group"><label>CCSS obrero (%)</label><input type="number" id="rpCcssObrero" min="0" step="0.01" value="${esc(base.ccssObreroPct)}"></div>
                 <div class="form-group"><label>CCSS patrono (%)</label><input type="number" id="rpCcssPatrono" min="0" step="0.01" value="${esc(base.ccssPatronoPct)}"></div>
+                <div class="form-group"><label>Vacaciones: días por mes</label><input type="number" id="rpVacDiasMes" min="0" step="0.01" value="${esc(base.vacacionesDiasPorMes!=null?base.vacacionesDiasPorMes:1)}"></div>
             </div>
             <div class="form-group">
                 <label style="display:flex;align-items:center;gap:8px;">Tramos del impuesto sobre la renta (mensual) <button type="button" class="btn btn-sm btn-ghost" style="font-size:0.7rem;padding:3px 8px;" onclick="addRrhhTramoRow()">+ Tramo</button></label>
@@ -3226,6 +3250,7 @@ function guardarRrhhParam(){
         fechaVigencia:fecha,
         ccssObreroPct:num(document.getElementById('rpCcssObrero').value),
         ccssPatronoPct:num(document.getElementById('rpCcssPatrono').value),
+        vacacionesDiasPorMes:num(document.getElementById('rpVacDiasMes').value),
         tramos:tramos
     };
     const cfg=getConfig();
@@ -3623,6 +3648,227 @@ function renderColillaDocumento(c){
         </div>
         <div style="margin-top:16px;font-size:0.64rem;color:#aaa;text-align:center;">Documento generado por el sistema de ${esc(ag.nombre||'Deseos Viajeros')}. Los montos son calculados automáticamente y deben ser validados por el área contable.</div>
     </div>`;
+}
+
+// ----- VACACIONES (Fase 3: devengo + solicitudes) -----
+const _RRHH_VAC_ESTADO_LABEL={solicitada:'Solicitada',aprobada:'Aprobada',rechazada:'Rechazada',disfrutada:'Disfrutada'};
+const _RRHH_VAC_ESTADO_COLOR={solicitada:'#b8860b',aprobada:'#1e8449',rechazada:'#c0392b',disfrutada:'#0a7e8c'};
+
+// Tasa de devengo (dias por mes) tomada de la version de parametros mas reciente. Default 1.
+function _vacDiasPorMes(){
+    const p=_rrhhParamVigente(new Date().toISOString().slice(0,10));
+    const v=(p&&p.vacacionesDiasPorMes!=null)?num(p.vacacionesDiasPorMes):1;
+    return v>0?v:1;
+}
+// Meses trabajados (fraccionarios) entre la fecha de ingreso y una fecha de referencia (hoy por defecto).
+function _mesesTrabajados(ingreso,ref){
+    if(!ingreso)return 0;
+    const a=new Date(String(ingreso).slice(0,10)+'T12:00:00');
+    const b=new Date((ref||new Date().toISOString().slice(0,10))+'T12:00:00');
+    if(isNaN(a.getTime())||isNaN(b.getTime())||b<a)return 0;
+    return (b-a)/86400000/30.4375; // dias / promedio de dias por mes
+}
+// Dias habiles (lunes a viernes) entre dos fechas, inclusive.
+function _diasHabilesEntre(desde,hasta){
+    if(!desde||!hasta)return 0;
+    const a=new Date(String(desde).slice(0,10)+'T12:00:00');
+    const b=new Date(String(hasta).slice(0,10)+'T12:00:00');
+    if(isNaN(a.getTime())||isNaN(b.getTime())||b<a)return 0;
+    let count=0;const cur=new Date(a);
+    while(cur<=b){const d=cur.getDay();if(d!==0&&d!==6)count++;cur.setDate(cur.getDate()+1);}
+    return count;
+}
+// Resumen de vacaciones de un empleado: devengados, tomados (aprobadas/disfrutadas), pendientes (solicitadas) y saldo.
+function _vacResumenEmpleado(empId){
+    const emp=getRrhhEmpleados().find(e=>e.id===empId);
+    const rate=_vacDiasPorMes();
+    const dev=emp?_mesesTrabajados(emp.fechaIngreso)*rate:0;
+    const sols=getRrhhVacaciones().filter(s=>s.empleadoId===empId);
+    const tomados=sols.filter(s=>s.estado==='aprobada'||s.estado==='disfrutada').reduce((acc,s)=>acc+num(s.diasHabiles),0);
+    const pendientes=sols.filter(s=>s.estado==='solicitada').reduce((acc,s)=>acc+num(s.diasHabiles),0);
+    return {devengados:Math.round(dev*10)/10,tomados,pendientes,saldo:Math.round((dev-tomados)*10)/10};
+}
+
+function _renderRrhhVacaciones(){
+    const puedeGestionar=tienePermiso('rrhh.vacaciones.gestionar');
+    const puedeAprobar=tienePermiso('rrhh.vacaciones.aprobar');
+    const emp=getRrhhEmpleados();
+    let html=`<p class="config-hint">Cada empleado <strong>devenga</strong> vacaciones según su antigüedad (a razón de ${_vacDiasPorMes()} día(s) por mes, configurable en Parámetros de nómina). Registrá las solicitudes y, al aprobarlas, se descuentan del saldo.</p>`;
+    if(!emp.length){
+        html+=`<p style="font-size:0.82rem;color:var(--text-light);font-style:italic;background:var(--bg);padding:14px;border-radius:6px;">Primero registrá empleados en la pestaña <strong>Empleados</strong>.</p>`;
+        return html;
+    }
+    // Resumen de saldos por empleado
+    const activos=emp.filter(e=>(e.estado||'activo')==='activo');
+    const listaResumen=(activos.length?activos:emp);
+    html+=`<div style="overflow-x:auto;margin-bottom:18px;"><table style="width:100%;border-collapse:collapse;font-size:0.8rem;">
+        <thead><tr style="text-align:left;border-bottom:2px solid var(--border);color:var(--text-light);text-transform:uppercase;font-size:0.68rem;letter-spacing:0.4px;">
+            <th style="padding:7px 8px;">Empleado</th><th style="padding:7px 8px;">Ingreso</th><th style="padding:7px 8px;text-align:right;">Devengados</th><th style="padding:7px 8px;text-align:right;">Tomados</th><th style="padding:7px 8px;text-align:right;">Pendientes</th><th style="padding:7px 8px;text-align:right;">Saldo</th>
+        </tr></thead><tbody>`;
+    html+=listaResumen.map(e=>{
+        const r=_vacResumenEmpleado(e.id);
+        const saldoColor=r.saldo<0?'var(--danger)':'var(--success)';
+        return `<tr style="border-bottom:1px solid var(--border);">
+            <td style="padding:6px 8px;font-weight:600;">${esc(e.nombre||'—')}</td>
+            <td style="padding:6px 8px;">${fmtFechaCorta(e.fechaIngreso)}</td>
+            <td style="padding:6px 8px;text-align:right;">${r.devengados}</td>
+            <td style="padding:6px 8px;text-align:right;">${r.tomados}</td>
+            <td style="padding:6px 8px;text-align:right;color:#b8860b;">${r.pendientes||''}</td>
+            <td style="padding:6px 8px;text-align:right;font-weight:700;color:${saldoColor};">${r.saldo}</td>
+        </tr>`;
+    }).join('');
+    html+=`</tbody></table></div>`;
+    // Solicitudes
+    html+=`<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+        <h3 style="margin:0;font-size:0.95rem;">Solicitudes de vacaciones</h3>
+        ${puedeGestionar?'<button class="btn btn-sm btn-accent" onclick="openRrhhVacacionModal(\'\')">+ Nueva solicitud</button>':''}</div>`;
+    const sols=getRrhhVacaciones().slice().sort((a,b)=>String(b.fechaDesde||'').localeCompare(String(a.fechaDesde||'')));
+    if(!sols.length){
+        html+=`<p style="font-size:0.82rem;color:var(--text-light);font-style:italic;background:var(--bg);padding:14px;border-radius:6px;">No hay solicitudes registradas.</p>`;
+        return html;
+    }
+    html+=`<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:0.8rem;">
+        <thead><tr style="text-align:left;border-bottom:2px solid var(--border);color:var(--text-light);text-transform:uppercase;font-size:0.68rem;letter-spacing:0.4px;">
+            <th style="padding:7px 8px;">Empleado</th><th style="padding:7px 8px;">Desde</th><th style="padding:7px 8px;">Hasta</th><th style="padding:7px 8px;text-align:right;">Días hábiles</th><th style="padding:7px 8px;text-align:center;">Estado</th><th style="padding:7px 8px;text-align:right;">Acciones</th>
+        </tr></thead><tbody>`;
+    html+=sols.map(s=>{
+        const estado=s.estado||'solicitada';
+        const estadoTag=`<span style="color:${_RRHH_VAC_ESTADO_COLOR[estado]||'#666'};font-weight:700;">${_RRHH_VAC_ESTADO_LABEL[estado]||estado}</span>`;
+        let acc='';
+        if(puedeAprobar&&estado==='solicitada')acc+=`<button class="btn btn-sm btn-ghost" style="padding:3px 8px;color:#1e8449;" onclick="aprobarRrhhVacacion('${s.id}','aprobada')">Aprobar</button><button class="btn btn-sm btn-ghost" style="padding:3px 8px;color:#c0392b;" onclick="aprobarRrhhVacacion('${s.id}','rechazada')">Rechazar</button>`;
+        if(puedeAprobar&&estado==='aprobada')acc+=`<button class="btn btn-sm btn-ghost" style="padding:3px 8px;" onclick="aprobarRrhhVacacion('${s.id}','disfrutada')">Marcar disfrutada</button>`;
+        if(puedeGestionar)acc+=`<button class="btn btn-sm btn-ghost" style="padding:3px 8px;" onclick="openRrhhVacacionModal('${s.id}')">Editar</button><button class="btn-icon remove" title="Eliminar" onclick="eliminarRrhhVacacion('${s.id}')">&times;</button>`;
+        const motivo=s.motivo?`<br><span style="color:var(--text-light);font-size:0.72rem;">${esc(s.motivo)}</span>`:'';
+        return `<tr style="border-bottom:1px solid var(--border);">
+            <td style="padding:6px 8px;font-weight:600;">${esc(s.empleadoNombre||'—')}${motivo}</td>
+            <td style="padding:6px 8px;">${fmtFechaCorta(s.fechaDesde)}</td>
+            <td style="padding:6px 8px;">${fmtFechaCorta(s.fechaHasta)}</td>
+            <td style="padding:6px 8px;text-align:right;">${num(s.diasHabiles)}</td>
+            <td style="padding:6px 8px;text-align:center;">${estadoTag}</td>
+            <td style="padding:6px 8px;text-align:right;white-space:nowrap;">${acc||'<span style="color:var(--text-light);font-size:0.72rem;">—</span>'}</td>
+        </tr>`;
+    }).join('');
+    html+=`</tbody></table></div>`;
+    return html;
+}
+
+function openRrhhVacacionModal(id){
+    if(!exigirPermiso('rrhh.vacaciones.gestionar','gestionar solicitudes de vacaciones'))return;
+    const emp=getRrhhEmpleados();
+    if(!emp.length){alert('Registrá empleados primero.');return;}
+    const sols=getRrhhVacaciones();
+    const s=id?sols.find(x=>x.id===id):null;
+    if(id&&!s)return;
+    const estado=s?(s.estado||'solicitada'):'solicitada';
+    const opts=emp.map(e=>`<option value="${esc(e.id)}" ${s&&s.empleadoId===e.id?'selected':''}>${esc(e.nombre)}${e.puesto?' — '+esc(e.puesto):''}</option>`).join('');
+    const overlay=document.getElementById('modalRrhhVacacion');
+    overlay.innerHTML=`<div class="modal" style="max-width:560px;">
+        <div class="modal-header"><h3>${id?'Editar solicitud':'Nueva solicitud de vacaciones'}</h3><button class="modal-close" onclick="closeModal('modalRrhhVacacion')">&times;</button></div>
+        <div class="modal-body">
+            <input type="hidden" id="rvId" value="${esc(s?s.id:'')}">
+            <div class="form-group"><label>Empleado *</label><select id="rvEmpleado" onchange="_rrhhVacRecalcDias()"><option value="">-- Seleccionar --</option>${opts}</select></div>
+            <div id="rvSaldoBox" style="font-size:0.76rem;color:var(--text-light);margin:-4px 0 8px;"></div>
+            <div class="form-row">
+                <div class="form-group"><label>Desde *</label><input type="date" id="rvDesde" value="${esc(s?s.fechaDesde:'')}" onchange="_rrhhVacRecalcDias()"></div>
+                <div class="form-group"><label>Hasta *</label><input type="date" id="rvHasta" value="${esc(s?s.fechaHasta:'')}" onchange="_rrhhVacRecalcDias()"></div>
+                <div class="form-group"><label>Días hábiles</label><input type="number" id="rvDias" min="0" step="0.5" value="${esc(s?s.diasHabiles:'')}"></div>
+            </div>
+            <div class="form-row">
+                <div class="form-group"><label>Estado</label><select id="rvEstado">
+                    <option value="solicitada" ${estado==='solicitada'?'selected':''}>Solicitada</option>
+                    <option value="aprobada" ${estado==='aprobada'?'selected':''}>Aprobada</option>
+                    <option value="rechazada" ${estado==='rechazada'?'selected':''}>Rechazada</option>
+                    <option value="disfrutada" ${estado==='disfrutada'?'selected':''}>Disfrutada</option>
+                </select></div>
+                <div class="form-group" style="flex:2;"><label>Motivo / notas</label><input type="text" id="rvMotivo" value="${esc(s?s.motivo:'')}" placeholder="Opcional"></div>
+            </div>
+            <p style="font-size:0.7rem;color:var(--text-light);margin:0;">Los días hábiles se calculan automáticamente (lunes a viernes) y podés ajustarlos a mano si hay feriados.</p>
+        </div>
+        <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modalRrhhVacacion')">Cancelar</button><button class="btn btn-success" onclick="guardarRrhhVacacion()">Guardar solicitud</button></div>
+    </div>`;
+    overlay.classList.add('open');
+    _rrhhVacRecalcDias(true);
+}
+
+// Recalcula los dias habiles y muestra el saldo del empleado elegido. preservarDias=true no pisa un valor ya cargado.
+function _rrhhVacRecalcDias(preservarDias){
+    const desde=document.getElementById('rvDesde').value;
+    const hasta=document.getElementById('rvHasta').value;
+    const diasInput=document.getElementById('rvDias');
+    if(!preservarDias||!diasInput.value){
+        const d=_diasHabilesEntre(desde,hasta);
+        if(desde&&hasta)diasInput.value=d;
+    }
+    const empId=document.getElementById('rvEmpleado').value;
+    const box=document.getElementById('rvSaldoBox');
+    if(box){
+        if(empId){
+            const r=_vacResumenEmpleado(empId);
+            box.innerHTML=`Saldo disponible: <strong style="color:${r.saldo<0?'var(--danger)':'var(--success)'};">${r.saldo}</strong> día(s) &middot; devengados ${r.devengados}, tomados ${r.tomados}${r.pendientes?', pendientes '+r.pendientes:''}.`;
+        }else{box.innerHTML='';}
+    }
+}
+
+function guardarRrhhVacacion(){
+    if(!exigirPermiso('rrhh.vacaciones.gestionar','gestionar solicitudes de vacaciones'))return;
+    const empId=document.getElementById('rvEmpleado').value;
+    if(!empId){alert('Elegí un empleado.');return;}
+    const desde=document.getElementById('rvDesde').value;
+    const hasta=document.getElementById('rvHasta').value;
+    if(!desde||!hasta){alert('Indicá las fechas (desde y hasta).');return;}
+    if(String(hasta)<String(desde)){alert('La fecha "hasta" no puede ser anterior a "desde".');return;}
+    const emp=getRrhhEmpleados().find(e=>e.id===empId);
+    const dias=num(document.getElementById('rvDias').value)||_diasHabilesEntre(desde,hasta);
+    const estado=document.getElementById('rvEstado').value||'solicitada';
+    const id=document.getElementById('rvId').value||'';
+    const arr=getRrhhVacaciones().map(x=>Object.assign({},x));
+    const datos={empleadoId:empId,empleadoNombre:emp?emp.nombre:'',fechaDesde:desde,fechaHasta:hasta,diasHabiles:dias,estado:estado,motivo:(document.getElementById('rvMotivo').value||'').trim()};
+    if(id){
+        const u=arr.find(x=>x.id===id);
+        if(!u){alert('No se encontró la solicitud.');return;}
+        Object.assign(u,datos);u._lastEditTs=Date.now();
+    }else{
+        datos.id=newRrhhId();datos.creadaTs=Date.now();datos.creadaPor=(window.currentUser&&window.currentUser.email)||'';
+        if(estado==='aprobada'||estado==='disfrutada'){datos.aprobadaPor=(window.currentUser&&window.currentUser.email)||'';datos.aprobadaTs=Date.now();}
+        arr.push(datos);
+    }
+    saveRrhhVacaciones(arr);
+    const cfg=getConfig();
+    _appendBitacoraRrhh(cfg,(id?'Editó':'Registró')+' solicitud de vacaciones de "'+(datos.empleadoNombre||'')+'" ('+fmtFechaCorta(desde)+' a '+fmtFechaCorta(hasta)+', '+dias+' días, '+(_RRHH_VAC_ESTADO_LABEL[estado]||estado)+')');
+    saveConfig(cfg);
+    closeModal('modalRrhhVacacion');
+    renderRrhh();
+}
+
+function aprobarRrhhVacacion(id,decision){
+    if(!exigirPermiso('rrhh.vacaciones.aprobar','aprobar o rechazar vacaciones'))return;
+    const arr=getRrhhVacaciones().map(x=>Object.assign({},x));
+    const s=arr.find(x=>x.id===id);
+    if(!s)return;
+    if(decision==='aprobada'){
+        const r=_vacResumenEmpleado(s.empleadoId);
+        if(r.saldo-num(s.diasHabiles)<0&&!confirm('Esta aprobación deja el saldo en negativo ('+(r.saldo-num(s.diasHabiles)).toFixed(1)+' días). ¿Aprobar de todas formas?'))return;
+    }
+    s.estado=decision;
+    s.aprobadaPor=(window.currentUser&&window.currentUser.email)||'';
+    s.aprobadaTs=Date.now();
+    saveRrhhVacaciones(arr);
+    const cfg=getConfig();
+    _appendBitacoraRrhh(cfg,(_RRHH_VAC_ESTADO_LABEL[decision]||decision)+' la solicitud de vacaciones de "'+(s.empleadoNombre||'')+'" ('+fmtFechaCorta(s.fechaDesde)+' a '+fmtFechaCorta(s.fechaHasta)+')');
+    saveConfig(cfg);
+    renderRrhh();
+}
+
+function eliminarRrhhVacacion(id){
+    if(!exigirPermiso('rrhh.vacaciones.gestionar','gestionar solicitudes de vacaciones'))return;
+    const s=getRrhhVacaciones().find(x=>x.id===id);
+    if(!s)return;
+    if(!confirm('¿Eliminar la solicitud de vacaciones de "'+(s.empleadoNombre||'')+'" ('+fmtFechaCorta(s.fechaDesde)+' a '+fmtFechaCorta(s.fechaHasta)+')?'))return;
+    saveRrhhVacaciones(getRrhhVacaciones().filter(x=>x.id!==id));
+    const cfg=getConfig();
+    _appendBitacoraRrhh(cfg,'Eliminó la solicitud de vacaciones de "'+(s.empleadoNombre||'')+'" ('+fmtFechaCorta(s.fechaDesde)+' a '+fmtFechaCorta(s.fechaHasta)+')');
+    saveConfig(cfg);
+    renderRrhh();
 }
 // =====================================================================================
 
