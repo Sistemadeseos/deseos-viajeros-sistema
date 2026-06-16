@@ -702,7 +702,7 @@ body.sin-costos .btn-calc-toggle,body.sin-costos .calc-row{display:none!importan
 @media print{
     *{print-color-adjust:exact!important;-webkit-print-color-adjust:exact!important}
     html,body{margin:0!important;padding:0!important;overflow:visible!important;background:white!important;width:100%!important;height:auto!important}
-    .app-sidebar,.form-panel,.form-panel-splitter,.app-header,.cot-adjuntos-page,.modal-overlay,.img-lightbox,#viewInicio,#viewDashboard,#viewConfiguracion,#viewHistorial,#viewEncabezados,#viewVentas,#viewClientes,#viewClientesVentas,#viewReportePagos{display:none!important}
+    .app-sidebar,.form-panel,.form-panel-splitter,.app-header,.cot-adjuntos-page,.modal-overlay,.img-lightbox,#viewInicio,#viewDashboard,#viewConfiguracion,#viewHistorial,#viewEncabezados,#viewVentas,#viewClientes,#viewClientesVentas,#viewReportePagos,#viewRrhh{display:none!important}
     .app-layout,.app-main,.main-views{display:block!important;height:auto!important;overflow:visible!important;width:100%!important}
 
     /* Modo imprimir COTIZACI\u00d3N: solo se ve el editor */
@@ -1007,6 +1007,7 @@ onAuthStateChanged(fbAuth, (user) => {
     <div class="sidebar-section">
         <div class="sidebar-section-label">Sistema</div>
         <div class="sidebar-item" onclick="nav('configuracion')"><span class="si-icon">&#9881;</span>Configuraci&oacute;n</div>
+        <div class="sidebar-item" onclick="nav('rrhh')"><span class="si-icon">&#128188;</span>Personal y n&oacute;mina</div>
     </div>
 </div>
 
@@ -1256,6 +1257,9 @@ onAuthStateChanged(fbAuth, (user) => {
     </div>
 </div>
 
+<!-- VIEW: Recursos Humanos (Personal y nomina) -->
+<div class="app-view view-list" id="viewRrhh"></div>
+
 <!-- VIEW: Documento imprimible (recibo / estado de cuenta) -->
 <div class="app-view view-list" id="viewDocumento" style="background:#e0e5ec;">
     <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;align-items:center;">
@@ -1502,6 +1506,10 @@ onAuthStateChanged(fbAuth, (user) => {
     </div>
     <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modalVentaInfoExtra')">Saltar</button><button class="btn btn-success" id="veBtnGuardar" onclick="guardarVentaInfoExtra()">Guardar info de venta</button></div>
 </div></div>
+
+<!-- Modales RRHH (se llenan dinamicamente por JS) -->
+<div class="modal-overlay" id="modalRrhhEmpleado"></div>
+<div class="modal-overlay" id="modalRrhhParam"></div>
 
 <script>
 // ===== STATE =====
@@ -2357,7 +2365,7 @@ function populateEncargadosSelect(){
 function puedeVerVista(view){
     if(view==='inicio'||view==='documento'||view==='encabezados')return true;
     if(view==='configuracion')return soyMaestro()||tienePermiso('config.general.gestionar')||tienePermiso('config.usuarios.gestionar');
-    const m={dashboard:'dashboard.ver',editor:'cotizaciones.crear_editar',historial:'cotizaciones.ver',ventas:'ventas.ver',clientes:'contactos.ver',clientesventas:'contactos.ver',reportePagos:'cobranza.ver'};
+    const m={dashboard:'dashboard.ver',editor:'cotizaciones.crear_editar',historial:'cotizaciones.ver',ventas:'ventas.ver',clientes:'contactos.ver',clientesventas:'contactos.ver',reportePagos:'cobranza.ver',rrhh:'rrhh.ver'};
     const p=m[view];
     return p?tienePermiso(p):true;
 }
@@ -2370,7 +2378,7 @@ function exigirPermiso(clave,accionTxt){
 // Aplica visibilidad del menú lateral, calculadora de costos y pestaña de usuarios según permisos.
 function aplicarPermisosUI(){
     if(!window.currentUser)return;
-    const views=['inicio','dashboard','editor','historial','ventas','clientes','clientesventas','reportePagos','configuracion'];
+    const views=['inicio','dashboard','editor','historial','ventas','clientes','clientesventas','reportePagos','configuracion','rrhh'];
     const items=document.querySelectorAll('.sidebar-item');
     items.forEach((el,i)=>{if(i<views.length)el.style.display=puedeVerVista(views[i])?'':'none';});
     document.body.classList.toggle('sin-costos',!tienePermiso('cotizaciones.ver_costos'));
@@ -2386,10 +2394,10 @@ function nav(view){
     if(!puedeVerVista(view)){if(view!=='inicio')return nav('inicio');}
     document.querySelectorAll('.sidebar-item').forEach(el=>el.classList.remove('active'));
     const items=document.querySelectorAll('.sidebar-item');
-    const map={inicio:0,dashboard:1,editor:2,historial:3,ventas:4,clientes:5,clientesventas:6,reportePagos:7,configuracion:8};
+    const map={inicio:0,dashboard:1,editor:2,historial:3,ventas:4,clientes:5,clientesventas:6,reportePagos:7,configuracion:8,rrhh:9};
     if(map[view]!==undefined)items[map[view]].classList.add('active');
     document.querySelectorAll('.app-view').forEach(v=>v.classList.remove('active'));
-    const titles={inicio:'',dashboard:'Dashboard',editor:'Editor de Cotizaci\u00f3n',historial:'Historial de Cotizaciones',encabezados:'Destinos',ventas:'Ventas',clientes:'Contactos',clientesventas:'Clientes',reportePagos:'Reporte de pagos',configuracion:'Configuraci\u00f3n',documento:'Documento'};
+    const titles={inicio:'',dashboard:'Dashboard',editor:'Editor de Cotizaci\u00f3n',historial:'Historial de Cotizaciones',encabezados:'Destinos',ventas:'Ventas',clientes:'Contactos',clientesventas:'Clientes',reportePagos:'Reporte de pagos',configuracion:'Configuraci\u00f3n',rrhh:'Recursos Humanos',documento:'Documento'};
     document.getElementById('headerTitle').textContent=titles[view]||'';
     const ha=document.getElementById('headerActions');
     if(view==='editor')ha.innerHTML='<button class="btn btn-outline" onclick="resetForm()">&#128260; Nueva</button>'+(tienePermiso('cotizaciones.exportar')?'<button class="btn btn-accent" onclick="window.print()">&#128424; Exportar PDF</button>':'');
@@ -2397,7 +2405,7 @@ function nav(view){
     else if(view==='clientesventas')ha.innerHTML='<button class="btn btn-accent" onclick="nuevoClienteConVenta()">+ Nuevo Cliente</button>';
     else if(view==='dashboard')ha.innerHTML='<button class="btn btn-outline" onclick="renderDashboard()">&#8635; Actualizar</button>';
     else ha.innerHTML='';
-    const viewIds={inicio:'viewInicio',dashboard:'viewDashboard',editor:'viewEditor',historial:'viewHistorial',encabezados:'viewEncabezados',ventas:'viewVentas',clientes:'viewClientes',clientesventas:'viewClientesVentas',reportePagos:'viewReportePagos',configuracion:'viewConfiguracion',documento:'viewDocumento'};
+    const viewIds={inicio:'viewInicio',dashboard:'viewDashboard',editor:'viewEditor',historial:'viewHistorial',encabezados:'viewEncabezados',ventas:'viewVentas',clientes:'viewClientes',clientesventas:'viewClientesVentas',reportePagos:'viewReportePagos',configuracion:'viewConfiguracion',rrhh:'viewRrhh',documento:'viewDocumento'};
     document.getElementById(viewIds[view]).classList.add('active');
     if(view==='dashboard')renderDashboard();
     if(view==='historial')renderHistorial();
@@ -2407,6 +2415,7 @@ function nav(view){
     if(view==='clientesventas')renderClientesVentas();
     if(view==='reportePagos')renderReportePagos();
     if(view==='configuracion')renderConfiguracion();
+    if(view==='rrhh')renderRrhh();
     if(view==='ventas')applyVentasHeaderActions();
     updateBadges();
     // En mobile, cerrar sidebar al navegar
@@ -2908,6 +2917,323 @@ function permUsuarioSetExcepcion(email,clave,efecto){
     _appendBitacoraPermiso(cfg,email,txtEf+' el permiso "'+clave+'"');
     saveConfig(cfg);
     renderConfigUsuarios();
+}
+// =====================================================================================
+
+// ===================== MODULO RRHH (Recursos Humanos) - FASE 1: Empleados + Parametros =====================
+// Diseño consistente con el modulo de permisos: datos guardados DENTRO de dv_config para reutilizar
+// la sincronizacion ya probada de config/default. Sin calculos todavia (eso es Fase 2).
+// IMPORTANTE: los parametros de nomina (CCSS, tramos de renta) son PLACEHOLDERS y deben ser
+// validados por un contador antes de usarse en planilla real.
+
+// El modulo declara sus permisos sin tocar el catalogo base. El maestro los recibe implicitamente.
+registrarPermisos([
+    {clave:'rrhh.ver',                 nombre:'Ver módulo de Personal y nómina', modulo:'Recursos Humanos'},
+    {clave:'rrhh.empleados.gestionar', nombre:'Crear y editar empleados',        modulo:'Recursos Humanos'},
+    {clave:'rrhh.parametros.gestionar',nombre:'Editar parámetros de nómina',      modulo:'Recursos Humanos'}
+]);
+
+// ----- Accesores de datos (viven en config) -----
+function getRrhhEmpleados(){const c=getConfig();return Array.isArray(c.rrhhEmpleados)?c.rrhhEmpleados:[];}
+function getRrhhParametros(){const c=getConfig();return Array.isArray(c.rrhhParametros)?c.rrhhParametros:[];}
+function newRrhhId(){return 'rh_'+Date.now()+'_'+Math.random().toString(36).slice(2,7);}
+
+// ----- Helpers de formato -----
+function fmtCRC(n){return '₡'+Math.round(num(n)).toLocaleString('es-CR');}
+function fmtFechaCorta(iso){if(!iso)return '—';const m=String(iso).match(/^(\d{4})-(\d{2})-(\d{2})/);return m?(m[3]+'/'+m[2]+'/'+m[1]):iso;}
+
+// Auditoria de cambios de RRHH: append-only dentro de config (cap 500). Reutiliza el patron de permisos.
+function _appendBitacoraRrhh(cfg,detalle){
+    const log=Array.isArray(cfg.bitacoraRrhh)?cfg.bitacoraRrhh.slice():[];
+    log.push({ts:Date.now(),autor:(window.currentUser&&window.currentUser.email)||'desconocido',detalle:detalle||''});
+    cfg.bitacoraRrhh=log.slice(-500);
+}
+
+// Parametros de nomina por defecto (PLACEHOLDER - validar con contador). Tramos mensuales de renta del trabajo.
+function _rrhhParametrosDefault(){
+    return {
+        ccssObreroPct: 10.67,   // deduccion del trabajador (placeholder)
+        ccssPatronoPct: 26.67,  // carga del patrono (placeholder)
+        tramos: [               // impuesto sobre la renta del trabajo (mensual, placeholder)
+            {hasta:922000,  pct:0},
+            {hasta:1352000, pct:10},
+            {hasta:2373000, pct:15},
+            {hasta:4745000, pct:20},
+            {hasta:null,    pct:25}
+        ]
+    };
+}
+
+// ----- Render principal -----
+let _rrhhTabActiva='empleados';
+function renderRrhh(){
+    const v=document.getElementById('viewRrhh');
+    if(!v)return;
+    if(!tienePermiso('rrhh.ver')){v.innerHTML='<div style="padding:30px;"><p style="font-size:0.9rem;color:var(--text-light);">No tenés permiso para ver este módulo.</p></div>';return;}
+    const banner=`<div style="background:#fff3cd;border:1px solid #ffd966;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:0.78rem;color:#7a5c00;">
+        <strong>&#9888; Módulo en construcción (Fase 1).</strong> Por ahora sirve para registrar <strong>empleados</strong> y los <strong>parámetros de nómina</strong>. Todavía no calcula colillas. Las tasas de CCSS y los tramos de renta son valores de referencia y <strong>deben ser validados por un contador</strong> antes de usarse en planilla real.</div>`;
+    const tabs=`<div class="config-tabs" style="margin-bottom:14px;">
+        <button class="config-tab ${_rrhhTabActiva==='empleados'?'active':''}" onclick="switchRrhhTab('empleados')">Empleados</button>
+        <button class="config-tab ${_rrhhTabActiva==='parametros'?'active':''}" onclick="switchRrhhTab('parametros')">Parámetros de nómina</button>
+    </div>`;
+    v.innerHTML=`<div style="max-width:1000px;margin:0 auto;width:100%;padding:4px;">${banner}${tabs}<div id="rrhhPaneBox"></div></div>`;
+    _renderRrhhPane();
+}
+function switchRrhhTab(name){_rrhhTabActiva=name;renderRrhh();}
+function _renderRrhhPane(){
+    const box=document.getElementById('rrhhPaneBox');
+    if(!box)return;
+    box.innerHTML=_rrhhTabActiva==='parametros'?_renderRrhhParametros():_renderRrhhEmpleados();
+}
+
+// ----- EMPLEADOS -----
+function _renderRrhhEmpleados(){
+    const puedeEditar=tienePermiso('rrhh.empleados.gestionar');
+    const emp=getRrhhEmpleados().slice().sort((a,b)=>(a.nombre||'').localeCompare(b.nombre||''));
+    let html=`<p class="config-hint">Personal de la agencia. Acá registrás los datos básicos y el salario bruto mensual de cada persona. Esta información se usará para generar las colillas de pago en la siguiente fase.</p>`;
+    if(puedeEditar)html+=`<div style="margin-bottom:12px;"><button class="btn btn-sm btn-accent" onclick="openRrhhEmpleadoModal('')">+ Agregar empleado</button></div>`;
+    if(!emp.length){
+        html+=`<p style="font-size:0.82rem;color:var(--text-light);font-style:italic;background:var(--bg);padding:14px;border-radius:6px;">Todavía no hay empleados registrados.${puedeEditar?' Agregá el primero con el botón de arriba.':''}</p>`;
+        return html;
+    }
+    html+=`<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:0.8rem;">
+        <thead><tr style="text-align:left;border-bottom:2px solid var(--border);color:var(--text-light);text-transform:uppercase;font-size:0.68rem;letter-spacing:0.4px;">
+            <th style="padding:7px 8px;">Nombre</th><th style="padding:7px 8px;">Puesto</th><th style="padding:7px 8px;">Cédula</th><th style="padding:7px 8px;">Ingreso</th><th style="padding:7px 8px;text-align:right;">Salario bruto</th><th style="padding:7px 8px;text-align:center;">Estado</th>${puedeEditar?'<th style="padding:7px 8px;text-align:right;">Acciones</th>':''}
+        </tr></thead><tbody>`;
+    html+=emp.map(e=>{
+        const activo=(e.estado||'activo')==='activo';
+        const estadoTag=activo?'<span style="color:var(--success);font-weight:700;">Activo</span>':'<span style="color:var(--text-light);">Inactivo</span>';
+        const acciones=puedeEditar?`<td style="padding:6px 8px;text-align:right;white-space:nowrap;">
+            <button class="btn btn-sm btn-ghost" style="padding:3px 8px;" onclick="openRrhhEmpleadoModal('${e.id}')">Editar</button>
+            <button class="btn-icon remove" title="Eliminar" onclick="eliminarRrhhEmpleado('${e.id}')">&times;</button></td>`:'';
+        return `<tr style="border-bottom:1px solid var(--border);">
+            <td style="padding:6px 8px;font-weight:600;">${esc(e.nombre||'—')}</td>
+            <td style="padding:6px 8px;">${esc(e.puesto||'—')}</td>
+            <td style="padding:6px 8px;">${esc(e.cedula||'—')}</td>
+            <td style="padding:6px 8px;">${fmtFechaCorta(e.fechaIngreso)}</td>
+            <td style="padding:6px 8px;text-align:right;">${e.salarioBruto?fmtCRC(e.salarioBruto):'—'}</td>
+            <td style="padding:6px 8px;text-align:center;">${estadoTag}</td>
+            ${acciones}
+        </tr>`;
+    }).join('');
+    html+=`</tbody></table></div>`;
+    return html;
+}
+
+function openRrhhEmpleadoModal(id){
+    if(!exigirPermiso('rrhh.empleados.gestionar','gestionar empleados'))return;
+    const emp=getRrhhEmpleados();
+    const e=id?emp.find(x=>x.id===id):null;
+    if(id&&!e)return;
+    const v=k=>e?(e[k]!=null?e[k]:''):'';
+    const estado=e?(e.estado||'activo'):'activo';
+    const jornada=e?(e.tipoJornada||'mensual'):'mensual';
+    const overlay=document.getElementById('modalRrhhEmpleado');
+    overlay.innerHTML=`<div class="modal" style="max-width:640px;">
+        <div class="modal-header"><h3>${id?'Editar empleado':'Nuevo empleado'}</h3><button class="modal-close" onclick="closeModal('modalRrhhEmpleado')">&times;</button></div>
+        <div class="modal-body">
+            <input type="hidden" id="reId" value="${esc(v('id'))}">
+            <div class="form-row">
+                <div class="form-group"><label>Nombre completo *</label><input type="text" id="reNombre" value="${esc(v('nombre'))}" placeholder="Ej: María Pérez"></div>
+                <div class="form-group"><label>Cédula</label><input type="text" id="reCedula" value="${esc(v('cedula'))}" placeholder="Ej: 1-1234-5678"></div>
+            </div>
+            <div class="form-row">
+                <div class="form-group"><label>Puesto</label><input type="text" id="rePuesto" value="${esc(v('puesto'))}" placeholder="Ej: Asesora de viajes"></div>
+                <div class="form-group"><label>Email (opcional)</label><input type="email" id="reEmail" value="${esc(v('email'))}" placeholder="persona@deseosviajeros.com"></div>
+            </div>
+            <div class="form-row">
+                <div class="form-group"><label>Fecha de ingreso</label><input type="date" id="reIngreso" value="${esc(v('fechaIngreso'))}"></div>
+                <div class="form-group"><label>Salario bruto mensual (₡)</label><input type="number" id="reSalario" min="0" step="1" value="${esc(v('salarioBruto'))}" placeholder="Ej: 600000"></div>
+            </div>
+            <div class="form-row">
+                <div class="form-group"><label>Tipo de jornada</label><select id="reJornada">
+                    <option value="mensual" ${jornada==='mensual'?'selected':''}>Mensual</option>
+                    <option value="quincenal" ${jornada==='quincenal'?'selected':''}>Quincenal</option>
+                    <option value="semanal" ${jornada==='semanal'?'selected':''}>Semanal</option>
+                </select></div>
+                <div class="form-group"><label>Estado</label><select id="reEstado">
+                    <option value="activo" ${estado==='activo'?'selected':''}>Activo</option>
+                    <option value="inactivo" ${estado==='inactivo'?'selected':''}>Inactivo</option>
+                </select></div>
+            </div>
+            <div class="form-group"><label>Notas</label><textarea id="reNotas" rows="2" placeholder="Notas internas (opcional)">${esc(v('notas'))}</textarea></div>
+        </div>
+        <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modalRrhhEmpleado')">Cancelar</button><button class="btn btn-success" onclick="guardarRrhhEmpleado()">Guardar empleado</button></div>
+    </div>`;
+    overlay.classList.add('open');
+}
+
+function guardarRrhhEmpleado(){
+    if(!exigirPermiso('rrhh.empleados.gestionar','gestionar empleados'))return;
+    const nombre=(document.getElementById('reNombre').value||'').trim();
+    if(!nombre){alert('Ingresá el nombre del empleado.');return;}
+    const id=document.getElementById('reId').value||'';
+    const datos={
+        nombre:nombre,
+        cedula:(document.getElementById('reCedula').value||'').trim(),
+        puesto:(document.getElementById('rePuesto').value||'').trim(),
+        email:(document.getElementById('reEmail').value||'').trim(),
+        fechaIngreso:document.getElementById('reIngreso').value||'',
+        salarioBruto:num(document.getElementById('reSalario').value),
+        tipoJornada:document.getElementById('reJornada').value||'mensual',
+        estado:document.getElementById('reEstado').value||'activo',
+        notas:(document.getElementById('reNotas').value||'').trim()
+    };
+    const cfg=getConfig();
+    const arr=getRrhhEmpleados().map(x=>Object.assign({},x));
+    if(id){
+        const u=arr.find(x=>x.id===id);
+        if(!u){alert('No se encontró el empleado.');return;}
+        Object.assign(u,datos);
+        _appendBitacoraRrhh(cfg,'Editó al empleado "'+nombre+'"');
+    }else{
+        datos.id=newRrhhId();
+        arr.push(datos);
+        _appendBitacoraRrhh(cfg,'Agregó al empleado "'+nombre+'"');
+    }
+    cfg.rrhhEmpleados=arr;
+    saveConfig(cfg);
+    closeModal('modalRrhhEmpleado');
+    renderRrhh();
+}
+
+function eliminarRrhhEmpleado(id){
+    if(!exigirPermiso('rrhh.empleados.gestionar','gestionar empleados'))return;
+    const e=getRrhhEmpleados().find(x=>x.id===id);
+    if(!e)return;
+    if(!confirm('¿Eliminar al empleado "'+(e.nombre||'')+'"? Esta acción no se puede deshacer.'))return;
+    const cfg=getConfig();
+    cfg.rrhhEmpleados=getRrhhEmpleados().filter(x=>x.id!==id);
+    _appendBitacoraRrhh(cfg,'Eliminó al empleado "'+(e.nombre||'')+'"');
+    saveConfig(cfg);
+    renderRrhh();
+}
+
+// ----- PARAMETROS DE NOMINA -----
+function _renderRrhhParametros(){
+    const puedeEditar=tienePermiso('rrhh.parametros.gestionar');
+    const params=getRrhhParametros().slice().sort((a,b)=>String(b.fechaVigencia||'').localeCompare(String(a.fechaVigencia||'')));
+    let html=`<p class="config-hint">Tasas y tramos que se usarán para calcular las deducciones de planilla. Podés guardar distintas <strong>versiones por fecha de vigencia</strong>: el cálculo usará la versión vigente según la fecha de cada colilla.</p>
+    <div style="background:#fdecea;border:1px solid #f5b7b1;border-radius:8px;padding:9px 13px;margin-bottom:12px;font-size:0.76rem;color:#922b21;"><strong>Importante:</strong> estos valores son de referencia. Confirmá con tu contador las tasas de CCSS y los tramos del impuesto sobre la renta vigentes antes de usarlos para pagar planilla.</div>`;
+    if(puedeEditar)html+=`<div style="margin-bottom:12px;"><button class="btn btn-sm btn-accent" onclick="openRrhhParamModal('')">+ Agregar versión de parámetros</button></div>`;
+    if(!params.length){
+        html+=`<p style="font-size:0.82rem;color:var(--text-light);font-style:italic;background:var(--bg);padding:14px;border-radius:6px;">Todavía no hay parámetros cargados.${puedeEditar?' Agregá la primera versión con el botón de arriba (se carga con valores de referencia que podés ajustar).':''}</p>`;
+        return html;
+    }
+    html+=params.map(p=>{
+        const tramos=(p.tramos||[]).map(t=>{
+            const rango=t.hasta==null?'En adelante':('Hasta '+fmtCRC(t.hasta));
+            return `<tr><td style="padding:3px 8px;font-size:0.76rem;">${rango}</td><td style="padding:3px 8px;text-align:right;font-size:0.76rem;">${num(t.pct)}%</td></tr>`;
+        }).join('');
+        const acciones=puedeEditar?`<div style="display:flex;gap:6px;">
+            <button class="btn btn-sm btn-ghost" style="padding:3px 8px;" onclick="openRrhhParamModal('${p.id}')">Editar</button>
+            <button class="btn-icon remove" title="Eliminar" onclick="eliminarRrhhParam('${p.id}')">&times;</button></div>`:'';
+        return `<div style="border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:10px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+                <strong style="font-size:0.86rem;">Vigente desde ${fmtFechaCorta(p.fechaVigencia)}</strong>${acciones}
+            </div>
+            <div style="display:flex;gap:18px;flex-wrap:wrap;margin-bottom:8px;font-size:0.8rem;">
+                <div><span style="color:var(--text-light);">CCSS obrero:</span> <strong>${num(p.ccssObreroPct)}%</strong></div>
+                <div><span style="color:var(--text-light);">CCSS patrono:</span> <strong>${num(p.ccssPatronoPct)}%</strong></div>
+            </div>
+            <div><div style="font-size:0.7rem;font-weight:700;color:var(--primary-dark);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:2px;">Impuesto sobre la renta (mensual)</div>
+            <table style="width:100%;max-width:360px;border-collapse:collapse;"><tbody>${tramos||'<tr><td style="padding:3px 8px;font-size:0.76rem;color:var(--text-light);">Sin tramos definidos</td></tr>'}</tbody></table></div>
+        </div>`;
+    }).join('');
+    return html;
+}
+
+let _rrhhTramosTmp=[];
+function openRrhhParamModal(id){
+    if(!exigirPermiso('rrhh.parametros.gestionar','gestionar parámetros de nómina'))return;
+    const params=getRrhhParametros();
+    const p=id?params.find(x=>x.id===id):null;
+    if(id&&!p)return;
+    const base=p?p:Object.assign({fechaVigencia:new Date().toISOString().slice(0,10)},_rrhhParametrosDefault());
+    _rrhhTramosTmp=(base.tramos||[]).map(t=>({hasta:t.hasta,pct:t.pct}));
+    const overlay=document.getElementById('modalRrhhParam');
+    overlay.innerHTML=`<div class="modal" style="max-width:600px;">
+        <div class="modal-header"><h3>${id?'Editar parámetros':'Nueva versión de parámetros'}</h3><button class="modal-close" onclick="closeModal('modalRrhhParam')">&times;</button></div>
+        <div class="modal-body">
+            <input type="hidden" id="rpId" value="${esc(p?p.id:'')}">
+            <div class="form-row">
+                <div class="form-group"><label>Vigente desde *</label><input type="date" id="rpFecha" value="${esc(base.fechaVigencia||'')}"></div>
+                <div class="form-group"></div>
+            </div>
+            <div class="form-row">
+                <div class="form-group"><label>CCSS obrero (%)</label><input type="number" id="rpCcssObrero" min="0" step="0.01" value="${esc(base.ccssObreroPct)}"></div>
+                <div class="form-group"><label>CCSS patrono (%)</label><input type="number" id="rpCcssPatrono" min="0" step="0.01" value="${esc(base.ccssPatronoPct)}"></div>
+            </div>
+            <div class="form-group">
+                <label style="display:flex;align-items:center;gap:8px;">Tramos del impuesto sobre la renta (mensual) <button type="button" class="btn btn-sm btn-ghost" style="font-size:0.7rem;padding:3px 8px;" onclick="addRrhhTramoRow()">+ Tramo</button></label>
+                <p style="font-size:0.7rem;color:var(--text-light);margin:0 0 6px;">Dejá vacío el campo "Hasta" del último tramo para indicar "en adelante".</p>
+                <div id="rrhhTramosBox"></div>
+            </div>
+        </div>
+        <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modalRrhhParam')">Cancelar</button><button class="btn btn-success" onclick="guardarRrhhParam()">Guardar parámetros</button></div>
+    </div>`;
+    overlay.classList.add('open');
+    _renderRrhhTramosRows();
+}
+function _renderRrhhTramosRows(){
+    const box=document.getElementById('rrhhTramosBox');
+    if(!box)return;
+    box.innerHTML=_rrhhTramosTmp.map((t,i)=>`<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">
+        <span style="font-size:0.74rem;color:var(--text-light);white-space:nowrap;">Hasta ₡</span>
+        <input type="number" min="0" step="1" value="${t.hasta==null?'':esc(t.hasta)}" placeholder="(en adelante)" onchange="_rrhhTramoSet(${i},'hasta',this.value)" style="flex:1;">
+        <input type="number" min="0" step="0.01" value="${esc(t.pct)}" onchange="_rrhhTramoSet(${i},'pct',this.value)" style="width:80px;">
+        <span style="font-size:0.74rem;color:var(--text-light);">%</span>
+        <button type="button" class="btn-icon remove" title="Quitar tramo" onclick="removeRrhhTramoRow(${i})">&times;</button>
+    </div>`).join('')||'<p style="font-size:0.76rem;color:var(--text-light);font-style:italic;">Sin tramos. Agregá al menos uno.</p>';
+}
+function _rrhhTramoSet(i,campo,val){
+    if(!_rrhhTramosTmp[i])return;
+    if(campo==='hasta')_rrhhTramosTmp[i].hasta=(val===''||val==null)?null:num(val);
+    else _rrhhTramosTmp[i].pct=num(val);
+}
+function addRrhhTramoRow(){_rrhhTramosTmp.push({hasta:null,pct:0});_renderRrhhTramosRows();}
+function removeRrhhTramoRow(i){_rrhhTramosTmp.splice(i,1);_renderRrhhTramosRows();}
+
+function guardarRrhhParam(){
+    if(!exigirPermiso('rrhh.parametros.gestionar','gestionar parámetros de nómina'))return;
+    const fecha=document.getElementById('rpFecha').value||'';
+    if(!fecha){alert('Indicá la fecha de vigencia.');return;}
+    const id=document.getElementById('rpId').value||'';
+    const tramos=_rrhhTramosTmp.map(t=>({hasta:(t.hasta==null||t.hasta==='')?null:num(t.hasta),pct:num(t.pct)}));
+    const datos={
+        fechaVigencia:fecha,
+        ccssObreroPct:num(document.getElementById('rpCcssObrero').value),
+        ccssPatronoPct:num(document.getElementById('rpCcssPatrono').value),
+        tramos:tramos
+    };
+    const cfg=getConfig();
+    const arr=getRrhhParametros().map(x=>Object.assign({},x));
+    if(id){
+        const u=arr.find(x=>x.id===id);
+        if(!u){alert('No se encontró la versión de parámetros.');return;}
+        Object.assign(u,datos);
+        _appendBitacoraRrhh(cfg,'Editó los parámetros de nómina vigentes desde '+fmtFechaCorta(fecha));
+    }else{
+        datos.id=newRrhhId();
+        arr.push(datos);
+        _appendBitacoraRrhh(cfg,'Agregó parámetros de nómina vigentes desde '+fmtFechaCorta(fecha));
+    }
+    cfg.rrhhParametros=arr;
+    saveConfig(cfg);
+    closeModal('modalRrhhParam');
+    renderRrhh();
+}
+
+function eliminarRrhhParam(id){
+    if(!exigirPermiso('rrhh.parametros.gestionar','gestionar parámetros de nómina'))return;
+    const p=getRrhhParametros().find(x=>x.id===id);
+    if(!p)return;
+    if(!confirm('¿Eliminar la versión de parámetros vigente desde '+fmtFechaCorta(p.fechaVigencia)+'?'))return;
+    const cfg=getConfig();
+    cfg.rrhhParametros=getRrhhParametros().filter(x=>x.id!==id);
+    _appendBitacoraRrhh(cfg,'Eliminó los parámetros de nómina vigentes desde '+fmtFechaCorta(p.fechaVigencia));
+    saveConfig(cfg);
+    renderRrhh();
 }
 // =====================================================================================
 
