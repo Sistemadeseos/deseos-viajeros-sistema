@@ -3448,7 +3448,7 @@ function openRrhhColillaModal(id){
                 <div class="form-group"><label>Fecha de pago *</label><input type="date" id="rcFechaPago" value="${esc(c?c.fechaPago:hoy)}" onchange="_rrhhColillaRecalc()"></div>
             </div>
             <div class="form-row">
-                <div class="form-group"><label>Salario del período (₡)</label><input type="number" id="rcSalarioBase" min="0" step="1" value="${esc(c?c.salarioBase:'')}" oninput="_rrhhColillaRecalc()"></div>
+                <div class="form-group"><label>Salario del período (₡)</label><input type="number" id="rcSalarioBase" min="0" step="1" value="${esc(c?c.salarioBase:'')}" oninput="_rrhhColillaRecalc()"><div id="rcSalarioHint" style="font-size:0.72rem;color:var(--text-light);margin-top:3px;"></div></div>
                 <div class="form-group"><label>Horas extra</label><input type="number" id="rcHorasExtra" min="0" step="0.5" value="${esc(c?c.horasExtra:0)}" oninput="_rrhhColillaRecalc()"></div>
                 <div class="form-group"><label>Valor hora extra (₡)</label><input type="number" id="rcValorHoraExtra" min="0" step="1" value="${esc(c?c.valorHoraExtra:'')}" oninput="_rrhhColillaRecalc()"></div>
             </div>
@@ -3474,18 +3474,27 @@ function openRrhhColillaModal(id){
 function _rrhhColillaEmpleadoChange(){
     const empId=document.getElementById('rcEmpleado').value;
     const emp=getRrhhEmpleados().find(e=>e.id===empId);
+    // Al elegir empleado, el período arranca en su tipo de pago (mensual/quincenal/semanal).
+    if(emp&&emp.tipoJornada&&_RRHH_FACTOR_PERIODO[emp.tipoJornada]){
+        const selP=document.getElementById('rcPeriodoTipo');
+        if(selP)selP.value=emp.tipoJornada;
+    }
     const factor=_RRHH_FACTOR_PERIODO[document.getElementById('rcPeriodoTipo').value]||1;
     if(emp){
-        document.getElementById('rcSalarioBase').value=Math.round(num(emp.salarioBruto)*factor);
+        document.getElementById('rcSalarioBase').value=_rrhhSalarioDelPeriodo(num(emp.salarioBruto),factor);
         document.getElementById('rcValorHoraExtra').value=Math.round((num(emp.salarioBruto)/240)*1.5);
     }
     _rrhhColillaRecalc();
+}
+// Salario que corresponde al período = fracción exacta del salario mensual (quincenal = mitad, etc.).
+function _rrhhSalarioDelPeriodo(salarioMensual,factor){
+    return Math.round(num(salarioMensual)*num(factor));
 }
 function _rrhhColillaPeriodoChange(){
     const empId=document.getElementById('rcEmpleado').value;
     const emp=getRrhhEmpleados().find(e=>e.id===empId);
     const factor=_RRHH_FACTOR_PERIODO[document.getElementById('rcPeriodoTipo').value]||1;
-    if(emp)document.getElementById('rcSalarioBase').value=Math.round(num(emp.salarioBruto)*factor);
+    if(emp)document.getElementById('rcSalarioBase').value=_rrhhSalarioDelPeriodo(num(emp.salarioBruto),factor);
     _rrhhColillaRecalc();
 }
 
@@ -3516,6 +3525,18 @@ function _rrhhColillaRecalc(){
     if(!box)return;
     const inp=_rrhhColillaLeerForm();
     const r=calcularColilla(inp);
+    // Línea explicativa: de dónde sale el salario del período.
+    const hint=document.getElementById('rcSalarioHint');
+    if(hint){
+        const mensual=num(inp.salarioMensualRef);
+        let txt='';
+        if(mensual>0){
+            if(inp.periodoTipo==='quincenal')txt='= mitad del salario mensual: '+fmtCRC(mensual)+' ÷ 2 = '+fmtCRC(Math.round(mensual/2));
+            else if(inp.periodoTipo==='semanal')txt='= salario mensual ÷ 4,33 semanas: '+fmtCRC(mensual)+' → '+fmtCRC(Math.round(mensual*(_RRHH_FACTOR_PERIODO.semanal)))+' por semana';
+            else txt='= salario mensual completo: '+fmtCRC(mensual);
+        }
+        hint.textContent=txt;
+    }
     const filaIng=r.otrosIngresos.map(x=>`<tr><td style="padding:2px 8px;">${esc(x.concepto||'Otro ingreso')}</td><td style="padding:2px 8px;text-align:right;">${fmtCRC(x.monto)}</td></tr>`).join('');
     const filaDed=r.otrasDeducciones.map(x=>`<tr><td style="padding:2px 8px;">${esc(x.concepto||'Otra deducción')}</td><td style="padding:2px 8px;text-align:right;color:var(--danger);">-${fmtCRC(x.monto)}</td></tr>`).join('');
     box.innerHTML=`<div style="border:1px solid var(--primary);border-radius:8px;overflow:hidden;">
