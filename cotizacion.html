@@ -3816,7 +3816,8 @@ function _vacResumenEmpleado(empId){
     const sols=getRrhhVacaciones().filter(s=>s.empleadoId===empId);
     const tomados=sols.filter(s=>s.estado==='aprobada'||s.estado==='disfrutada').reduce((acc,s)=>acc+num(s.diasHabiles),0);
     const pendientes=sols.filter(s=>s.estado==='solicitada').reduce((acc,s)=>acc+num(s.diasHabiles),0);
-    return {devengados:Math.round(dev*10)/10,tomados,pendientes,saldo:Math.round((dev-tomados)*10)/10};
+    // Saldo: solo días completos disponibles (se redondea hacia abajo). Ej: 10,5 devengados → saldo 10 hasta completar el día 11.
+    return {devengados:Math.round(dev*10)/10,tomados,pendientes,saldo:Math.floor((dev-tomados)+1e-9)};
 }
 
 function _renderRrhhVacaciones(){
