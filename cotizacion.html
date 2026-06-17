@@ -3345,6 +3345,84 @@ function calcularColilla(inp){
 let _rrhhColillaIngTmp=[];   // otros ingresos (temporal en el modal)
 let _rrhhColillaDedTmp=[];   // otras deducciones (temporal en el modal)
 const _RRHH_PERIODO_LABEL={mensual:'Mensual',quincenal:'Quincenal',semanal:'Semanal'};
+const _RRHH_MESES=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+const _RRHH_QUINCENA_LABEL={1:'Primera quincena',2:'Segunda quincena'};
+let _rrhhColillaPeriodoState={mes:0,anio:0,quincena:1,desde:'',hasta:''};
+
+// A partir de mes (0-11), año y quincena devuelve las fechas reales del período + una etiqueta legible.
+function _rrhhPeriodoDeMes(periodoTipo,mes,anio,quincena){
+    mes=num(mes);anio=num(anio)||new Date().getFullYear();quincena=num(quincena)||1;
+    const pad=d=>String(d).padStart(2,'0');
+    const mm=pad(mes+1);
+    const ult=new Date(anio,mes+1,0).getDate();
+    const mesNom=_RRHH_MESES[mes]||'';
+    let desde,hasta,etiqueta;
+    if(periodoTipo==='quincenal'){
+        if(quincena===2){desde=anio+'-'+mm+'-16';hasta=anio+'-'+mm+'-'+pad(ult);}
+        else{desde=anio+'-'+mm+'-01';hasta=anio+'-'+mm+'-15';}
+        etiqueta=(_RRHH_QUINCENA_LABEL[quincena]||'Primera quincena')+' '+mesNom+' '+anio;
+    }else{
+        desde=anio+'-'+mm+'-01';hasta=anio+'-'+mm+'-'+pad(ult);
+        etiqueta=mesNom+' '+anio;
+    }
+    return {desde:desde,hasta:hasta,etiqueta:etiqueta};
+}
+
+// Lee del formulario el período elegido (mes/quincena para mensual y quincenal; fechas para semanal).
+function _rrhhColillaLeerPeriodo(){
+    const tipoEl=document.getElementById('rcPeriodoTipo');
+    const tipo=tipoEl?tipoEl.value:'mensual';
+    if(tipo==='semanal'){
+        const d=document.getElementById('rcDesde'),h=document.getElementById('rcHasta');
+        const desde=d?d.value:'',hasta=h?h.value:'';
+        return {periodoTipo:tipo,periodoDesde:desde,periodoHasta:hasta,periodoEtiqueta:(desde&&hasta)?(fmtFechaCorta(desde)+' al '+fmtFechaCorta(hasta)):'',periodoMes:'',periodoAnio:'',periodoQuincena:''};
+    }
+    const mesEl=document.getElementById('rcMes'),anioEl=document.getElementById('rcAnio'),qEl=document.getElementById('rcQuincena');
+    const mes=mesEl?num(mesEl.value):0;
+    const anio=anioEl?num(anioEl.value):new Date().getFullYear();
+    const quincena=qEl?num(qEl.value):1;
+    const r=_rrhhPeriodoDeMes(tipo,mes,anio,quincena);
+    return {periodoTipo:tipo,periodoDesde:r.desde,periodoHasta:r.hasta,periodoEtiqueta:r.etiqueta,periodoMes:mes,periodoAnio:anio,periodoQuincena:(tipo==='quincenal'?quincena:'')};
+}
+
+// Guarda en el estado lo que el usuario tiene escrito, para no perderlo al cambiar de tipo de período.
+function _rrhhColillaCapturarPeriodoState(){
+    const tipoEl=document.getElementById('rcPeriodoTipo');
+    if(!tipoEl)return;
+    if(tipoEl.value==='semanal'){
+        const d=document.getElementById('rcDesde'),h=document.getElementById('rcHasta');
+        if(d)_rrhhColillaPeriodoState.desde=d.value;
+        if(h)_rrhhColillaPeriodoState.hasta=h.value;
+    }else{
+        const m=document.getElementById('rcMes'),a=document.getElementById('rcAnio'),q=document.getElementById('rcQuincena');
+        if(m)_rrhhColillaPeriodoState.mes=num(m.value);
+        if(a)_rrhhColillaPeriodoState.anio=num(a.value);
+        if(q)_rrhhColillaPeriodoState.quincena=num(q.value);
+    }
+}
+
+// Dibuja los campos del período según el tipo: mes+año (+quincena) o fechas (semanal).
+function _rrhhColillaRenderPeriodoCampos(){
+    const box=document.getElementById('rcPeriodoBox');
+    if(!box)return;
+    const tipoEl=document.getElementById('rcPeriodoTipo');
+    const tipo=tipoEl?tipoEl.value:'mensual';
+    const st=_rrhhColillaPeriodoState;
+    if(tipo==='semanal'){
+        box.innerHTML=`<div class="form-group" style="margin:0;"><label style="font-size:0.72rem;">Desde *</label><input type="date" id="rcDesde" value="${esc(st.desde||'')}" onchange="_rrhhColillaRecalc()"></div>
+        <div class="form-group" style="margin:0;"><label style="font-size:0.72rem;">Hasta *</label><input type="date" id="rcHasta" value="${esc(st.hasta||'')}" onchange="_rrhhColillaRecalc()"></div>`;
+        return;
+    }
+    const mesOpts=_RRHH_MESES.map((nm,i)=>`<option value="${i}" ${num(st.mes)===i?'selected':''}>${nm}</option>`).join('');
+    let html=`<div class="form-group" style="margin:0;"><label style="font-size:0.72rem;">Mes *</label><select id="rcMes" onchange="_rrhhColillaRecalc()">${mesOpts}</select></div>
+    <div class="form-group" style="margin:0;max-width:96px;"><label style="font-size:0.72rem;">Año *</label><input type="number" id="rcAnio" min="2000" max="2100" step="1" value="${esc(st.anio||new Date().getFullYear())}" onchange="_rrhhColillaRecalc()"></div>`;
+    if(tipo==='quincenal'){
+        html+=`<div class="form-group" style="margin:0;"><label style="font-size:0.72rem;">Quincena *</label><select id="rcQuincena" onchange="_rrhhColillaRecalc()">
+        <option value="1" ${num(st.quincena)!==2?'selected':''}>Primera quincena</option>
+        <option value="2" ${num(st.quincena)===2?'selected':''}>Segunda quincena</option></select></div>`;
+    }
+    box.innerHTML=html;
+}
 
 function _renderRrhhColillas(){
     const puedeEditar=tienePermiso('rrhh.colillas.gestionar');
@@ -3375,7 +3453,7 @@ function _renderRrhhColillas(){
             ${puedeEditar?`<button class="btn btn-sm btn-ghost" style="padding:3px 8px;" onclick="openRrhhColillaModal('${c.id}')">Editar</button><button class="btn-icon remove" title="Eliminar" onclick="eliminarRrhhColilla('${c.id}')">&times;</button>`:''}</td>`;
         return `<tr style="border-bottom:1px solid var(--border);">
             <td style="padding:6px 8px;font-weight:600;">${esc(c.empleadoNombre||'—')}</td>
-            <td style="padding:6px 8px;font-size:0.74rem;">${fmtFechaCorta(c.periodoDesde)} – ${fmtFechaCorta(c.periodoHasta)}<br><span style="color:var(--text-light);">${esc(_RRHH_PERIODO_LABEL[c.periodoTipo]||c.periodoTipo||'')}</span></td>
+            <td style="padding:6px 8px;font-size:0.74rem;">${esc(_rrhhColillaPeriodoTexto(c))}<br><span style="color:var(--text-light);">${esc(_RRHH_PERIODO_LABEL[c.periodoTipo]||c.periodoTipo||'')}</span></td>
             <td style="padding:6px 8px;">${fmtFechaCorta(c.fechaPago)}</td>
             <td style="padding:6px 8px;text-align:right;">${fmtCRC(c.brutoTotal)}</td>
             <td style="padding:6px 8px;text-align:right;color:var(--danger);">-${fmtCRC(c.totalDeducciones)}</td>
@@ -3428,6 +3506,18 @@ function openRrhhColillaModal(id){
     const hoy=new Date().toISOString().slice(0,10);
     const periodoTipo=c?c.periodoTipo:'mensual';
     const estado=c?(c.estado||'borrador'):'borrador';
+    // Estado inicial del período: de la colilla existente o el mes actual.
+    const _now=new Date();
+    if(c){
+        _rrhhColillaPeriodoState={
+            mes:(c.periodoMes!=null&&c.periodoMes!=='')?num(c.periodoMes):(c.periodoDesde?num(c.periodoDesde.slice(5,7))-1:_now.getMonth()),
+            anio:(c.periodoAnio!=null&&c.periodoAnio!=='')?num(c.periodoAnio):(c.periodoDesde?num(c.periodoDesde.slice(0,4)):_now.getFullYear()),
+            quincena:(c.periodoQuincena!=null&&c.periodoQuincena!=='')?num(c.periodoQuincena):((c.periodoDesde&&num(c.periodoDesde.slice(8,10))>=16)?2:1),
+            desde:c.periodoDesde||'',hasta:c.periodoHasta||''
+        };
+    }else{
+        _rrhhColillaPeriodoState={mes:_now.getMonth(),anio:_now.getFullYear(),quincena:1,desde:'',hasta:''};
+    }
     const opts=getRrhhEmpleados().map(e=>`<option value="${esc(e.id)}" ${c&&c.empleadoId===e.id?'selected':''}>${esc(e.nombre)}${e.puesto?' — '+esc(e.puesto):''}</option>`).join('');
     const overlay=document.getElementById('modalRrhhColilla');
     overlay.innerHTML=`<div class="modal" style="max-width:760px;">
@@ -3443,8 +3533,7 @@ function openRrhhColillaModal(id){
                 </select></div>
             </div>
             <div class="form-row">
-                <div class="form-group"><label>Período: desde *</label><input type="date" id="rcDesde" value="${esc(c?c.periodoDesde:'')}" onchange="_rrhhColillaRecalc()"></div>
-                <div class="form-group"><label>Período: hasta *</label><input type="date" id="rcHasta" value="${esc(c?c.periodoHasta:'')}" onchange="_rrhhColillaRecalc()"></div>
+                <div class="form-group" style="flex:2;"><label>Período *</label><div id="rcPeriodoBox" class="form-row" style="margin:0;gap:8px;"></div><div id="rcPeriodoEtiqueta" style="font-size:0.74rem;color:var(--primary-dark);font-weight:600;margin-top:4px;"></div></div>
                 <div class="form-group"><label>Fecha de pago *</label><input type="date" id="rcFechaPago" value="${esc(c?c.fechaPago:hoy)}" onchange="_rrhhColillaRecalc()"></div>
             </div>
             <div class="form-row">
@@ -3469,16 +3558,20 @@ function openRrhhColillaModal(id){
     </div>`;
     overlay.classList.add('open');
     _rrhhColillaRenderRows();
+    _rrhhColillaRenderPeriodoCampos();
+    _rrhhColillaRecalc();
 }
 
 function _rrhhColillaEmpleadoChange(){
     const empId=document.getElementById('rcEmpleado').value;
     const emp=getRrhhEmpleados().find(e=>e.id===empId);
+    _rrhhColillaCapturarPeriodoState();
     // Al elegir empleado, el período arranca en su tipo de pago (mensual/quincenal/semanal).
     if(emp&&emp.tipoJornada&&_RRHH_FACTOR_PERIODO[emp.tipoJornada]){
         const selP=document.getElementById('rcPeriodoTipo');
         if(selP)selP.value=emp.tipoJornada;
     }
+    _rrhhColillaRenderPeriodoCampos();
     const factor=_RRHH_FACTOR_PERIODO[document.getElementById('rcPeriodoTipo').value]||1;
     if(emp){
         document.getElementById('rcSalarioBase').value=_rrhhSalarioDelPeriodo(num(emp.salarioBruto),factor);
@@ -3490,7 +3583,15 @@ function _rrhhColillaEmpleadoChange(){
 function _rrhhSalarioDelPeriodo(salarioMensual,factor){
     return Math.round(num(salarioMensual)*num(factor));
 }
+// Texto legible del período de una colilla (usa la etiqueta guardada; si no hay, cae a las fechas).
+function _rrhhColillaPeriodoTexto(c){
+    if(c&&c.periodoEtiqueta)return c.periodoEtiqueta;
+    if(c&&(c.periodoDesde||c.periodoHasta))return fmtFechaCorta(c.periodoDesde)+' al '+fmtFechaCorta(c.periodoHasta);
+    return '—';
+}
 function _rrhhColillaPeriodoChange(){
+    _rrhhColillaCapturarPeriodoState();
+    _rrhhColillaRenderPeriodoCampos();
     const empId=document.getElementById('rcEmpleado').value;
     const emp=getRrhhEmpleados().find(e=>e.id===empId);
     const factor=_RRHH_FACTOR_PERIODO[document.getElementById('rcPeriodoTipo').value]||1;
@@ -3501,15 +3602,20 @@ function _rrhhColillaPeriodoChange(){
 function _rrhhColillaLeerForm(){
     const empId=document.getElementById('rcEmpleado').value;
     const emp=getRrhhEmpleados().find(e=>e.id===empId);
+    const per=_rrhhColillaLeerPeriodo();
     return {
         empleadoId:empId,
         empleadoNombre:emp?emp.nombre:'',
         empleadoCedula:emp?emp.cedula:'',
         empleadoPuesto:emp?emp.puesto:'',
         salarioMensualRef:emp?num(emp.salarioBruto):0,
-        periodoTipo:document.getElementById('rcPeriodoTipo').value,
-        periodoDesde:document.getElementById('rcDesde').value,
-        periodoHasta:document.getElementById('rcHasta').value,
+        periodoTipo:per.periodoTipo,
+        periodoDesde:per.periodoDesde,
+        periodoHasta:per.periodoHasta,
+        periodoEtiqueta:per.periodoEtiqueta,
+        periodoMes:per.periodoMes,
+        periodoAnio:per.periodoAnio,
+        periodoQuincena:per.periodoQuincena,
         fechaPago:document.getElementById('rcFechaPago').value,
         salarioBase:num(document.getElementById('rcSalarioBase').value),
         horasExtra:num(document.getElementById('rcHorasExtra').value),
@@ -3525,6 +3631,9 @@ function _rrhhColillaRecalc(){
     if(!box)return;
     const inp=_rrhhColillaLeerForm();
     const r=calcularColilla(inp);
+    // Etiqueta legible del período (ej: "Primera quincena Junio 2026").
+    const etq=document.getElementById('rcPeriodoEtiqueta');
+    if(etq)etq.textContent=inp.periodoEtiqueta?(inp.periodoEtiqueta+(inp.periodoTipo!=='semanal'?' ('+fmtFechaCorta(inp.periodoDesde)+' al '+fmtFechaCorta(inp.periodoHasta)+')':'')):'';
     // Línea explicativa: de dónde sale el salario del período.
     const hint=document.getElementById('rcSalarioHint');
     if(hint){
@@ -3569,7 +3678,7 @@ function guardarRrhhColilla(){
     const colillas=getRrhhColillas().map(x=>Object.assign({},x));
     const datos={
         empleadoId:inp.empleadoId,empleadoNombre:inp.empleadoNombre,empleadoCedula:inp.empleadoCedula,empleadoPuesto:inp.empleadoPuesto,
-        periodoTipo:inp.periodoTipo,periodoDesde:inp.periodoDesde,periodoHasta:inp.periodoHasta,fechaPago:inp.fechaPago,
+        periodoTipo:inp.periodoTipo,periodoDesde:inp.periodoDesde,periodoHasta:inp.periodoHasta,periodoEtiqueta:inp.periodoEtiqueta||'',periodoMes:inp.periodoMes,periodoAnio:inp.periodoAnio,periodoQuincena:inp.periodoQuincena,fechaPago:inp.fechaPago,
         salarioBase:r.salarioBase,horasExtra:r.horasExtra,valorHoraExtra:r.valorHoraExtra,montoHorasExtra:r.montoHorasExtra,
         otrosIngresos:r.otrosIngresos,otrasDeducciones:r.otrasDeducciones,
         brutoTotal:r.brutoTotal,deduccionCCSS:r.deduccionCCSS,deduccionRenta:r.deduccionRenta,
@@ -3587,7 +3696,7 @@ function guardarRrhhColilla(){
     }
     saveRrhhColillas(colillas);
     const cfg=getConfig();
-    _appendBitacoraRrhh(cfg,(id?'Editó':'Generó')+' la colilla de "'+inp.empleadoNombre+'" ('+fmtFechaCorta(inp.periodoDesde)+' a '+fmtFechaCorta(inp.periodoHasta)+'), neto '+fmtCRC(r.neto));
+    _appendBitacoraRrhh(cfg,(id?'Editó':'Generó')+' la colilla de "'+inp.empleadoNombre+'" ('+(inp.periodoEtiqueta||(fmtFechaCorta(inp.periodoDesde)+' a '+fmtFechaCorta(inp.periodoHasta)))+'), neto '+fmtCRC(r.neto));
     saveConfig(cfg);
     closeModal('modalRrhhColilla');
     renderRrhh();
@@ -3597,10 +3706,10 @@ function eliminarRrhhColilla(id){
     if(!exigirPermiso('rrhh.colillas.gestionar','generar colillas de pago'))return;
     const c=getRrhhColillas().find(x=>x.id===id);
     if(!c)return;
-    if(!confirm('¿Eliminar la colilla de "'+(c.empleadoNombre||'')+'" del período '+fmtFechaCorta(c.periodoDesde)+' a '+fmtFechaCorta(c.periodoHasta)+'? Esta acción no se puede deshacer.'))return;
+    if(!confirm('¿Eliminar la colilla de "'+(c.empleadoNombre||'')+'" del período '+_rrhhColillaPeriodoTexto(c)+'? Esta acción no se puede deshacer.'))return;
     saveRrhhColillas(getRrhhColillas().filter(x=>x.id!==id));
     const cfg=getConfig();
-    _appendBitacoraRrhh(cfg,'Eliminó la colilla de "'+(c.empleadoNombre||'')+'" ('+fmtFechaCorta(c.periodoDesde)+' a '+fmtFechaCorta(c.periodoHasta)+')');
+    _appendBitacoraRrhh(cfg,'Eliminó la colilla de "'+(c.empleadoNombre||'')+'" ('+_rrhhColillaPeriodoTexto(c)+')');
     saveConfig(cfg);
     renderRrhh();
 }
@@ -3633,9 +3742,9 @@ function renderColillaDocumento(c){
             <tr><td style="padding:2px 0;color:#666;width:140px;">Empleado:</td><td style="padding:2px 0;font-weight:700;">${esc(c.empleadoNombre||'')}</td>
                 <td style="padding:2px 0;color:#666;width:120px;">Cédula:</td><td style="padding:2px 0;">${esc(c.empleadoCedula||'—')}</td></tr>
             <tr><td style="padding:2px 0;color:#666;">Puesto:</td><td style="padding:2px 0;">${esc(c.empleadoPuesto||'—')}</td>
-                <td style="padding:2px 0;color:#666;">Período:</td><td style="padding:2px 0;">${esc(_RRHH_PERIODO_LABEL[c.periodoTipo]||c.periodoTipo||'')}</td></tr>
+                <td style="padding:2px 0;color:#666;">Período:</td><td style="padding:2px 0;font-weight:700;">${esc(_rrhhColillaPeriodoTexto(c))}</td></tr>
             <tr><td style="padding:2px 0;color:#666;">Fecha de pago:</td><td style="padding:2px 0;">${fmtFechaCorta(c.fechaPago)}</td>
-                <td style="padding:2px 0;color:#666;">Del:</td><td style="padding:2px 0;">${fmtFechaCorta(c.periodoDesde)} al ${fmtFechaCorta(c.periodoHasta)}</td></tr>
+                <td style="padding:2px 0;color:#666;">Del:</td><td style="padding:2px 0;">${fmtFechaCorta(c.periodoDesde)} al ${fmtFechaCorta(c.periodoHasta)} <span style="color:#888;">(${esc(_RRHH_PERIODO_LABEL[c.periodoTipo]||c.periodoTipo||'')})</span></td></tr>
         </tbody></table>
         <div style="display:flex;gap:18px;flex-wrap:wrap;">
             <div style="flex:1;min-width:280px;">
