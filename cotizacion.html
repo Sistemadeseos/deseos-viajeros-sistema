@@ -2387,6 +2387,8 @@ function populateEncargadosSelect(){
 // ===== PERMISOS: GUARDRAILS DE UI =====
 // Qué permiso requiere cada vista. inicio/documento siempre permitidos.
 function puedeVerVista(view){
+    // Empleada en autoservicio: solo Inicio, Documento (para imprimir su colilla) y Planilla.
+    if(_rrhhEsAutoServicio())return view==='inicio'||view==='documento'||view==='rrhh';
     if(view==='inicio'||view==='documento'||view==='encabezados')return true;
     if(view==='configuracion')return soyMaestro()||tienePermiso('config.general.gestionar')||tienePermiso('config.usuarios.gestionar');
     const m={dashboard:'dashboard.ver',editor:'cotizaciones.crear_editar',historial:'cotizaciones.ver',ventas:'ventas.ver',clientes:'contactos.ver',clientesventas:'contactos.ver',reportePagos:'cobranza.ver',rrhh:'rrhh.ver'};
@@ -2974,6 +2976,20 @@ function saveRrhhColillas(arr){return setLS('dv_rrhh_colillas',Array.isArray(arr
 function getRrhhVacaciones(){return getLS('dv_rrhh_vacaciones');}
 function saveRrhhVacaciones(arr){return setLS('dv_rrhh_vacaciones',Array.isArray(arr)?arr:[]);}
 
+// ----- AUTOSERVICIO: la empleada entra a ver SOLO su propia planilla -----
+// Ficha de empleado cuyo email coincide con el del usuario logueado (match por correo en minúsculas).
+function _rrhhMiFichaEmpleado(){
+    const email=_normEmail(window.currentUser&&window.currentUser.email);
+    if(!email)return null;
+    return getRrhhEmpleados().find(e=>_normEmail(e.email)===email)||null;
+}
+// True si el usuario logueado es una empleada marcada como "autoservicio" (y NO es el maestro).
+function _rrhhEsAutoServicio(){
+    if(soyMaestro())return false;
+    const f=_rrhhMiFichaEmpleado();
+    return !!(f&&f.autoServicio);
+}
+
 // ----- Helpers de formato -----
 function fmtCRC(n){return '₡'+Math.round(num(n)).toLocaleString('es-CR');}
 function fmtFechaCorta(iso){if(!iso)return '—';const m=String(iso).match(/^(\d{4})-(\d{2})-(\d{2})/);return m?(m[3]+'/'+m[2]+'/'+m[1]):iso;}
@@ -3006,6 +3022,7 @@ let _rrhhTabActiva='empleados';
 function renderRrhh(){
     const v=document.getElementById('viewRrhh');
     if(!v)return;
+    if(_rrhhEsAutoServicio()){return _renderRrhhAutoServicio(v);}
     if(!tienePermiso('rrhh.ver')){v.innerHTML='<div style="padding:30px;"><p style="font-size:0.9rem;color:var(--text-light);">No tenés permiso para ver este módulo.</p></div>';return;}
     // El aviso de "validar con contador" solo se muestra mientras no haya parámetros propios cargados.
     const banner=getRrhhParametros().length?'':`<div style="background:#fff3cd;border:1px solid #ffd966;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:0.78rem;color:#7a5c00;">
@@ -3022,6 +3039,71 @@ function renderRrhh(){
     _renderRrhhPane();
 }
 function switchRrhhTab(name){_rrhhTabActiva=name;renderRrhh();}
+
+// Vista de autoservicio: la empleada ve SOLO su saldo de vacaciones, sus solicitudes y sus colillas emitidas.
+function _renderRrhhAutoServicio(v){
+    const f=_rrhhMiFichaEmpleado();
+    if(!f){v.innerHTML='<div style="padding:30px;"><p style="font-size:0.9rem;color:var(--text-light);">No encontramos tu ficha de empleada. Pedile al área administrativa que la configure.</p></div>';return;}
+    const r=_vacResumenEmpleado(f.id);
+    const saldoColor=r.saldo<0?'var(--danger)':'var(--success)';
+    const misVac=getRrhhVacaciones().filter(s=>s.empleadoId===f.id).slice().sort((a,b)=>String(b.fechaDesde||'').localeCompare(String(a.fechaDesde||'')));
+    const misColillas=getRrhhColillas().filter(c=>c.empleadoId===f.id&&(c.estado||'borrador')==='emitida').slice().sort((a,b)=>String(b.periodoHasta||'').localeCompare(String(a.periodoHasta||'')));
+    // Encabezado + saldo de vacaciones
+    let html=`<div style="max-width:900px;margin:0 auto;width:100%;padding:4px;">
+        <div style="background:var(--primary-light);border-radius:10px;padding:14px 18px;margin-bottom:16px;">
+            <div style="font-size:1.05rem;font-weight:800;color:var(--primary-dark);">Hola, ${esc(f.nombre||'')}</div>
+            <div style="font-size:0.78rem;color:var(--text-light);">${esc(f.puesto||'')}${f.fechaIngreso?' &middot; Ingreso: '+fmtFechaCorta(f.fechaIngreso):''}</div>
+        </div>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px;">
+            <div style="flex:1;min-width:120px;background:var(--bg);border-radius:8px;padding:12px 14px;text-align:center;"><div style="font-size:0.7rem;color:var(--text-light);text-transform:uppercase;letter-spacing:0.4px;">Devengados</div><div style="font-size:1.3rem;font-weight:800;">${r.devengados}</div></div>
+            <div style="flex:1;min-width:120px;background:var(--bg);border-radius:8px;padding:12px 14px;text-align:center;"><div style="font-size:0.7rem;color:var(--text-light);text-transform:uppercase;letter-spacing:0.4px;">Tomados</div><div style="font-size:1.3rem;font-weight:800;">${r.tomados}</div></div>
+            <div style="flex:1;min-width:120px;background:var(--bg);border-radius:8px;padding:12px 14px;text-align:center;"><div style="font-size:0.7rem;color:var(--text-light);text-transform:uppercase;letter-spacing:0.4px;">Pendientes</div><div style="font-size:1.3rem;font-weight:800;color:#b8860b;">${r.pendientes||0}</div></div>
+            <div style="flex:1;min-width:120px;background:var(--bg);border-radius:8px;padding:12px 14px;text-align:center;border:2px solid ${saldoColor};"><div style="font-size:0.7rem;color:var(--text-light);text-transform:uppercase;letter-spacing:0.4px;">Saldo disponible</div><div style="font-size:1.3rem;font-weight:800;color:${saldoColor};">${r.saldo}</div></div>
+        </div>`;
+    // Vacaciones: solicitar + lista propia
+    html+=`<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+        <h3 style="margin:0;font-size:0.95rem;">Mis vacaciones</h3>
+        <button class="btn btn-sm btn-accent" onclick="openRrhhVacacionModal('',{autoEmpId:'${f.id}'})">+ Solicitar vacaciones</button></div>`;
+    if(!misVac.length){
+        html+=`<p style="font-size:0.82rem;color:var(--text-light);font-style:italic;background:var(--bg);padding:14px;border-radius:6px;margin-bottom:20px;">Todavía no tenés solicitudes de vacaciones.</p>`;
+    }else{
+        html+=`<div style="overflow-x:auto;margin-bottom:20px;"><table style="width:100%;border-collapse:collapse;font-size:0.8rem;">
+            <thead><tr style="text-align:left;border-bottom:2px solid var(--border);color:var(--text-light);text-transform:uppercase;font-size:0.68rem;letter-spacing:0.4px;">
+                <th style="padding:7px 8px;">Desde</th><th style="padding:7px 8px;">Hasta</th><th style="padding:7px 8px;text-align:right;">Días</th><th style="padding:7px 8px;text-align:center;">Estado</th>
+            </tr></thead><tbody>`;
+        html+=misVac.map(s=>{
+            const estado=s.estado||'solicitada';
+            const motivo=s.motivo?`<br><span style="color:var(--text-light);font-size:0.72rem;">${esc(s.motivo)}</span>`:'';
+            return `<tr style="border-bottom:1px solid var(--border);">
+                <td style="padding:6px 8px;">${fmtFechaCorta(s.fechaDesde)}${motivo}</td>
+                <td style="padding:6px 8px;">${fmtFechaCorta(s.fechaHasta)}</td>
+                <td style="padding:6px 8px;text-align:right;">${num(s.diasHabiles)}</td>
+                <td style="padding:6px 8px;text-align:center;"><span style="color:${_RRHH_VAC_ESTADO_COLOR[estado]||'#666'};font-weight:700;">${_RRHH_VAC_ESTADO_LABEL[estado]||estado}</span></td>
+            </tr>`;
+        }).join('');
+        html+=`</tbody></table></div>`;
+    }
+    // Colillas emitidas propias
+    html+=`<h3 style="margin:0 0 10px;font-size:0.95rem;">Mis colillas de pago</h3>`;
+    if(!misColillas.length){
+        html+=`<p style="font-size:0.82rem;color:var(--text-light);font-style:italic;background:var(--bg);padding:14px;border-radius:6px;">Todavía no hay colillas emitidas a tu nombre.</p>`;
+    }else{
+        html+=`<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:0.8rem;">
+            <thead><tr style="text-align:left;border-bottom:2px solid var(--border);color:var(--text-light);text-transform:uppercase;font-size:0.68rem;letter-spacing:0.4px;">
+                <th style="padding:7px 8px;">Período</th><th style="padding:7px 8px;">Pago</th><th style="padding:7px 8px;text-align:right;">Neto</th><th style="padding:7px 8px;text-align:right;">Acción</th>
+            </tr></thead><tbody>`;
+        html+=misColillas.map(c=>`<tr style="border-bottom:1px solid var(--border);">
+            <td style="padding:6px 8px;font-size:0.76rem;">${esc(_rrhhColillaPeriodoTexto(c))}</td>
+            <td style="padding:6px 8px;">${fmtFechaCorta(c.fechaPago)}</td>
+            <td style="padding:6px 8px;text-align:right;font-weight:700;">${fmtCRC(c.neto)}</td>
+            <td style="padding:6px 8px;text-align:right;"><button class="btn btn-sm btn-ghost" style="padding:3px 8px;" onclick="verColillaDocumento('${c.id}')">Ver / Imprimir</button></td>
+        </tr>`).join('');
+        html+=`</tbody></table></div>`;
+    }
+    html+=`</div>`;
+    v.innerHTML=html;
+}
+
 function _renderRrhhPane(){
     const box=document.getElementById('rrhhPaneBox');
     if(!box)return;
@@ -3084,7 +3166,11 @@ function openRrhhEmpleadoModal(id){
             </div>
             <div class="form-row">
                 <div class="form-group"><label>Puesto</label><input type="text" id="rePuesto" value="${esc(v('puesto'))}" placeholder="Ej: Asesora de viajes"></div>
-                <div class="form-group"><label>Email (opcional)</label><input type="email" id="reEmail" value="${esc(v('email'))}" placeholder="persona@deseosviajeros.com"></div>
+                <div class="form-group"><label>Correo de acceso</label><input type="email" id="reEmail" value="${esc(v('email'))}" placeholder="persona@deseosviajeros.com"></div>
+            </div>
+            <div class="form-group" style="background:var(--bg);border-radius:8px;padding:10px 12px;">
+                <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600;"><input type="checkbox" id="reAutoServicio" ${e&&e.autoServicio?'checked':''} style="width:auto;margin:0;"> Acceso de autoservicio</label>
+                <div style="font-size:0.72rem;color:var(--text-light);margin-top:4px;">Si lo activás, esta persona —al entrar con el <strong>correo de acceso</strong> de arriba— verá <strong>solo su propia</strong> planilla (sus colillas, su saldo de vacaciones y podrá pedir vacaciones). No verá datos de otros colaboradores ni el resto del sistema.</div>
             </div>
             <div class="form-row">
                 <div class="form-group"><label>Fecha de ingreso</label><input type="date" id="reIngreso" value="${esc(v('fechaIngreso'))}"></div>
@@ -3122,6 +3208,7 @@ function guardarRrhhEmpleado(){
         salarioBruto:num(document.getElementById('reSalario').value),
         tipoJornada:document.getElementById('reJornada').value||'mensual',
         estado:document.getElementById('reEstado').value||'activo',
+        autoServicio:!!document.getElementById('reAutoServicio').checked,
         notas:(document.getElementById('reNotas').value||'').trim()
     };
     const cfg=getConfig();
@@ -3885,21 +3972,36 @@ function _renderRrhhVacaciones(){
     return html;
 }
 
-function openRrhhVacacionModal(id){
-    if(!exigirPermiso('rrhh.vacaciones.gestionar','gestionar solicitudes de vacaciones'))return;
+function openRrhhVacacionModal(id,opts){
+    opts=opts||{};
+    const auto=!!opts.autoEmpId;   // modo autoservicio: la empleada pide sus propias vacaciones
+    if(!auto){if(!exigirPermiso('rrhh.vacaciones.gestionar','gestionar solicitudes de vacaciones'))return;}
+    else if(_rrhhMiFichaEmpleado()&&_rrhhMiFichaEmpleado().id!==opts.autoEmpId){alert('Solo podés solicitar tus propias vacaciones.');return;}
     const emp=getRrhhEmpleados();
     if(!emp.length){alert('Registrá empleados primero.');return;}
     const sols=getRrhhVacaciones();
     const s=id?sols.find(x=>x.id===id):null;
     if(id&&!s)return;
     const estado=s?(s.estado||'solicitada'):'solicitada';
-    const opts=emp.map(e=>`<option value="${esc(e.id)}" ${s&&s.empleadoId===e.id?'selected':''}>${esc(e.nombre)}${e.puesto?' — '+esc(e.puesto):''}</option>`).join('');
+    const fixedEmp=auto?emp.find(e=>e.id===opts.autoEmpId):null;
+    const optsHtml=emp.map(e=>`<option value="${esc(e.id)}" ${s&&s.empleadoId===e.id?'selected':''}>${esc(e.nombre)}${e.puesto?' — '+esc(e.puesto):''}</option>`).join('');
+    const empCampo=auto
+        ?`<input type="hidden" id="rvEmpleado" value="${esc(opts.autoEmpId)}"><div class="form-group"><label>Empleada</label><div style="padding:8px 10px;background:var(--bg);border-radius:6px;font-weight:600;">${esc(fixedEmp?fixedEmp.nombre:'')}</div></div>`
+        :`<div class="form-group"><label>Empleado *</label><select id="rvEmpleado" onchange="_rrhhVacRecalcDias()"><option value="">-- Seleccionar --</option>${optsHtml}</select></div>`;
+    const estadoCampo=auto
+        ?`<input type="hidden" id="rvEstado" value="solicitada">`
+        :`<div class="form-group"><label>Estado</label><select id="rvEstado">
+                    <option value="solicitada" ${estado==='solicitada'?'selected':''}>Solicitada</option>
+                    <option value="aprobada" ${estado==='aprobada'?'selected':''}>Aprobada</option>
+                    <option value="rechazada" ${estado==='rechazada'?'selected':''}>Rechazada</option>
+                    <option value="disfrutada" ${estado==='disfrutada'?'selected':''}>Disfrutada</option>
+                </select></div>`;
     const overlay=document.getElementById('modalRrhhVacacion');
     overlay.innerHTML=`<div class="modal" style="max-width:560px;">
-        <div class="modal-header"><h3>${id?'Editar solicitud':'Nueva solicitud de vacaciones'}</h3><button class="modal-close" onclick="closeModal('modalRrhhVacacion')">&times;</button></div>
+        <div class="modal-header"><h3>${auto?'Solicitar vacaciones':(id?'Editar solicitud':'Nueva solicitud de vacaciones')}</h3><button class="modal-close" onclick="closeModal('modalRrhhVacacion')">&times;</button></div>
         <div class="modal-body">
             <input type="hidden" id="rvId" value="${esc(s?s.id:'')}">
-            <div class="form-group"><label>Empleado *</label><select id="rvEmpleado" onchange="_rrhhVacRecalcDias()"><option value="">-- Seleccionar --</option>${opts}</select></div>
+            ${empCampo}
             <div id="rvSaldoBox" style="font-size:0.76rem;color:var(--text-light);margin:-4px 0 8px;"></div>
             <div class="form-row">
                 <div class="form-group"><label>Desde *</label><input type="date" id="rvDesde" value="${esc(s?s.fechaDesde:'')}" onchange="_rrhhVacRecalcDias()"></div>
@@ -3907,17 +4009,12 @@ function openRrhhVacacionModal(id){
                 <div class="form-group"><label>Días hábiles</label><input type="number" id="rvDias" min="0" step="0.5" value="${esc(s?s.diasHabiles:'')}"></div>
             </div>
             <div class="form-row">
-                <div class="form-group"><label>Estado</label><select id="rvEstado">
-                    <option value="solicitada" ${estado==='solicitada'?'selected':''}>Solicitada</option>
-                    <option value="aprobada" ${estado==='aprobada'?'selected':''}>Aprobada</option>
-                    <option value="rechazada" ${estado==='rechazada'?'selected':''}>Rechazada</option>
-                    <option value="disfrutada" ${estado==='disfrutada'?'selected':''}>Disfrutada</option>
-                </select></div>
+                ${estadoCampo}
                 <div class="form-group" style="flex:2;"><label>Motivo / notas</label><input type="text" id="rvMotivo" value="${esc(s?s.motivo:'')}" placeholder="Opcional"></div>
             </div>
-            <p style="font-size:0.7rem;color:var(--text-light);margin:0;">Los días hábiles se calculan automáticamente (lunes a viernes) y podés ajustarlos a mano si hay feriados.</p>
+            <p style="font-size:0.7rem;color:var(--text-light);margin:0;">Los días hábiles se calculan automáticamente (lunes a viernes) y podés ajustarlos a mano si hay feriados.${auto?' Tu solicitud quedará <strong>pendiente de aprobación</strong>.':''}</p>
         </div>
-        <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modalRrhhVacacion')">Cancelar</button><button class="btn btn-success" onclick="guardarRrhhVacacion()">Guardar solicitud</button></div>
+        <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modalRrhhVacacion')">Cancelar</button><button class="btn btn-success" onclick="guardarRrhhVacacion()">${auto?'Enviar solicitud':'Guardar solicitud'}</button></div>
     </div>`;
     overlay.classList.add('open');
     _rrhhVacRecalcDias(true);
@@ -3943,8 +4040,12 @@ function _rrhhVacRecalcDias(preservarDias){
 }
 
 function guardarRrhhVacacion(){
-    if(!exigirPermiso('rrhh.vacaciones.gestionar','gestionar solicitudes de vacaciones'))return;
+    const esAuto=_rrhhEsAutoServicio();
     const empId=document.getElementById('rvEmpleado').value;
+    if(esAuto){
+        const mi=_rrhhMiFichaEmpleado();
+        if(!mi||empId!==mi.id){alert('Solo podés solicitar tus propias vacaciones.');return;}
+    }else if(!exigirPermiso('rrhh.vacaciones.gestionar','gestionar solicitudes de vacaciones'))return;
     if(!empId){alert('Elegí un empleado.');return;}
     const desde=document.getElementById('rvDesde').value;
     const hasta=document.getElementById('rvHasta').value;
@@ -3952,7 +4053,8 @@ function guardarRrhhVacacion(){
     if(String(hasta)<String(desde)){alert('La fecha "hasta" no puede ser anterior a "desde".');return;}
     const emp=getRrhhEmpleados().find(e=>e.id===empId);
     const dias=num(document.getElementById('rvDias').value)||_diasHabilesEntre(desde,hasta);
-    const estado=document.getElementById('rvEstado').value||'solicitada';
+    const estadoEl=document.getElementById('rvEstado');
+    const estado=esAuto?'solicitada':((estadoEl&&estadoEl.value)||'solicitada');
     const id=document.getElementById('rvId').value||'';
     const arr=getRrhhVacaciones().map(x=>Object.assign({},x));
     const datos={empleadoId:empId,empleadoNombre:emp?emp.nombre:'',fechaDesde:desde,fechaHasta:hasta,diasHabiles:dias,estado:estado,motivo:(document.getElementById('rvMotivo').value||'').trim()};
