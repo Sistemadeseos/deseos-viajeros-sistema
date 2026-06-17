@@ -3008,7 +3008,7 @@ function renderRrhh(){
     if(!v)return;
     if(!tienePermiso('rrhh.ver')){v.innerHTML='<div style="padding:30px;"><p style="font-size:0.9rem;color:var(--text-light);">No tenés permiso para ver este módulo.</p></div>';return;}
     const banner=`<div style="background:#fff3cd;border:1px solid #ffd966;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:0.78rem;color:#7a5c00;">
-        <strong>&#9888; Módulo en construcción (Fase 1).</strong> Por ahora sirve para registrar <strong>empleados</strong> y los <strong>parámetros de nómina</strong>. Todavía no calcula colillas. Las tasas de CCSS y los tramos de renta son valores de referencia y <strong>deben ser validados por un contador</strong> antes de usarse en planilla real.</div>`;
+        <strong>&#9888; Importante:</strong> las tasas de CCSS y los tramos del impuesto sobre la renta son valores de referencia y <strong>deben ser validados por un contador</strong> antes de usarse en planilla real.</div>`;
     const verColillas=tienePermiso('rrhh.colillas.ver');
     const verVacaciones=tienePermiso('rrhh.vacaciones.ver');
     const tabs=`<div class="config-tabs" style="margin-bottom:14px;">
