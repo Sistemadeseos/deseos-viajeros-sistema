@@ -3007,8 +3007,9 @@ function renderRrhh(){
     const v=document.getElementById('viewRrhh');
     if(!v)return;
     if(!tienePermiso('rrhh.ver')){v.innerHTML='<div style="padding:30px;"><p style="font-size:0.9rem;color:var(--text-light);">No tenés permiso para ver este módulo.</p></div>';return;}
-    const banner=`<div style="background:#fff3cd;border:1px solid #ffd966;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:0.78rem;color:#7a5c00;">
-        <strong>&#9888; Importante:</strong> las tasas de CCSS y los tramos del impuesto sobre la renta son valores de referencia y <strong>deben ser validados por un contador</strong> antes de usarse en planilla real.</div>`;
+    // El aviso de "validar con contador" solo se muestra mientras no haya parámetros propios cargados.
+    const banner=getRrhhParametros().length?'':`<div style="background:#fff3cd;border:1px solid #ffd966;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:0.78rem;color:#7a5c00;">
+        <strong>&#9888; Importante:</strong> todavía no cargaste parámetros de nómina, así que se usan valores de referencia por defecto. Cargá tus tasas de CCSS y tramos de renta (validados por tu contador) en la pestaña <strong>Parámetros de nómina</strong> antes de usarlo en planilla real.</div>`;
     const verColillas=tienePermiso('rrhh.colillas.ver');
     const verVacaciones=tienePermiso('rrhh.vacaciones.ver');
     const tabs=`<div class="config-tabs" style="margin-bottom:14px;">
@@ -3157,8 +3158,9 @@ function eliminarRrhhEmpleado(id){
 function _renderRrhhParametros(){
     const puedeEditar=tienePermiso('rrhh.parametros.gestionar');
     const params=getRrhhParametros().slice().sort((a,b)=>String(b.fechaVigencia||'').localeCompare(String(a.fechaVigencia||'')));
-    let html=`<p class="config-hint">Tasas y tramos que se usarán para calcular las deducciones de planilla. Podés guardar distintas <strong>versiones por fecha de vigencia</strong>: el cálculo usará la versión vigente según la fecha de cada colilla.</p>
-    <div style="background:#fdecea;border:1px solid #f5b7b1;border-radius:8px;padding:9px 13px;margin-bottom:12px;font-size:0.76rem;color:#922b21;"><strong>Importante:</strong> estos valores son de referencia. Confirmá con tu contador las tasas de CCSS y los tramos del impuesto sobre la renta vigentes antes de usarlos para pagar planilla.</div>`;
+    let html=`<p class="config-hint">Tasas y tramos que se usarán para calcular las deducciones de planilla. Podés guardar distintas <strong>versiones por fecha de vigencia</strong>: el cálculo usará la versión vigente según la fecha de cada colilla.</p>`;
+    // El aviso de "validar con contador" solo se muestra mientras no haya parámetros cargados.
+    if(!params.length)html+=`<div style="background:#fdecea;border:1px solid #f5b7b1;border-radius:8px;padding:9px 13px;margin-bottom:12px;font-size:0.76rem;color:#922b21;"><strong>Importante:</strong> estos valores son de referencia. Confirmá con tu contador las tasas de CCSS y los tramos del impuesto sobre la renta vigentes antes de usarlos para pagar planilla.</div>`;
     if(puedeEditar)html+=`<div style="margin-bottom:12px;"><button class="btn btn-sm btn-accent" onclick="openRrhhParamModal('')">+ Agregar versión de parámetros</button></div>`;
     if(!params.length){
         html+=`<p style="font-size:0.82rem;color:var(--text-light);font-style:italic;background:var(--bg);padding:14px;border-radius:6px;">Todavía no hay parámetros cargados.${puedeEditar?' Agregá la primera versión con el botón de arriba (se carga con valores de referencia que podés ajustar).':''}</p>`;
