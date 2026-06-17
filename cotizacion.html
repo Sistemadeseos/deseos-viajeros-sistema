@@ -1007,7 +1007,7 @@ onAuthStateChanged(fbAuth, (user) => {
     <div class="sidebar-section">
         <div class="sidebar-section-label">Sistema</div>
         <div class="sidebar-item" onclick="nav('configuracion')"><span class="si-icon">&#9881;</span>Configuraci&oacute;n</div>
-        <div class="sidebar-item" onclick="nav('rrhh')"><span class="si-icon">&#128188;</span>Personal y n&oacute;mina</div>
+        <div class="sidebar-item" onclick="nav('rrhh')"><span class="si-icon">&#128188;</span>Planilla</div>
     </div>
 </div>
 
@@ -2421,7 +2421,7 @@ function nav(view){
     const map={inicio:0,dashboard:1,editor:2,historial:3,ventas:4,clientes:5,clientesventas:6,reportePagos:7,configuracion:8,rrhh:9};
     if(map[view]!==undefined)items[map[view]].classList.add('active');
     document.querySelectorAll('.app-view').forEach(v=>v.classList.remove('active'));
-    const titles={inicio:'',dashboard:'Dashboard',editor:'Editor de Cotizaci\u00f3n',historial:'Historial de Cotizaciones',encabezados:'Destinos',ventas:'Ventas',clientes:'Contactos',clientesventas:'Clientes',reportePagos:'Reporte de pagos',configuracion:'Configuraci\u00f3n',rrhh:'Recursos Humanos',documento:'Documento'};
+    const titles={inicio:'',dashboard:'Dashboard',editor:'Editor de Cotizaci\u00f3n',historial:'Historial de Cotizaciones',encabezados:'Destinos',ventas:'Ventas',clientes:'Contactos',clientesventas:'Clientes',reportePagos:'Reporte de pagos',configuracion:'Configuraci\u00f3n',rrhh:'Planilla',documento:'Documento'};
     document.getElementById('headerTitle').textContent=titles[view]||'';
     const ha=document.getElementById('headerActions');
     if(view==='editor')ha.innerHTML='<button class="btn btn-outline" onclick="resetForm()">&#128260; Nueva</button>'+(tienePermiso('cotizaciones.exportar')?'<button class="btn btn-accent" onclick="window.print()">&#128424; Exportar PDF</button>':'');
@@ -2952,14 +2952,14 @@ function permUsuarioSetExcepcion(email,clave,efecto){
 
 // El modulo declara sus permisos sin tocar el catalogo base. El maestro los recibe implicitamente.
 registrarPermisos([
-    {clave:'rrhh.ver',                 nombre:'Ver módulo de Personal y nómina', modulo:'Recursos Humanos'},
-    {clave:'rrhh.empleados.gestionar', nombre:'Crear y editar empleados',        modulo:'Recursos Humanos'},
-    {clave:'rrhh.parametros.gestionar',nombre:'Editar parámetros de nómina',      modulo:'Recursos Humanos'},
-    {clave:'rrhh.colillas.ver',        nombre:'Ver colillas de pago',            modulo:'Recursos Humanos'},
-    {clave:'rrhh.colillas.gestionar',  nombre:'Generar y editar colillas de pago',modulo:'Recursos Humanos'},
-    {clave:'rrhh.vacaciones.ver',      nombre:'Ver vacaciones (saldos y solicitudes)', modulo:'Recursos Humanos'},
-    {clave:'rrhh.vacaciones.gestionar',nombre:'Crear y editar solicitudes de vacaciones', modulo:'Recursos Humanos'},
-    {clave:'rrhh.vacaciones.aprobar',  nombre:'Aprobar o rechazar vacaciones',   modulo:'Recursos Humanos'}
+    {clave:'rrhh.ver',                 nombre:'Ver módulo de Planilla', modulo:'Planilla'},
+    {clave:'rrhh.empleados.gestionar', nombre:'Crear y editar empleados',        modulo:'Planilla'},
+    {clave:'rrhh.parametros.gestionar',nombre:'Editar parámetros de nómina',      modulo:'Planilla'},
+    {clave:'rrhh.colillas.ver',        nombre:'Ver colillas de pago',            modulo:'Planilla'},
+    {clave:'rrhh.colillas.gestionar',  nombre:'Generar y editar colillas de pago',modulo:'Planilla'},
+    {clave:'rrhh.vacaciones.ver',      nombre:'Ver vacaciones (saldos y solicitudes)', modulo:'Planilla'},
+    {clave:'rrhh.vacaciones.gestionar',nombre:'Crear y editar solicitudes de vacaciones', modulo:'Planilla'},
+    {clave:'rrhh.vacaciones.aprobar',  nombre:'Aprobar o rechazar vacaciones',   modulo:'Planilla'}
 ]);
 
 // ----- Accesores de datos (viven en config) -----
