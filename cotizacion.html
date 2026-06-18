@@ -2387,8 +2387,9 @@ function populateEncargadosSelect(){
 // ===== PERMISOS: GUARDRAILS DE UI =====
 // Qué permiso requiere cada vista. inicio/documento siempre permitidos.
 function puedeVerVista(view){
-    // Empleada en autoservicio: solo Inicio, Documento (para imprimir su colilla) y Planilla.
-    if(_rrhhEsAutoServicio())return view==='inicio'||view==='documento'||view==='rrhh';
+    // Autoservicio solo afecta lo que ve DENTRO de Planilla (su propia info), no el resto del sistema.
+    // Garantiza que la empleada de autoservicio siempre pueda abrir Planilla, aunque no tenga rrhh.ver.
+    if(view==='rrhh'&&_rrhhEsAutoServicio())return true;
     if(view==='inicio'||view==='documento'||view==='encabezados')return true;
     if(view==='configuracion')return soyMaestro()||tienePermiso('config.general.gestionar')||tienePermiso('config.usuarios.gestionar');
     const m={dashboard:'dashboard.ver',editor:'cotizaciones.crear_editar',historial:'cotizaciones.ver',ventas:'ventas.ver',clientes:'contactos.ver',clientesventas:'contactos.ver',reportePagos:'cobranza.ver',rrhh:'rrhh.ver'};
