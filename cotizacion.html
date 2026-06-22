@@ -6786,7 +6786,7 @@ function renderDocumento(tipo,ventaId,pagoId){
                 <div class="recibo-totals-box">
                     <div class="recibo-totals-row"><span>Monto total del viaje</span><span>${fmtMoney(c.montoTotal,c.moneda)}</span></div>
                     <div class="recibo-totals-row"><span>Total pagado</span><span style="color:var(--success);font-weight:700;">${fmtMoney(c.pagado,c.moneda)}</span></div>
-                    <div class="recibo-totals-row grand saldo ${c.saldo<=0?'pagado':''}"><span>${c.saldo<=0?'TOTAL PAGADO':'SALDO PENDIENTE'}</span><span>${fmtMoney(c.saldo,c.moneda)}</span></div>
+                    <div class="recibo-totals-row grand saldo ${c.saldo<=0?'pagado':''}"><span>SALDO PENDIENTE</span><span>${fmtMoney(c.saldo,c.moneda)}</span></div>
                 </div>
             </div>
             ${c.saldo<=0?'<div class="recibo-stamp pagado">PAGADO</div>':'<div class="recibo-stamp pendiente">PENDIENTE</div>'}
