@@ -3123,7 +3123,11 @@ function _renderRrhhAutoServicio(v){
     const heMovs=getRrhhHorasExtra().filter(m=>m.colaboradorId===f.id).slice().sort((a,b)=>String(b.fecha||'').localeCompare(String(a.fecha||''))||(num(b.creadaTs)-num(a.creadaTs)));
     html+=`<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin:22px 0 10px;">
         <h3 style="margin:0;font-size:0.95rem;">Mis horas extra</h3>
-        <button class="btn btn-sm btn-accent" onclick="openRrhhHoraExtraModal('',{autoEmpId:'${f.id}'})">+ Registrar horas extra / permiso</button></div>`;
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+            <input type="month" id="heAutoMes" value="${esc(new Date().toISOString().slice(0,7))}" style="max-width:150px;" title="Mes del reporte">
+            <button class="btn btn-sm btn-ghost" onclick="verHorasExtraReporte('${f.id}',document.getElementById('heAutoMes').value)">Imprimir reporte</button>
+            <button class="btn btn-sm btn-accent" onclick="openRrhhHoraExtraModal('',{autoEmpId:'${f.id}'})">+ Registrar</button>
+        </div></div>`;
     html+=`<div style="background:var(--bg);border-radius:8px;padding:10px 14px;margin-bottom:10px;font-size:0.82rem;">Saldo de horas: <strong style="color:${heR.saldoMin<0?'var(--danger)':'var(--success)'};font-size:1.05rem;">${_heFmtHM(heR.saldoMin)}</strong> <span style="color:var(--text-light);">(extra ${_heFmtHM(heR.extraMin)} &middot; permisos ${_heFmtHM(heR.permisoMin)})</span></div>`;
     if(!heMovs.length){
         html+=`<p style="font-size:0.82rem;color:var(--text-light);font-style:italic;background:var(--bg);padding:14px;border-radius:6px;">Todavía no registraste horas extra ni permisos.</p>`;
@@ -4208,6 +4212,7 @@ function _renderRrhhHorasExtra(){
             <div style="font-weight:700;font-size:0.84rem;margin-bottom:2px;">${esc(e.nombre||'—')}</div>
             <div style="font-size:1.35rem;font-weight:800;color:${col};">${_heFmtHM(r.saldoMin)}</div>
             <div style="font-size:0.68rem;color:var(--text-light);">extra ${_heFmtHM(r.extraMin)} &middot; permisos ${_heFmtHM(r.permisoMin)}${r.pendientes?' &middot; <span style="color:#b8860b;">'+r.pendientes+' pend.</span>':''}</div>
+            <div style="margin-top:8px;"><button class="btn btn-sm btn-ghost" style="padding:2px 8px;font-size:0.68rem;" onclick="verHorasExtraReporte('${e.id}','${_heFiltroMes}')" title="${_heFiltroMes?'Reporte del mes seleccionado arriba':'Reporte de todo el historial (elegí un mes en el filtro para acotar)'}">Imprimir reporte</button></div>
         </div>`;}).join('');
     html+=`</div>`;
     if(puedeGestionar)html+=`<div style="margin-bottom:12px;"><button class="btn btn-sm btn-accent" onclick="openRrhhHoraExtraModal('')">+ Registrar movimiento</button></div>`;
@@ -4373,6 +4378,69 @@ function eliminarRrhhHoraExtra(id){
     _appendBitacoraRrhh(cfg,'Eliminó '+(_RRHH_HE_TIPO_LABEL[m.tipo]||m.tipo)+' de "'+(m.colaboradorNombre||'')+'" ('+fmtFechaCorta(m.fecha)+')');
     saveConfig(cfg);
     renderRrhh();
+}
+
+// ----- REPORTE imprimible de horas extra (usa el camino existente viewDocumento) -----
+function verHorasExtraReporte(empId,mes){
+    nav('documento');
+    setTimeout(()=>renderHorasExtraReporte(empId,mes||''),50);
+}
+function renderHorasExtraReporte(empId,mes){
+    const container=document.getElementById('documentoContent');
+    if(!container)return;
+    const emp=getRrhhEmpleados().find(e=>e.id===empId);
+    if(!emp){container.innerHTML='<div style="padding:30px;">Colaboradora no encontrada.</div>';return;}
+    const ag=(cfgGet().agencyInfo)||{};
+    let movs=getRrhhHorasExtra().filter(m=>m.colaboradorId===empId&&(m.estado||'PENDIENTE')==='APROBADO');
+    if(mes)movs=movs.filter(m=>String(m.fecha||'').slice(0,7)===mes);
+    movs.sort((a,b)=>String(a.fecha||'').localeCompare(String(b.fecha||''))||String(a.horaInicio||'').localeCompare(String(b.horaInicio||'')));
+    let extraMin=0,permisoMin=0;
+    movs.forEach(m=>{if(m.tipo==='EXTRA')extraMin+=num(m.minutos);else if(m.tipo==='PERMISO')permisoMin+=num(m.minutos);});
+    const saldoMin=extraMin-permisoMin;
+    const periodoTxt=mes?((_RRHH_MESES[num(mes.slice(5,7))-1]||'')+' '+mes.slice(0,4)):'Histórico completo';
+    // ¿hay pendientes en el período? (para nota al pie)
+    let pend=getRrhhHorasExtra().filter(m=>m.colaboradorId===empId&&(m.estado||'PENDIENTE')==='PENDIENTE');
+    if(mes)pend=pend.filter(m=>String(m.fecha||'').slice(0,7)===mes);
+    const docNum='RHE-'+(mes?mes.replace('-',''):'TOTAL')+'-'+String(emp.id||'').slice(-4);
+    const filas=movs.length?movs.map(m=>`<tr>
+        <td style="padding:5px 10px;border-bottom:1px solid #eee;">${fmtFechaCorta(m.fecha)}</td>
+        <td style="padding:5px 10px;border-bottom:1px solid #eee;color:${_RRHH_HE_TIPO_COLOR[m.tipo]||'#222'};font-weight:600;">${_RRHH_HE_TIPO_LABEL[m.tipo]||m.tipo}</td>
+        <td style="padding:5px 10px;border-bottom:1px solid #eee;text-align:center;">${esc(m.horaInicio||'')}</td>
+        <td style="padding:5px 10px;border-bottom:1px solid #eee;text-align:center;">${esc(m.horaFin||'')}</td>
+        <td style="padding:5px 10px;border-bottom:1px solid #eee;text-align:right;font-weight:700;">${_heFmtHM(num(m.minutos))}</td>
+        <td style="padding:5px 10px;border-bottom:1px solid #eee;font-size:0.78rem;color:#555;">${esc(m.nota||'')}</td>
+    </tr>`).join(''):`<tr><td colspan="6" style="padding:14px;text-align:center;color:#888;font-style:italic;">Sin movimientos aprobados en el período.</td></tr>`;
+    container.innerHTML=`<div style="max-width:720px;margin:0 auto;background:#fff;padding:34px 40px;box-shadow:0 2px 12px rgba(0,0,0,0.08);font-family:'Open Sans',sans-serif;color:#222;">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #0a7e8c;padding-bottom:12px;margin-bottom:16px;">
+            <div><div style="font-size:1.25rem;font-weight:800;color:#0a7e8c;">${esc(ag.nombre||'Deseos Viajeros')}</div>
+            <div style="font-size:0.74rem;color:#666;">${esc(ag.razonSocial||'')}${ag.cedula?' · Céd. '+esc(ag.cedula):''}${ag.telefono?' · Tel. '+esc(ag.telefono):''}</div></div>
+            <div style="text-align:right;"><div style="font-size:1.05rem;font-weight:800;letter-spacing:0.5px;">REPORTE DE HORAS EXTRA</div>
+            <div style="font-size:0.74rem;color:#666;">N° ${esc(docNum)}</div></div>
+        </div>
+        <table style="width:100%;font-size:0.8rem;margin-bottom:14px;"><tbody>
+            <tr><td style="padding:2px 0;color:#666;width:140px;">Colaboradora:</td><td style="padding:2px 0;font-weight:700;">${esc(emp.nombre||'')}</td>
+                <td style="padding:2px 0;color:#666;width:90px;">Puesto:</td><td style="padding:2px 0;">${esc(emp.puesto||'—')}</td></tr>
+            <tr><td style="padding:2px 0;color:#666;">Período:</td><td style="padding:2px 0;font-weight:700;">${esc(periodoTxt)}</td>
+                <td style="padding:2px 0;color:#666;">Emitido:</td><td style="padding:2px 0;">${fmtFechaCorta(new Date().toISOString().slice(0,10))}</td></tr>
+        </tbody></table>
+        <table style="width:100%;border-collapse:collapse;font-size:0.8rem;margin-bottom:10px;">
+            <thead><tr style="background:#0a7e8c;color:#fff;text-align:left;">
+                <th style="padding:7px 10px;">Fecha</th><th style="padding:7px 10px;">Tipo</th><th style="padding:7px 10px;text-align:center;">Inicio</th><th style="padding:7px 10px;text-align:center;">Fin</th><th style="padding:7px 10px;text-align:right;">Total</th><th style="padding:7px 10px;">Anotaciones</th>
+            </tr></thead>
+            <tbody>${filas}</tbody>
+            <tfoot>
+                <tr style="font-weight:700;border-top:2px solid #0a7e8c;"><td colspan="4" style="padding:6px 10px;text-align:right;">Total horas extra</td><td style="padding:6px 10px;text-align:right;color:#1e8449;">${_heFmtHM(extraMin)}</td><td></td></tr>
+                <tr style="font-weight:700;"><td colspan="4" style="padding:6px 10px;text-align:right;">Total permisos</td><td style="padding:6px 10px;text-align:right;color:#d4830f;">${_heFmtHM(permisoMin)}</td><td></td></tr>
+                <tr style="font-weight:800;font-size:0.86rem;background:#f4f9f9;"><td colspan="4" style="padding:8px 10px;text-align:right;">SALDO NETO</td><td style="padding:8px 10px;text-align:right;color:${saldoMin<0?'#c0392b':'#1e8449'};">${_heFmtHM(saldoMin)}</td><td></td></tr>
+            </tfoot>
+        </table>
+        ${pend.length?`<p style="font-size:0.72rem;color:#b8860b;margin:2px 0 0;">Nota: hay ${pend.length} movimiento(s) pendiente(s) de aprobación en este período que no se incluyen en los totales.</p>`:''}
+        <div style="margin-top:30px;display:flex;gap:40px;">
+            <div style="flex:1;border-top:1px solid #888;padding-top:4px;font-size:0.74rem;color:#666;text-align:center;">Firma colaboradora</div>
+            <div style="flex:1;border-top:1px solid #888;padding-top:4px;font-size:0.74rem;color:#666;text-align:center;">Firma administración</div>
+        </div>
+        <div style="margin-top:16px;font-size:0.64rem;color:#aaa;text-align:center;">Reporte generado por el sistema de ${esc(ag.nombre||'Deseos Viajeros')}. Incluye solo movimientos aprobados.</div>
+    </div>`;
 }
 // =====================================================================================
 
