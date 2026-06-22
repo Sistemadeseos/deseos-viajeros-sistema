@@ -1509,6 +1509,7 @@ onAuthStateChanged(fbAuth, (user) => {
 <div class="modal-overlay" id="modalRrhhParam"></div>
 <div class="modal-overlay" id="modalRrhhColilla"></div>
 <div class="modal-overlay" id="modalRrhhVacacion"></div>
+<div class="modal-overlay" id="modalRrhhHoraExtra"></div>
 
 <script>
 // ===== STATE =====
@@ -1653,7 +1654,7 @@ function setLSObj(k,v){
 //   destinos/{pais}/{ciudad}_{timestamp}
 
 // Tracking de IDs que ya subimos a Firestore (para poder detectar eliminaciones)
-const _fsDocIds={cotizaciones:new Set(),ventas:new Set(),clientes:new Set(),destinos:new Set(),hoteles:new Set(),grupos:new Set(),rrhh_colillas:new Set(),rrhh_vacaciones:new Set()};
+const _fsDocIds={cotizaciones:new Set(),ventas:new Set(),clientes:new Set(),destinos:new Set(),hoteles:new Set(),grupos:new Set(),rrhh_colillas:new Set(),rrhh_vacaciones:new Set(),rrhh_horasextra:new Set()};
 
 // ===== METADATA (timestamp + autor en cada save) =====
 // Agrega _lastModifiedAt y _lastModifiedBy a un objeto antes de guardarlo.
@@ -1685,6 +1686,7 @@ function guardarSnapshotRespaldo(motivo){
             grupos:getLS('dv_grupos'),
             rrhh_colillas:getLS('dv_rrhh_colillas'),
             rrhh_vacaciones:getLS('dv_rrhh_vacaciones'),
+            rrhh_horasextra:getLS('dv_rrhh_horasextra'),
             config:getLSObj('dv_config')
         };
         localStorage.setItem(key,JSON.stringify(snap));
@@ -1769,6 +1771,8 @@ async function pushToFirestore(key,value){
             await syncArrayCollection('rrhh_colillas',value,false);
         }else if(key==='dv_rrhh_vacaciones'){
             await syncArrayCollection('rrhh_vacaciones',value,false);
+        }else if(key==='dv_rrhh_horasextra'){
+            await syncArrayCollection('rrhh_horasextra',value,false);
         }
     }catch(e){
         console.error('[FS] error en pushToFirestore para',key,':',e);
@@ -2019,6 +2023,14 @@ async function loadAllFromFirestore(){
         vacaciones=mergedVac.merged;recuperadosTotal+=mergedVac.recovered;
         localStorage.setItem('dv_rrhh_vacaciones',JSON.stringify(vacaciones));
         if(mergedVac.recovered>0)setTimeout(()=>{if(_fsEnabled)pushToFirestore('dv_rrhh_vacaciones',vacaciones).catch(e=>console.error(e));},10500);
+        // rrhh_horasextra: movimientos de horas extra / permisos (array de docs independientes, defensivo)
+        const localHe=getLS('dv_rrhh_horasextra');
+        const heSnap=await h.getDocs(h.collection(db,'rrhh_horasextra'));
+        let horasextra=[];heSnap.forEach(dd=>{horasextra.push(dd.data());_fsDocIds.rrhh_horasextra.add(dd.id);});
+        const mergedHe=mergeArrayDefensivo('rrhh_horasextra',horasextra,localHe);
+        horasextra=mergedHe.merged;recuperadosTotal+=mergedHe.recovered;
+        localStorage.setItem('dv_rrhh_horasextra',JSON.stringify(horasextra));
+        if(mergedHe.recovered>0)setTimeout(()=>{if(_fsEnabled)pushToFirestore('dv_rrhh_horasextra',horasextra).catch(e=>console.error(e));},11500);
         console.log(`[FS] datos cargados: ${cots.length} cotizaciones, ${ventas.length} ventas, ${clientes.length} clientes, ${Object.keys(destObj).length} pa\u00edses, ${hoteles.length} hoteles${recuperadosTotal>0?' ('+recuperadosTotal+' items recuperados de localStorage)':''}`);
         if(recuperadosTotal>0){
             setTimeout(()=>{
@@ -2959,7 +2971,10 @@ registrarPermisos([
     {clave:'rrhh.colillas.gestionar',  nombre:'Generar y editar colillas de pago',modulo:'Planilla'},
     {clave:'rrhh.vacaciones.ver',      nombre:'Ver vacaciones (saldos y solicitudes)', modulo:'Planilla'},
     {clave:'rrhh.vacaciones.gestionar',nombre:'Crear y editar solicitudes de vacaciones', modulo:'Planilla'},
-    {clave:'rrhh.vacaciones.aprobar',  nombre:'Aprobar o rechazar vacaciones',   modulo:'Planilla'}
+    {clave:'rrhh.vacaciones.aprobar',  nombre:'Aprobar o rechazar vacaciones',   modulo:'Planilla'},
+    {clave:'rrhh.horasextra.ver',      nombre:'Ver horas extra (saldos y movimientos)', modulo:'Planilla'},
+    {clave:'rrhh.horasextra.gestionar',nombre:'Registrar y editar horas extra de cualquiera', modulo:'Planilla'},
+    {clave:'rrhh.horasextra.aprobar',  nombre:'Aprobar o rechazar horas extra',  modulo:'Planilla'}
 ]);
 
 // ----- Accesores de datos (viven en config) -----
@@ -2973,6 +2988,9 @@ function saveRrhhColillas(arr){return setLS('dv_rrhh_colillas',Array.isArray(arr
 // Vacaciones: solicitudes en coleccion sincronizada propia (dv_rrhh_vacaciones). Mismo patron anti-perdida.
 function getRrhhVacaciones(){return getLS('dv_rrhh_vacaciones');}
 function saveRrhhVacaciones(arr){return setLS('dv_rrhh_vacaciones',Array.isArray(arr)?arr:[]);}
+// Horas extra: movimientos (EXTRA suma, PERMISO resta) en coleccion sincronizada propia. Mismo patron anti-perdida.
+function getRrhhHorasExtra(){return getLS('dv_rrhh_horasextra');}
+function saveRrhhHorasExtra(arr){return setLS('dv_rrhh_horasextra',Array.isArray(arr)?arr:[]);}
 
 // ----- AUTOSERVICIO: la empleada entra a ver SOLO su propia planilla -----
 // Ficha de empleado cuyo email coincide con el del usuario logueado (match por correo en minúsculas).
@@ -3027,11 +3045,13 @@ function renderRrhh(){
         <strong>&#9888; Importante:</strong> todavía no cargaste parámetros de nómina, así que se usan valores de referencia por defecto. Cargá tus tasas de CCSS y tramos de renta (validados por tu contador) en la pestaña <strong>Parámetros de nómina</strong> antes de usarlo en planilla real.</div>`;
     const verColillas=tienePermiso('rrhh.colillas.ver');
     const verVacaciones=tienePermiso('rrhh.vacaciones.ver');
+    const verHorasExtra=tienePermiso('rrhh.horasextra.ver');
     const tabs=`<div class="config-tabs" style="margin-bottom:14px;">
         <button class="config-tab ${_rrhhTabActiva==='empleados'?'active':''}" onclick="switchRrhhTab('empleados')">Empleados</button>
         <button class="config-tab ${_rrhhTabActiva==='parametros'?'active':''}" onclick="switchRrhhTab('parametros')">Parámetros de nómina</button>
         ${verColillas?`<button class="config-tab ${_rrhhTabActiva==='colillas'?'active':''}" onclick="switchRrhhTab('colillas')">Colillas de pago</button>`:''}
         ${verVacaciones?`<button class="config-tab ${_rrhhTabActiva==='vacaciones'?'active':''}" onclick="switchRrhhTab('vacaciones')">Vacaciones</button>`:''}
+        ${verHorasExtra?`<button class="config-tab ${_rrhhTabActiva==='horasextra'?'active':''}" onclick="switchRrhhTab('horasextra')">Horas extra</button>`:''}
     </div>`;
     v.innerHTML=`<div style="max-width:1000px;margin:0 auto;width:100%;padding:4px;">${banner}${tabs}<div id="rrhhPaneBox"></div></div>`;
     _renderRrhhPane();
@@ -3098,6 +3118,35 @@ function _renderRrhhAutoServicio(v){
         </tr>`).join('');
         html+=`</tbody></table></div>`;
     }
+    // Mis horas extra
+    const heR=_heResumenColaborador(f.id);
+    const heMovs=getRrhhHorasExtra().filter(m=>m.colaboradorId===f.id).slice().sort((a,b)=>String(b.fecha||'').localeCompare(String(a.fecha||''))||(num(b.creadaTs)-num(a.creadaTs)));
+    html+=`<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin:22px 0 10px;">
+        <h3 style="margin:0;font-size:0.95rem;">Mis horas extra</h3>
+        <button class="btn btn-sm btn-accent" onclick="openRrhhHoraExtraModal('',{autoEmpId:'${f.id}'})">+ Registrar horas extra / permiso</button></div>`;
+    html+=`<div style="background:var(--bg);border-radius:8px;padding:10px 14px;margin-bottom:10px;font-size:0.82rem;">Saldo de horas: <strong style="color:${heR.saldoMin<0?'var(--danger)':'var(--success)'};font-size:1.05rem;">${_heFmtHM(heR.saldoMin)}</strong> <span style="color:var(--text-light);">(extra ${_heFmtHM(heR.extraMin)} &middot; permisos ${_heFmtHM(heR.permisoMin)})</span></div>`;
+    if(!heMovs.length){
+        html+=`<p style="font-size:0.82rem;color:var(--text-light);font-style:italic;background:var(--bg);padding:14px;border-radius:6px;">Todavía no registraste horas extra ni permisos.</p>`;
+    }else{
+        html+=`<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:0.8rem;">
+            <thead><tr style="text-align:left;border-bottom:2px solid var(--border);color:var(--text-light);text-transform:uppercase;font-size:0.66rem;letter-spacing:0.4px;">
+                <th style="padding:7px 8px;">Fecha</th><th style="padding:7px 8px;">Tipo</th><th style="padding:7px 8px;">Horario</th><th style="padding:7px 8px;text-align:right;">Total</th><th style="padding:7px 8px;text-align:center;">Estado</th><th style="padding:7px 8px;text-align:right;">Acciones</th>
+            </tr></thead><tbody>`;
+        html+=heMovs.map(m=>{
+            const estado=m.estado||'PENDIENTE';
+            const nota=m.nota?`<br><span style="color:var(--text-light);font-size:0.72rem;">${esc(m.nota)}</span>`:'';
+            const acc=(estado==='PENDIENTE')?`<button class="btn btn-sm btn-ghost" style="padding:3px 8px;" onclick="openRrhhHoraExtraModal('${m.id}',{autoEmpId:'${f.id}'})">Editar</button><button class="btn-icon remove" title="Eliminar" onclick="eliminarRrhhHoraExtra('${m.id}')">&times;</button>`:'<span style="color:var(--text-light);font-size:0.72rem;">—</span>';
+            return `<tr style="border-bottom:1px solid var(--border);">
+                <td style="padding:6px 8px;">${fmtFechaCorta(m.fecha)}${nota}</td>
+                <td style="padding:6px 8px;"><span style="color:${_RRHH_HE_TIPO_COLOR[m.tipo]||'#666'};font-weight:700;">${_RRHH_HE_TIPO_LABEL[m.tipo]||m.tipo}</span></td>
+                <td style="padding:6px 8px;">${esc(m.horaInicio||'')}–${esc(m.horaFin||'')}</td>
+                <td style="padding:6px 8px;text-align:right;font-weight:700;">${_heFmtHM(num(m.minutos))}</td>
+                <td style="padding:6px 8px;text-align:center;"><span style="color:${_RRHH_HE_ESTADO_COLOR[estado]||'#666'};font-weight:700;">${_RRHH_HE_ESTADO_LABEL[estado]||estado}</span></td>
+                <td style="padding:6px 8px;text-align:right;white-space:nowrap;">${acc}</td>
+            </tr>`;
+        }).join('');
+        html+=`</tbody></table></div>`;
+    }
     html+=`</div>`;
     v.innerHTML=html;
 }
@@ -3108,6 +3157,7 @@ function _renderRrhhPane(){
     if(_rrhhTabActiva==='parametros')box.innerHTML=_renderRrhhParametros();
     else if(_rrhhTabActiva==='colillas')box.innerHTML=_renderRrhhColillas();
     else if(_rrhhTabActiva==='vacaciones')box.innerHTML=_renderRrhhVacaciones();
+    else if(_rrhhTabActiva==='horasextra')box.innerHTML=_renderRrhhHorasExtra();
     else box.innerHTML=_renderRrhhEmpleados();
 }
 
@@ -4100,6 +4150,227 @@ function eliminarRrhhVacacion(id){
     saveRrhhVacaciones(getRrhhVacaciones().filter(x=>x.id!==id));
     const cfg=getConfig();
     _appendBitacoraRrhh(cfg,'Eliminó la solicitud de vacaciones de "'+(s.empleadoNombre||'')+'" ('+fmtFechaCorta(s.fechaDesde)+' a '+fmtFechaCorta(s.fechaHasta)+')');
+    saveConfig(cfg);
+    renderRrhh();
+}
+// =====================================================================================
+
+// ===================== HORAS EXTRA (movimientos EXTRA suma / PERMISO resta) =====================
+const _RRHH_HE_ESTADO_LABEL={PENDIENTE:'Pendiente',APROBADO:'Aprobado',RECHAZADO:'Rechazado'};
+const _RRHH_HE_ESTADO_COLOR={PENDIENTE:'#b8860b',APROBADO:'#1e8449',RECHAZADO:'#c0392b'};
+const _RRHH_HE_TIPO_LABEL={EXTRA:'Hora extra',PERMISO:'Permiso'};
+const _RRHH_HE_TIPO_COLOR={EXTRA:'#1e8449',PERMISO:'#d4830f'};
+let _heFiltroColab='',_heFiltroEstado='',_heFiltroMes='';
+
+// HH:MM -> minutos; duración con cruce de medianoche (23:00->00:30 = 90 min).
+function _heAMin(hhmm){const p=String(hhmm||'').split(':');return num(p[0])*60+num(p[1]);}
+function _heDuracionMin(inicio,fin){let d=_heAMin(fin)-_heAMin(inicio);if(d<0)d+=1440;return d;}
+// minutos -> "H:MM" (con signo si es negativo).
+function _heFmtHM(min){min=Math.round(num(min));const neg=min<0,a=Math.abs(min);return (neg?'-':'')+Math.floor(a/60)+':'+String(a%60).padStart(2,'0');}
+// Resumen acumulado por colaboradora: solo cuentan los movimientos APROBADOS.
+function _heResumenColaborador(empId){
+    const movs=getRrhhHorasExtra().filter(m=>m.colaboradorId===empId);
+    let extraMin=0,permisoMin=0,pend=0;
+    movs.forEach(m=>{
+        if((m.estado||'PENDIENTE')==='APROBADO'){if(m.tipo==='EXTRA')extraMin+=num(m.minutos);else if(m.tipo==='PERMISO')permisoMin+=num(m.minutos);}
+        else if((m.estado||'PENDIENTE')==='PENDIENTE')pend++;
+    });
+    return {extraMin,permisoMin,saldoMin:extraMin-permisoMin,pendientes:pend};
+}
+// True si el movimiento pertenece al usuario logueado (para impedir auto-aprobación).
+function _heEsMio(m){const f=_rrhhMiFichaEmpleado();return !!(f&&m&&m.colaboradorId===f.id);}
+// Nombre legible a partir del correo (busca en usuarios de permisos y en fichas de empleados).
+function _rrhhNombreDeEmail(email){
+    const e=_normEmail(email);if(!e)return '';
+    const u=getUsuariosPerm().find(x=>_normEmail(x.email)===e);if(u&&u.nombre)return u.nombre;
+    const f=getRrhhEmpleados().find(x=>_normEmail(x.email)===e);if(f&&f.nombre)return f.nombre;
+    return email;
+}
+
+function _heAplicarFiltros(){const b=document.getElementById('rrhhPaneBox');if(b)b.innerHTML=_renderRrhhHorasExtra();}
+function _heSetFiltro(campo,val){if(campo==='colab')_heFiltroColab=val;else if(campo==='estado')_heFiltroEstado=val;else if(campo==='mes')_heFiltroMes=val;_heAplicarFiltros();}
+
+function _renderRrhhHorasExtra(){
+    const puedeGestionar=tienePermiso('rrhh.horasextra.gestionar');
+    const puedeAprobar=tienePermiso('rrhh.horasextra.aprobar');
+    const emp=getRrhhEmpleados();
+    let html=`<p class="config-hint">Control de horas extra y permisos. Las <strong>horas extra suman</strong> y los <strong>permisos restan</strong> al saldo. Cada movimiento queda <strong>pendiente</strong> hasta que un administrador lo apruebe; los pendientes y rechazados no afectan el saldo.</p>`;
+    if(!emp.length){
+        html+=`<p style="font-size:0.82rem;color:var(--text-light);font-style:italic;background:var(--bg);padding:14px;border-radius:6px;">Primero registrá empleados en la pestaña <strong>Empleados</strong>.</p>`;
+        return html;
+    }
+    const activos=emp.filter(e=>(e.estado||'activo')==='activo');
+    const lista=(activos.length?activos:emp);
+    // Tarjetas de saldo (acumulado)
+    html+=`<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px;">`;
+    html+=lista.map(e=>{const r=_heResumenColaborador(e.id);const col=r.saldoMin<0?'var(--danger)':'var(--success)';
+        return `<div style="flex:1;min-width:175px;background:var(--bg);border-radius:8px;padding:12px 14px;">
+            <div style="font-weight:700;font-size:0.84rem;margin-bottom:2px;">${esc(e.nombre||'—')}</div>
+            <div style="font-size:1.35rem;font-weight:800;color:${col};">${_heFmtHM(r.saldoMin)}</div>
+            <div style="font-size:0.68rem;color:var(--text-light);">extra ${_heFmtHM(r.extraMin)} &middot; permisos ${_heFmtHM(r.permisoMin)}${r.pendientes?' &middot; <span style="color:#b8860b;">'+r.pendientes+' pend.</span>':''}</div>
+        </div>`;}).join('');
+    html+=`</div>`;
+    if(puedeGestionar)html+=`<div style="margin-bottom:12px;"><button class="btn btn-sm btn-accent" onclick="openRrhhHoraExtraModal('')">+ Registrar movimiento</button></div>`;
+    // Filtros
+    const colOpts=lista.map(e=>`<option value="${esc(e.id)}" ${_heFiltroColab===e.id?'selected':''}>${esc(e.nombre)}</option>`).join('');
+    html+=`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;align-items:center;">
+        <select onchange="_heSetFiltro('colab',this.value)" style="max-width:200px;"><option value="">Todas las colaboradoras</option>${colOpts}</select>
+        <select onchange="_heSetFiltro('estado',this.value)" style="max-width:160px;"><option value="">Todos los estados</option><option value="PENDIENTE" ${_heFiltroEstado==='PENDIENTE'?'selected':''}>Pendientes</option><option value="APROBADO" ${_heFiltroEstado==='APROBADO'?'selected':''}>Aprobados</option><option value="RECHAZADO" ${_heFiltroEstado==='RECHAZADO'?'selected':''}>Rechazados</option></select>
+        <input type="month" value="${esc(_heFiltroMes)}" onchange="_heSetFiltro('mes',this.value)" style="max-width:160px;" title="Filtrar por mes">
+        ${_heFiltroMes?`<button class="btn btn-sm btn-ghost" onclick="_heSetFiltro('mes','')">Limpiar mes</button>`:''}
+    </div>`;
+    let movs=getRrhhHorasExtra().slice();
+    if(_heFiltroColab)movs=movs.filter(m=>m.colaboradorId===_heFiltroColab);
+    if(_heFiltroEstado)movs=movs.filter(m=>(m.estado||'PENDIENTE')===_heFiltroEstado);
+    if(_heFiltroMes)movs=movs.filter(m=>String(m.fecha||'').slice(0,7)===_heFiltroMes);
+    movs.sort((a,b)=>String(b.fecha||'').localeCompare(String(a.fecha||''))||(num(b.creadaTs)-num(a.creadaTs)));
+    if(!movs.length){
+        html+=`<p style="font-size:0.82rem;color:var(--text-light);font-style:italic;background:var(--bg);padding:14px;border-radius:6px;">No hay movimientos para los filtros elegidos.</p>`;
+        return html;
+    }
+    html+=`<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:0.8rem;">
+        <thead><tr style="text-align:left;border-bottom:2px solid var(--border);color:var(--text-light);text-transform:uppercase;font-size:0.66rem;letter-spacing:0.4px;">
+            <th style="padding:7px 8px;">Colaboradora</th><th style="padding:7px 8px;">Fecha</th><th style="padding:7px 8px;">Tipo</th><th style="padding:7px 8px;">Horario</th><th style="padding:7px 8px;text-align:right;">Total</th><th style="padding:7px 8px;">Nota</th><th style="padding:7px 8px;text-align:center;">Estado</th><th style="padding:7px 8px;text-align:right;">Acciones</th>
+        </tr></thead><tbody>`;
+    html+=movs.map(m=>{
+        const estado=m.estado||'PENDIENTE';
+        const estadoTag=`<span style="color:${_RRHH_HE_ESTADO_COLOR[estado]||'#666'};font-weight:700;">${_RRHH_HE_ESTADO_LABEL[estado]||estado}</span>`;
+        const aprob=(estado==='APROBADO'||estado==='RECHAZADO')&&m.aprobadoPor?`<br><span style="color:var(--text-light);font-size:0.68rem;">por ${esc(m.aprobadoPor)}</span>`:'';
+        let acc='';
+        if(puedeAprobar&&estado==='PENDIENTE'&&!_heEsMio(m))acc+=`<button class="btn btn-sm btn-ghost" style="padding:3px 8px;color:#1e8449;" onclick="aprobarRrhhHoraExtra('${m.id}','APROBADO')">Aprobar</button><button class="btn btn-sm btn-ghost" style="padding:3px 8px;color:#c0392b;" onclick="aprobarRrhhHoraExtra('${m.id}','RECHAZADO')">Rechazar</button>`;
+        if(puedeGestionar)acc+=`<button class="btn btn-sm btn-ghost" style="padding:3px 8px;" onclick="openRrhhHoraExtraModal('${m.id}')">Editar</button><button class="btn-icon remove" title="Eliminar" onclick="eliminarRrhhHoraExtra('${m.id}')">&times;</button>`;
+        if(puedeAprobar&&estado==='PENDIENTE'&&_heEsMio(m))acc+=`<span style="color:var(--text-light);font-size:0.68rem;">lo aprueba otra persona</span>`;
+        return `<tr style="border-bottom:1px solid var(--border);">
+            <td style="padding:6px 8px;font-weight:600;">${esc(m.colaboradorNombre||'—')}</td>
+            <td style="padding:6px 8px;">${fmtFechaCorta(m.fecha)}</td>
+            <td style="padding:6px 8px;"><span style="color:${_RRHH_HE_TIPO_COLOR[m.tipo]||'#666'};font-weight:700;">${_RRHH_HE_TIPO_LABEL[m.tipo]||m.tipo}</span></td>
+            <td style="padding:6px 8px;">${esc(m.horaInicio||'')}–${esc(m.horaFin||'')}</td>
+            <td style="padding:6px 8px;text-align:right;font-weight:700;">${_heFmtHM(num(m.minutos))}</td>
+            <td style="padding:6px 8px;font-size:0.74rem;color:var(--text-light);">${esc(m.nota||'')}</td>
+            <td style="padding:6px 8px;text-align:center;">${estadoTag}${aprob}</td>
+            <td style="padding:6px 8px;text-align:right;white-space:nowrap;">${acc||'<span style="color:var(--text-light);font-size:0.72rem;">—</span>'}</td>
+        </tr>`;
+    }).join('');
+    html+=`</tbody></table></div>`;
+    return html;
+}
+
+function openRrhhHoraExtraModal(id,opts){
+    opts=opts||{};
+    const auto=!!opts.autoEmpId;   // autoservicio: la colaboradora registra/edita lo suyo
+    if(auto){const mi=_rrhhMiFichaEmpleado();if(!mi||mi.id!==opts.autoEmpId){alert('Solo podés registrar tus propios movimientos.');return;}}
+    else if(!exigirPermiso('rrhh.horasextra.gestionar','registrar horas extra'))return;
+    const emp=getRrhhEmpleados();
+    if(!emp.length){alert('Registrá empleados primero.');return;}
+    const movs=getRrhhHorasExtra();
+    const m=id?movs.find(x=>x.id===id):null;
+    if(id&&!m)return;
+    if(m&&auto){const mi=_rrhhMiFichaEmpleado();if(!mi||m.colaboradorId!==mi.id||(m.estado||'PENDIENTE')!=='PENDIENTE'){alert('Solo podés editar tus movimientos mientras están pendientes.');return;}}
+    const tipo=m?m.tipo:'EXTRA';
+    const fixedEmpId=auto?opts.autoEmpId:(m?m.colaboradorId:'');
+    const fixedEmp=emp.find(e=>e.id===fixedEmpId);
+    const hoy=new Date().toISOString().slice(0,10);
+    const empCampo=auto
+        ?`<input type="hidden" id="rheEmpleado" value="${esc(opts.autoEmpId)}"><div class="form-group"><label>Colaboradora</label><div style="padding:8px 10px;background:var(--bg);border-radius:6px;font-weight:600;">${esc(fixedEmp?fixedEmp.nombre:'')}</div></div>`
+        :`<div class="form-group"><label>Colaboradora *</label><select id="rheEmpleado"><option value="">-- Seleccionar --</option>${emp.map(e=>`<option value="${esc(e.id)}" ${fixedEmpId===e.id?'selected':''}>${esc(e.nombre)}${e.puesto?' — '+esc(e.puesto):''}</option>`).join('')}</select></div>`;
+    const overlay=document.getElementById('modalRrhhHoraExtra');
+    overlay.innerHTML=`<div class="modal" style="max-width:560px;">
+        <div class="modal-header"><h3>${id?'Editar movimiento':(auto?'Registrar horas extra / permiso':'Registrar movimiento')}</h3><button class="modal-close" onclick="closeModal('modalRrhhHoraExtra')">&times;</button></div>
+        <div class="modal-body">
+            <input type="hidden" id="rheId" value="${esc(m?m.id:'')}">
+            <div class="form-row">
+                <div class="form-group"><label>Tipo *</label><select id="rheTipo">
+                    <option value="EXTRA" ${tipo==='EXTRA'?'selected':''}>Hora extra (suma)</option>
+                    <option value="PERMISO" ${tipo==='PERMISO'?'selected':''}>Permiso / salida (resta)</option>
+                </select></div>
+                ${empCampo}
+            </div>
+            <div class="form-row">
+                <div class="form-group"><label>Fecha *</label><input type="date" id="rheFecha" value="${esc(m?m.fecha:hoy)}"></div>
+                <div class="form-group"><label>Hora inicio *</label><input type="time" id="rheInicio" value="${esc(m?m.horaInicio:'')}" oninput="_rrhhHeRecalcTotal()"></div>
+                <div class="form-group"><label>Hora fin *</label><input type="time" id="rheFin" value="${esc(m?m.horaFin:'')}" oninput="_rrhhHeRecalcTotal()"></div>
+            </div>
+            <div id="rheTotalBox" style="font-size:0.82rem;font-weight:700;margin:-2px 0 8px;"></div>
+            <div class="form-group"><label>Nota / actividad</label><input type="text" id="rheNota" value="${esc(m?m.nota:'')}" placeholder="Opcional"></div>
+            <p style="font-size:0.7rem;color:var(--text-light);margin:0;">El total se calcula solo (soporta cruce de medianoche). El movimiento queda <strong>pendiente de aprobación</strong>.</p>
+        </div>
+        <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modalRrhhHoraExtra')">Cancelar</button><button class="btn btn-success" onclick="guardarRrhhHoraExtra()">Guardar</button></div>
+    </div>`;
+    overlay.classList.add('open');
+    _rrhhHeRecalcTotal();
+}
+
+function _rrhhHeRecalcTotal(){
+    const box=document.getElementById('rheTotalBox');if(!box)return;
+    const i=document.getElementById('rheInicio').value,f=document.getElementById('rheFin').value;
+    if(!i||!f){box.textContent='';return;}
+    const d=_heDuracionMin(i,f);
+    if(d>0){box.textContent='Total: '+_heFmtHM(d)+' ('+(Math.round(d/60*10)/10)+' h)';box.style.color='var(--primary-dark)';}
+    else{box.textContent='⚠ La hora fin debe ser distinta a la de inicio.';box.style.color='var(--danger)';}
+}
+
+function guardarRrhhHoraExtra(){
+    const auto=_rrhhEsAutoServicio();
+    const empId=document.getElementById('rheEmpleado').value;
+    if(auto){const mi=_rrhhMiFichaEmpleado();if(!mi||empId!==mi.id){alert('Solo podés registrar tus propios movimientos.');return;}}
+    else if(!exigirPermiso('rrhh.horasextra.gestionar','registrar horas extra'))return;
+    if(!empId){alert('Elegí una colaboradora.');return;}
+    const tipo=document.getElementById('rheTipo').value||'EXTRA';
+    const fecha=document.getElementById('rheFecha').value;
+    const inicio=document.getElementById('rheInicio').value;
+    const fin=document.getElementById('rheFin').value;
+    if(!fecha){alert('Indicá la fecha.');return;}
+    if(!inicio||!fin){alert('Indicá hora de inicio y fin.');return;}
+    const minutos=_heDuracionMin(inicio,fin);
+    if(minutos<=0){alert('La duración debe ser mayor a 0. Revisá las horas.');return;}
+    const emp=getRrhhEmpleados().find(e=>e.id===empId);
+    const id=document.getElementById('rheId').value||'';
+    const arr=getRrhhHorasExtra().map(x=>Object.assign({},x));
+    const nota=(document.getElementById('rheNota').value||'').trim();
+    if(id){
+        const u=arr.find(x=>x.id===id);
+        if(!u){alert('No se encontró el movimiento.');return;}
+        if(auto){const mi=_rrhhMiFichaEmpleado();if(!mi||u.colaboradorId!==mi.id||(u.estado||'PENDIENTE')!=='PENDIENTE'){alert('Solo podés editar tus movimientos mientras están pendientes.');return;}}
+        u.tipo=tipo;u.colaboradorId=empId;u.colaboradorNombre=emp?emp.nombre:u.colaboradorNombre;u.fecha=fecha;u.horaInicio=inicio;u.horaFin=fin;u.minutos=minutos;u.nota=nota;u._lastEditTs=Date.now();
+        // Editar invalida una aprobación previa: vuelve a PENDIENTE para revisión (mantiene el saldo confiable).
+        u.estado='PENDIENTE';u.aprobadoPor='';u.aprobadoPorEmail='';u.aprobadoTs=null;
+    }else{
+        arr.push({id:newRrhhId(),colaboradorId:empId,colaboradorNombre:emp?emp.nombre:'',tipo:tipo,fecha:fecha,horaInicio:inicio,horaFin:fin,minutos:minutos,nota:nota,estado:'PENDIENTE',aprobadoPor:'',aprobadoPorEmail:'',aprobadoTs:null,creadoPor:(window.currentUser&&window.currentUser.email)||'',creadaTs:Date.now()});
+    }
+    saveRrhhHorasExtra(arr);
+    const cfg=getConfig();
+    _appendBitacoraRrhh(cfg,(id?'Editó':'Registró')+' '+(_RRHH_HE_TIPO_LABEL[tipo]||tipo)+' de "'+(emp?emp.nombre:'')+'" ('+fmtFechaCorta(fecha)+', '+_heFmtHM(minutos)+')');
+    saveConfig(cfg);
+    closeModal('modalRrhhHoraExtra');
+    renderRrhh();
+}
+
+function aprobarRrhhHoraExtra(id,decision){
+    if(!exigirPermiso('rrhh.horasextra.aprobar','aprobar o rechazar horas extra'))return;
+    const arr=getRrhhHorasExtra().map(x=>Object.assign({},x));
+    const m=arr.find(x=>x.id===id);
+    if(!m)return;
+    if(_heEsMio(m)){alert('No podés aprobar ni rechazar tus propios movimientos. Debe hacerlo otra persona administradora.');return;}
+    m.estado=(decision==='APROBADO')?'APROBADO':'RECHAZADO';
+    const email=(window.currentUser&&window.currentUser.email)||'';
+    m.aprobadoPor=_rrhhNombreDeEmail(email);m.aprobadoPorEmail=email;m.aprobadoTs=Date.now();
+    saveRrhhHorasExtra(arr);
+    const cfg=getConfig();
+    _appendBitacoraRrhh(cfg,(decision==='APROBADO'?'Aprobó':'Rechazó')+' '+(_RRHH_HE_TIPO_LABEL[m.tipo]||m.tipo)+' de "'+(m.colaboradorNombre||'')+'" ('+fmtFechaCorta(m.fecha)+', '+_heFmtHM(num(m.minutos))+')');
+    saveConfig(cfg);
+    renderRrhh();
+}
+
+function eliminarRrhhHoraExtra(id){
+    const m=getRrhhHorasExtra().find(x=>x.id===id);
+    if(!m)return;
+    const auto=_rrhhEsAutoServicio();
+    if(auto){const mi=_rrhhMiFichaEmpleado();if(!mi||m.colaboradorId!==mi.id||(m.estado||'PENDIENTE')!=='PENDIENTE'){alert('Solo podés eliminar tus movimientos mientras están pendientes.');return;}}
+    else if(!exigirPermiso('rrhh.horasextra.gestionar','eliminar horas extra'))return;
+    if(!confirm('¿Eliminar este movimiento de "'+(m.colaboradorNombre||'')+'" del '+fmtFechaCorta(m.fecha)+'?'))return;
+    saveRrhhHorasExtra(getRrhhHorasExtra().filter(x=>x.id!==id));
+    const cfg=getConfig();
+    _appendBitacoraRrhh(cfg,'Eliminó '+(_RRHH_HE_TIPO_LABEL[m.tipo]||m.tipo)+' de "'+(m.colaboradorNombre||'')+'" ('+fmtFechaCorta(m.fecha)+')');
     saveConfig(cfg);
     renderRrhh();
 }
