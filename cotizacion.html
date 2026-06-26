@@ -1906,12 +1906,29 @@ async function loadAllFromFirestore(){
 
     _fsSyncInProgress=true;
     let recuperadosTotal=0;
+    // Guardado local resiliente: si la memoria del navegador está llena, purga respaldos y reintenta;
+    // si aun así no entra, NO corta la carga (cuenta el fallo y sigue con las demás colecciones).
+    // Los otros errores (red/Firebase) sí burbujean al catch. Los datos viven en la nube de todos modos.
+    let _cuotaFallos=0,_snapsPurgados=false;
+    const guardarLocal=(key,val)=>{
+        const str=JSON.stringify(val);
+        try{localStorage.setItem(key,str);return true;}
+        catch(e){
+            if(esErrorCuota(e)){
+                if(!_snapsPurgados){purgarSnapshotsLocales();_snapsPurgados=true;try{localStorage.setItem(key,str);return true;}catch(e2){}}
+                _cuotaFallos++;
+                console.warn('[storage] no se pudo cachear '+key+' (memoria local llena); se conserva la copia anterior. La fuente real está en la nube.');
+                return false;
+            }
+            throw e;
+        }
+    };
 
     try{
         // config/default
         const cfgSnap=await h.getDoc(h.doc(db,'config','default'));
         if(cfgSnap.exists()){
-            localStorage.setItem('dv_config',JSON.stringify(cfgSnap.data()));
+            guardarLocal('dv_config',cfgSnap.data());
         }else if(Object.keys(localConfig).length>0){
             // Server no tiene config pero local si -> marcar para re-subir
             console.warn('[FS] config no existe en server pero local si. Marcando para re-subir.');
@@ -1923,7 +1940,7 @@ async function loadAllFromFirestore(){
         cots.sort((a,b)=>(b.fecha||'').localeCompare(a.fecha||''));
         const mergedCots=mergeArrayDefensivo('cotizaciones',cots,localCots);
         cots=mergedCots.merged;recuperadosTotal+=mergedCots.recovered;
-        localStorage.setItem('dv_cotizaciones',JSON.stringify(cots));
+        guardarLocal('dv_cotizaciones',cots);
         if(mergedCots.recovered>0)setTimeout(()=>{if(_fsEnabled)pushToFirestore('dv_cotizaciones',cots).catch(e=>console.error(e));},4000);
         // ventas
         const vSnap=await h.getDocs(h.collection(db,'ventas'));
@@ -1949,7 +1966,7 @@ async function loadAllFromFirestore(){
             console.warn('[FS] ventas: '+pagosRescatados+' pagos recuperados desde local que no estaban en Firestore.');
             recuperadosTotal+=pagosRescatados;
         }
-        localStorage.setItem('dv_ventas',JSON.stringify(ventas));
+        guardarLocal('dv_ventas',ventas);
         if(mergedV.recovered>0||pagosRescatados>0)setTimeout(()=>{if(_fsEnabled)pushToFirestore('dv_ventas',ventas).catch(e=>console.error(e));},5000);
         // clientes
         const cSnap=await h.getDocs(h.collection(db,'clientes'));
@@ -1957,7 +1974,7 @@ async function loadAllFromFirestore(){
         clientes.sort((a,b)=>(b.fechaCreacion||'').localeCompare(a.fechaCreacion||''));
         const mergedC=mergeArrayDefensivo('clientes',clientes,localClientes);
         clientes=mergedC.merged;recuperadosTotal+=mergedC.recovered;
-        localStorage.setItem('dv_clientes',JSON.stringify(clientes));
+        guardarLocal('dv_clientes',clientes);
         if(mergedC.recovered>0)setTimeout(()=>{if(_fsEnabled)pushToFirestore('dv_clientes',clientes).catch(e=>console.error(e));},6000);
         // destinos: objeto { pais: { ciudades } }, merge por pais
         const dSnap=await h.getDocs(h.collection(db,'destinos'));
@@ -1975,7 +1992,7 @@ async function loadAllFromFirestore(){
                 setTimeout(()=>{if(_fsEnabled)pushToFirestore('dv_encabezados',destObj).catch(e=>console.error(e));},7000);
             }
         }
-        localStorage.setItem('dv_encabezados',JSON.stringify(destObj));
+        guardarLocal('dv_encabezados',destObj);
         // hoteles: array de docs independientes, defensivo igual que clientes
         const localHoteles=getLS('dv_hoteles');
         const hSnap=await h.getDocs(h.collection(db,'hoteles'));
@@ -1995,10 +2012,10 @@ async function loadAllFromFirestore(){
             });
             // Borrar la copia vieja para evitar reescrituras y subir al servidor
             delete cfgLocalParaMig.hoteles;
-            localStorage.setItem('dv_config',JSON.stringify(cfgLocalParaMig));
+            guardarLocal('dv_config',cfgLocalParaMig);
             if(hoteles.length)setTimeout(()=>{if(_fsEnabled){pushToFirestore('dv_hoteles',hoteles).catch(e=>console.error(e));pushToFirestore('dv_config',cfgLocalParaMig).catch(e=>console.error(e));}},9000);
         }
-        localStorage.setItem('dv_hoteles',JSON.stringify(hoteles));
+        guardarLocal('dv_hoteles',hoteles);
         if(mergedH.recovered>0)setTimeout(()=>{if(_fsEnabled)pushToFirestore('dv_hoteles',hoteles).catch(e=>console.error(e));},8000);
         // grupos: array de docs independientes, defensivo
         const localGrupos=getLS('dv_grupos');
@@ -2006,7 +2023,7 @@ async function loadAllFromFirestore(){
         let grupos=[];gSnap.forEach(dd=>{grupos.push(dd.data());_fsDocIds.grupos.add(dd.id);});
         const mergedG=mergeArrayDefensivo('grupos',grupos,localGrupos);
         grupos=mergedG.merged;recuperadosTotal+=mergedG.recovered;
-        localStorage.setItem('dv_grupos',JSON.stringify(grupos));
+        guardarLocal('dv_grupos',grupos);
         if(mergedG.recovered>0)setTimeout(()=>{if(_fsEnabled)pushToFirestore('dv_grupos',grupos).catch(e=>console.error(e));},8500);
         // rrhh_colillas: colillas de pago (array de docs independientes, defensivo)
         const localColillas=getLS('dv_rrhh_colillas');
@@ -2014,7 +2031,7 @@ async function loadAllFromFirestore(){
         let colillas=[];colSnap2.forEach(dd=>{colillas.push(dd.data());_fsDocIds.rrhh_colillas.add(dd.id);});
         const mergedCol=mergeArrayDefensivo('rrhh_colillas',colillas,localColillas);
         colillas=mergedCol.merged;recuperadosTotal+=mergedCol.recovered;
-        localStorage.setItem('dv_rrhh_colillas',JSON.stringify(colillas));
+        guardarLocal('dv_rrhh_colillas',colillas);
         if(mergedCol.recovered>0)setTimeout(()=>{if(_fsEnabled)pushToFirestore('dv_rrhh_colillas',colillas).catch(e=>console.error(e));},9500);
         // rrhh_vacaciones: solicitudes de vacaciones (array de docs independientes, defensivo)
         const localVac=getLS('dv_rrhh_vacaciones');
@@ -2022,7 +2039,7 @@ async function loadAllFromFirestore(){
         let vacaciones=[];vacSnap.forEach(dd=>{vacaciones.push(dd.data());_fsDocIds.rrhh_vacaciones.add(dd.id);});
         const mergedVac=mergeArrayDefensivo('rrhh_vacaciones',vacaciones,localVac);
         vacaciones=mergedVac.merged;recuperadosTotal+=mergedVac.recovered;
-        localStorage.setItem('dv_rrhh_vacaciones',JSON.stringify(vacaciones));
+        guardarLocal('dv_rrhh_vacaciones',vacaciones);
         if(mergedVac.recovered>0)setTimeout(()=>{if(_fsEnabled)pushToFirestore('dv_rrhh_vacaciones',vacaciones).catch(e=>console.error(e));},10500);
         // rrhh_horasextra: movimientos de horas extra / permisos (array de docs independientes, defensivo)
         const localHe=getLS('dv_rrhh_horasextra');
@@ -2030,13 +2047,21 @@ async function loadAllFromFirestore(){
         let horasextra=[];heSnap.forEach(dd=>{horasextra.push(dd.data());_fsDocIds.rrhh_horasextra.add(dd.id);});
         const mergedHe=mergeArrayDefensivo('rrhh_horasextra',horasextra,localHe);
         horasextra=mergedHe.merged;recuperadosTotal+=mergedHe.recovered;
-        localStorage.setItem('dv_rrhh_horasextra',JSON.stringify(horasextra));
+        guardarLocal('dv_rrhh_horasextra',horasextra);
         if(mergedHe.recovered>0)setTimeout(()=>{if(_fsEnabled)pushToFirestore('dv_rrhh_horasextra',horasextra).catch(e=>console.error(e));},11500);
         console.log(`[FS] datos cargados: ${cots.length} cotizaciones, ${ventas.length} ventas, ${clientes.length} clientes, ${Object.keys(destObj).length} pa\u00edses, ${hoteles.length} hoteles${recuperadosTotal>0?' ('+recuperadosTotal+' items recuperados de localStorage)':''}`);
         if(recuperadosTotal>0){
             setTimeout(()=>{
                 alert('\u26A0 Se recuperaron '+recuperadosTotal+' item(s) desde el respaldo local que faltaban en el servidor. Se re-subir\u00e1n autom\u00e1ticamente.');
             },500);
+        }
+        // La carga TERMIN\u00d3 ok (los datos est\u00e1n en memoria y en la nube), pero la memoria local
+        // del navegador no alcanz\u00f3 para cachear todo. Avisamos con el mensaje correcto (no es Firebase).
+        if(_cuotaFallos>0){
+            setTimeout(()=>{
+                const info=getStorageInfo();
+                alert('\u26A0 La memoria local del navegador est\u00e1 llena ('+info.usedMB+' MB de ~5 MB).\n\nTus datos est\u00e1n a salvo en la nube y el sistema sigue funcionando, pero la copia local qued\u00f3 incompleta y podr\u00edas no ver lo m\u00e1s reciente hasta liberar espacio.\n\nSoluci\u00f3n: and\u00e1 a Configuraci\u00f3n \u2192 "Limpiar cach\u00e9 local" y luego refresc\u00e1 la p\u00e1gina.');
+            },600);
         }
     }catch(e){
         // === MEJORA 2: Si falla la carga, NO pisar localStorage ===
