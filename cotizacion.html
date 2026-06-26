@@ -1510,6 +1510,7 @@ onAuthStateChanged(fbAuth, (user) => {
 <div class="modal-overlay" id="modalRrhhColilla"></div>
 <div class="modal-overlay" id="modalRrhhVacacion"></div>
 <div class="modal-overlay" id="modalRrhhHoraExtra"></div>
+<div class="modal-overlay" id="modalUnificarEnc"></div>
 
 <script>
 // ===== STATE =====
@@ -2578,14 +2579,33 @@ function calcDashMetrics(){
 
 // Ranking de cotizaciones por encargado, opcionalmente filtrado por mes ("YYYY-MM").
 let _dashEncMes='';
+// Clave normalizada: sin tildes, minúsculas, espacios colapsados. Une "Brenda Gómez"/"Brenda Gomez".
+function _encNorm(s){return (s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/\s+/g,' ').trim();}
 function _dashEncRanking(mes){
     const hist=getHistorial();
-    const byEnc={};
+    const cfg=getConfig();
+    const alias=cfg.encargadoAlias||{};            // mapeo manual: nombre crudo -> encargado canónico
+    const encargadosCfg=Array.isArray(cfg.encargados)?cfg.encargados:[];
+    const groups={};                                // claveNormalizada -> {variantes:{nombre:conteo}, total}
     hist.forEach(h=>{
         if(mes){const d=new Date(h.fecha);if(isNaN(d))return;const ym=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');if(ym!==mes)return;}
-        const e=(h.data&&h.data.encargado)||'Sin asignar';byEnc[e]=(byEnc[e]||0)+1;
+        let e=(h.data&&h.data.encargado)||'Sin asignar';
+        if(alias[e])e=alias[e];                     // 1) alias manual explícito
+        const key=_encNorm(e);                      // 2) agrupar por nombre normalizado (tildes/mayúsculas)
+        if(!groups[key])groups[key]={variantes:{},total:0};
+        groups[key].variantes[e]=(groups[key].variantes[e]||0)+1;
+        groups[key].total++;
     });
-    return Object.entries(byEnc).sort((a,b)=>b[1]-a[1]);
+    return Object.values(groups).map(g=>{
+        // Nombre a mostrar: el que coincida con la lista de encargados configurados; si no, el más frecuente.
+        let display=null;
+        for(const v of Object.keys(g.variantes)){
+            const cfgName=encargadosCfg.find(c=>_encNorm(c)===_encNorm(v));
+            if(cfgName){display=cfgName;break;}
+        }
+        if(!display)display=Object.entries(g.variantes).sort((a,b)=>b[1]-a[1]||b[0].length-a[0].length)[0][0];
+        return [display,g.total];
+    }).sort((a,b)=>b[1]-a[1]);
 }
 function _dashEncBarsHtml(ranking){
     const maxEnc=Math.max(1,...ranking.map(x=>x[1]));
@@ -2599,6 +2619,52 @@ function _dashRenderEncargadoBars(){
     if(box)box.innerHTML=_dashEncBarsHtml(_dashEncRanking(_dashEncMes));
 }
 function _dashSetEncMes(v){_dashEncMes=v||'';const inp=document.getElementById('dashEncMes');if(inp&&inp.value!==_dashEncMes)inp.value=_dashEncMes;const btn=document.getElementById('dashEncTodos');if(btn)btn.style.display=_dashEncMes?'':'none';_dashRenderEncargadoBars();}
+
+// Herramienta para unificar nombres de encargados que no son solo diferencia de tildes.
+function openUnificarEncargados(){
+    if(!(soyMaestro()||tienePermiso('config.general.gestionar'))){alert('No tenés permiso para esto.');return;}
+    const hist=getHistorial();
+    const counts={};
+    hist.forEach(h=>{const e=(h.data&&h.data.encargado)||'';if(e)counts[e]=(counts[e]||0)+1;});
+    const nombres=Object.keys(counts).sort((a,b)=>counts[b]-counts[a]||a.localeCompare(b));
+    const cfg=getConfig();
+    const alias=cfg.encargadoAlias||{};
+    const encargados=Array.isArray(cfg.encargados)?cfg.encargados:[];
+    const overlay=document.getElementById('modalUnificarEnc');
+    if(!nombres.length){overlay.innerHTML='';alert('No hay encargados registrados en las cotizaciones todavía.');return;}
+    const filas=nombres.map(n=>{
+        const opts=['<option value="">(Dejar como está)</option>'].concat(encargados.map(e=>`<option value="${esc(e)}" ${alias[n]===e?'selected':''}>${esc(e)}</option>`)).join('');
+        return `<tr style="border-bottom:1px solid var(--border);">
+            <td style="padding:6px 8px;">${esc(n)} <span style="color:var(--text-light);font-size:0.72rem;">(${counts[n]})</span></td>
+            <td style="padding:6px 8px;white-space:nowrap;">→ <select data-rawname="${esc(n)}" style="max-width:230px;">${opts}</select></td>
+        </tr>`;
+    }).join('');
+    overlay.innerHTML=`<div class="modal" style="max-width:640px;">
+        <div class="modal-header"><h3>Unificar nombres de encargados</h3><button class="modal-close" onclick="closeModal('modalUnificarEnc')">&times;</button></div>
+        <div class="modal-body">
+            <p style="font-size:0.8rem;color:var(--text-light);">Las diferencias de <strong>tildes y mayúsculas</strong> ya se unen solas. Acá solo necesitás asignar los nombres escritos distinto (ej. "Maria Perez" → "María José Pérez"). No se modifican las cotizaciones; solo cambia cómo se agrupan en el Dashboard.</p>
+            <div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:0.82rem;">
+                <thead><tr style="text-align:left;border-bottom:2px solid var(--border);color:var(--text-light);text-transform:uppercase;font-size:0.66rem;letter-spacing:0.4px;"><th style="padding:6px 8px;">Nombre en las cotizaciones</th><th style="padding:6px 8px;">Asignar a</th></tr></thead>
+                <tbody>${filas}</tbody>
+            </table></div>
+        </div>
+        <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modalUnificarEnc')">Cancelar</button><button class="btn btn-success" onclick="guardarUnificarEncargados()">Guardar</button></div>
+    </div>`;
+    overlay.classList.add('open');
+}
+function guardarUnificarEncargados(){
+    if(!(soyMaestro()||tienePermiso('config.general.gestionar'))){alert('No tenés permiso para esto.');return;}
+    const cfg=getConfig();
+    const alias={};
+    document.querySelectorAll('#modalUnificarEnc select[data-rawname]').forEach(sel=>{
+        const raw=sel.dataset.rawname,tgt=sel.value;
+        if(tgt&&tgt!==raw)alias[raw]=tgt;
+    });
+    cfg.encargadoAlias=alias;
+    saveConfig(cfg);
+    closeModal('modalUnificarEnc');
+    renderDashboard();
+}
 
 // Abre el checklist de una venta desde el dashboard
 function abrirVentaDesdeDashboard(ventaId){
@@ -2718,6 +2784,7 @@ function renderDashboard(){
                 <span style="display:flex;gap:6px;align-items:center;font-weight:400;">
                     <input type="month" id="dashEncMes" value="${esc(_dashEncMes)}" onchange="_dashSetEncMes(this.value)" title="Filtrar por mes" style="font-size:0.72rem;padding:2px 6px;border:1px solid var(--border);border-radius:6px;">
                     <button id="dashEncTodos" class="btn btn-sm btn-ghost" style="padding:1px 8px;font-size:0.68rem;${_dashEncMes?'':'display:none;'}" onclick="_dashSetEncMes('')">Todos</button>
+                    ${(soyMaestro()||tienePermiso('config.general.gestionar'))?`<button class="btn btn-sm btn-ghost" style="padding:1px 8px;font-size:0.68rem;" onclick="openUnificarEncargados()" title="Unificar nombres escritos distinto">&#9881; Unificar</button>`:''}
                 </span>
             </h3>
             <div class="chart-bars-h" id="dashEncBars">${barsEnc}</div>
