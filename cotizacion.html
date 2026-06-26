@@ -2576,6 +2576,30 @@ function calcDashMetrics(){
     return {totalCot,thisMonthCot,lastMonthCot,cotGrowth,aceptadas,conversion,ventasActivas,ventasCompletadas,ventasPendientes,totalClientes,ingresoEstimado,byMonth,encRanking,byFormato,topDestinos,proximos,ventasPorAtender};
 }
 
+// Ranking de cotizaciones por encargado, opcionalmente filtrado por mes ("YYYY-MM").
+let _dashEncMes='';
+function _dashEncRanking(mes){
+    const hist=getHistorial();
+    const byEnc={};
+    hist.forEach(h=>{
+        if(mes){const d=new Date(h.fecha);if(isNaN(d))return;const ym=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');if(ym!==mes)return;}
+        const e=(h.data&&h.data.encargado)||'Sin asignar';byEnc[e]=(byEnc[e]||0)+1;
+    });
+    return Object.entries(byEnc).sort((a,b)=>b[1]-a[1]);
+}
+function _dashEncBarsHtml(ranking){
+    const maxEnc=Math.max(1,...ranking.map(x=>x[1]));
+    return ranking.length?ranking.map(([name,count])=>{
+        const w=Math.round((count/maxEnc)*100);
+        return`<div class="chart-bar-h"><div class="bar-label" title="${esc(name)}">${esc(name)}</div><div class="bar-track"><div class="bar-fill" style="width:${w}%">${count}</div></div></div>`;
+    }).join(''):'<div class="dash-empty">Sin cotizaciones'+(_dashEncMes?' en el mes elegido':' registradas')+'</div>';
+}
+function _dashRenderEncargadoBars(){
+    const box=document.getElementById('dashEncBars');
+    if(box)box.innerHTML=_dashEncBarsHtml(_dashEncRanking(_dashEncMes));
+}
+function _dashSetEncMes(v){_dashEncMes=v||'';const inp=document.getElementById('dashEncMes');if(inp&&inp.value!==_dashEncMes)inp.value=_dashEncMes;const btn=document.getElementById('dashEncTodos');if(btn)btn.style.display=_dashEncMes?'':'none';_dashRenderEncargadoBars();}
+
 // Abre el checklist de una venta desde el dashboard
 function abrirVentaDesdeDashboard(ventaId){
     nav('ventas');
@@ -2596,12 +2620,8 @@ function renderDashboard(){
         return`<div class="chart-bar-v"><div class="bar-fill" style="height:${h}%"><span class="bar-value">${mo.count||''}</span></div></div>`;
     }).join('');
     const labelsV=m.byMonth.map(mo=>`<span>${mo.label}</span>`).join('');
-    // Barras horizontales (encargados)
-    const maxEnc=Math.max(1,...m.encRanking.map(x=>x[1]));
-    const barsEnc=m.encRanking.length?m.encRanking.map(([name,count])=>{
-        const w=Math.round((count/maxEnc)*100);
-        return`<div class="chart-bar-h"><div class="bar-label" title="${esc(name)}">${esc(name)}</div><div class="bar-track"><div class="bar-fill" style="width:${w}%">${count}</div></div></div>`;
-    }).join(''):'<div class="dash-empty">Sin cotizaciones registradas</div>';
+    // Barras horizontales (encargados) — respeta el filtro de mes propio del cuadro
+    const barsEnc=_dashEncBarsHtml(_dashEncRanking(_dashEncMes));
     // Donut (formatos)
     const totalF=m.byFormato.america+m.byFormato.europa+m.byFormato.crucero;
     const donutHtml=(()=>{
@@ -2694,8 +2714,13 @@ function renderDashboard(){
             <div class="chart-labels">${labelsV}</div>
         </div>
         <div class="dash-card">
-            <h3>&#129309; Por encargado</h3>
-            <div class="chart-bars-h">${barsEnc}</div>
+            <h3 style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;"><span>&#129309; Por encargado</span>
+                <span style="display:flex;gap:6px;align-items:center;font-weight:400;">
+                    <input type="month" id="dashEncMes" value="${esc(_dashEncMes)}" onchange="_dashSetEncMes(this.value)" title="Filtrar por mes" style="font-size:0.72rem;padding:2px 6px;border:1px solid var(--border);border-radius:6px;">
+                    <button id="dashEncTodos" class="btn btn-sm btn-ghost" style="padding:1px 8px;font-size:0.68rem;${_dashEncMes?'':'display:none;'}" onclick="_dashSetEncMes('')">Todos</button>
+                </span>
+            </h3>
+            <div class="chart-bars-h" id="dashEncBars">${barsEnc}</div>
         </div>
         <div class="dash-card">
             <h3>&#127758; Distribuci\u00f3n por formato</h3>
