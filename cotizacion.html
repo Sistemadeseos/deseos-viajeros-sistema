@@ -2043,11 +2043,12 @@ async function loadAllFromFirestore(){
         // Los datos ya cargados parcialmente quedan en localStorage pero no ejecutamos
         // setItem destructivo. El usuario sigue viendo lo que tenia.
         console.error('[FS] error cargando datos iniciales:',e);
+        const _detErr=((e&&e.code)?'['+e.code+'] ':'')+((e&&e.message)||String(e));
         const hayDatosLocales=(localCots&&localCots.length)||(localVentas&&localVentas.length)||(localClientes&&localClientes.length);
         if(hayDatosLocales){
-            alert('\u26A0 No se pudieron cargar datos desde Firebase.\n\nSe usar\u00e1n los datos guardados localmente en tu navegador.\n\nRevise su conexi\u00f3n a internet y refresque la p\u00e1gina.');
+            alert('\u26A0 No se pudieron cargar datos desde Firebase.\n\nSe usar\u00e1n los datos guardados localmente en tu navegador.\n\nRevise su conexi\u00f3n a internet y refresque la p\u00e1gina.\n\nDetalle t\u00e9cnico (para soporte): '+_detErr);
         }else{
-            alert('No se pudieron cargar los datos desde Firebase: '+e.message+'\n\nRevise su conexi\u00f3n a internet.');
+            alert('No se pudieron cargar los datos desde Firebase: '+_detErr+'\n\nRevise su conexi\u00f3n a internet.');
         }
     }finally{
         _fsSyncInProgress=false;
