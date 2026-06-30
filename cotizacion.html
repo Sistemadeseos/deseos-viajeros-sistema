@@ -1580,7 +1580,10 @@ const CONTACTO_URGENCIAS=[
 let _fsEnabled=false; // true después de loadAllFromFirestore()
 let _fsSyncInProgress=false; // evita loops cuando la carga inicial escribe al cache
 
-function getLS(k){try{return JSON.parse(localStorage.getItem(k)||'[]');}catch(e){return[];}}
+// Override en memoria: si la memoria local del navegador está llena y no se pudo cachear una clave,
+// guardamos su valor acá para que la sesión siga viendo el dato fresco (la fuente real es la nube).
+const _memOverride={};
+function getLS(k){try{const s=(_memOverride[k]!=null)?_memOverride[k]:localStorage.getItem(k);return JSON.parse(s||'[]');}catch(e){return[];}}
 // Verifica si un error es por cuota de almacenamiento llena
 function esErrorCuota(e){
     return e&&(e.name==='QuotaExceededError'||e.name==='NS_ERROR_DOM_QUOTA_REACHED'||(e.code&&(e.code===22||e.code===1014)));
@@ -1596,48 +1599,44 @@ function purgarSnapshotsLocales(){
     return n;
 }
 function setLS(k,v){
-    const intentarEscribir=()=>{
-        localStorage.setItem(k,JSON.stringify(v));
-        if(_fsEnabled&&!_fsSyncInProgress)pushToFirestore(k,v).catch(err=>console.error('[FS] push error:',k,err));
-    };
-    try{intentarEscribir();return true;}
+    const s=JSON.stringify(v);
+    // La nube es la fuente de verdad: sincronizamos SIEMPRE primero, aunque la memoria local esté llena.
+    if(_fsEnabled&&!_fsSyncInProgress)pushToFirestore(k,v).catch(err=>console.error('[FS] push error:',k,err));
+    try{localStorage.setItem(k,s);delete _memOverride[k];return true;}
     catch(e){
         if(esErrorCuota(e)){
             // Auto-limpiar snapshots y reintentar una vez (segura: snapshots son backups locales, no fuente de verdad)
             const purgados=purgarSnapshotsLocales();
-            if(purgados>0){
-                try{intentarEscribir();return true;}
-                catch(e2){if(esErrorCuota(e2)){/* sigue lleno, caer al alert */}else{console.error('[setLS] error tras purga',k,e2);return false;}}
-            }
+            if(purgados>0){try{localStorage.setItem(k,s);delete _memOverride[k];return true;}catch(e2){}}
+            // No entró en el cache local: lo mantenemos en memoria para que ESTA sesión vea el dato fresco.
+            _memOverride[k]=s;
             const info=getStorageInfo();
-            alert('⚠ El almacenamiento del navegador se llenó.\n\nUso actual: '+info.usedMB+' MB de ~5 MB disponibles.\n\nYa se hizo una limpieza automática de los backups locales pero no fue suficiente.\n\nAndá a Configuración → "Limpiar caché local" para liberar más espacio (los datos del equipo viven en la nube, no se pierde nada).\n\nDespués refrescá la página y volvé a intentar guardar.');
+            alert('⚠ La memoria local del navegador está llena ('+info.usedMB+' MB de ~5 MB).\n\nTu cambio SÍ se guardó en la nube y las demás lo verán al refrescar.\n\nPara normalizar ESTE equipo: andá a Configuración → "Limpiar caché local" y refrescá la página.');
         }else{
             console.error('[setLS] error guardando',k,e);
-            alert('No se pudo guardar localmente: '+e.message);
+            _memOverride[k]=s;
+            alert('No se pudo guardar en la copia local: '+e.message+'\n\n(El cambio se envió a la nube igualmente.)');
         }
         return false;
     }
 }
-function getLSObj(k){try{return JSON.parse(localStorage.getItem(k)||'{}');}catch(e){return {};}}
+function getLSObj(k){try{const s=(_memOverride[k]!=null)?_memOverride[k]:localStorage.getItem(k);return JSON.parse(s||'{}');}catch(e){return {};}}
 function setLSObj(k,v){
-    const intentarEscribir=()=>{
-        localStorage.setItem(k,JSON.stringify(v));
-        if(_fsEnabled&&!_fsSyncInProgress)pushToFirestore(k,v).catch(err=>console.error('[FS] push error:',k,err));
-    };
-    try{intentarEscribir();return true;}
+    const s=JSON.stringify(v);
+    // La nube es la fuente de verdad: sincronizamos SIEMPRE primero, aunque la memoria local est\u00e9 llena.
+    if(_fsEnabled&&!_fsSyncInProgress)pushToFirestore(k,v).catch(err=>console.error('[FS] push error:',k,err));
+    try{localStorage.setItem(k,s);delete _memOverride[k];return true;}
     catch(e){
         if(esErrorCuota(e)){
-            // Auto-limpiar snapshots y reintentar una vez
             const purgados=purgarSnapshotsLocales();
-            if(purgados>0){
-                try{intentarEscribir();return true;}
-                catch(e2){if(!esErrorCuota(e2)){console.error('[setLSObj] error tras purga',k,e2);return false;}}
-            }
+            if(purgados>0){try{localStorage.setItem(k,s);delete _memOverride[k];return true;}catch(e2){}}
+            _memOverride[k]=s;
             const info=getStorageInfo();
-            alert('\u26A0 El almacenamiento del navegador se llen\u00f3.\n\nUso actual: '+info.usedMB+' MB de ~5 MB disponibles.\n\nYa se hizo una limpieza autom\u00e1tica de los backups locales pero no fue suficiente.\n\nSugerencias:\n\u2022 And\u00e1 a Configuraci\u00f3n \u2192 "Limpiar cach\u00e9 local" para vaciar el cach\u00e9 completo (los datos del equipo viven en la nube)\n\u2022 Elimin\u00e1 cotizaciones viejas del historial\n\u2022 Elimin\u00e1 adjuntos internos pesados');
+            alert('\u26A0 La memoria local del navegador est\u00e1 llena ('+info.usedMB+' MB de ~5 MB).\n\nTu cambio S\u00cd se guard\u00f3 en la nube y las dem\u00e1s lo ver\u00e1n al refrescar.\n\nPara normalizar ESTE equipo: and\u00e1 a Configuraci\u00f3n \u2192 "Limpiar cach\u00e9 local" y refresc\u00e1 la p\u00e1gina.');
         }else{
-            alert('Error al guardar en localStorage: '+e.message);
-            console.error(e);
+            console.error('[setLSObj] error guardando',k,e);
+            _memOverride[k]=s;
+            alert('No se pudo guardar en la copia local: '+e.message+'\n\n(El cambio se envi\u00f3 a la nube igualmente.)');
         }
         return false;
     }
@@ -1912,12 +1911,13 @@ async function loadAllFromFirestore(){
     let _cuotaFallos=0,_snapsPurgados=false;
     const guardarLocal=(key,val)=>{
         const str=JSON.stringify(val);
-        try{localStorage.setItem(key,str);return true;}
+        try{localStorage.setItem(key,str);delete _memOverride[key];return true;}
         catch(e){
             if(esErrorCuota(e)){
-                if(!_snapsPurgados){purgarSnapshotsLocales();_snapsPurgados=true;try{localStorage.setItem(key,str);return true;}catch(e2){}}
+                if(!_snapsPurgados){purgarSnapshotsLocales();_snapsPurgados=true;try{localStorage.setItem(key,str);delete _memOverride[key];return true;}catch(e2){}}
                 _cuotaFallos++;
-                console.warn('[storage] no se pudo cachear '+key+' (memoria local llena); se conserva la copia anterior. La fuente real está en la nube.');
+                _memOverride[key]=str;   // mantener en memoria la versión de la nube recién cargada
+                console.warn('[storage] no se pudo cachear '+key+' (memoria local llena); se usa en memoria. La fuente real está en la nube.');
                 return false;
             }
             throw e;
