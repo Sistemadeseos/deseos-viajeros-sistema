@@ -1800,16 +1800,23 @@ async function syncArrayCollection(collName,newArray,hasImages){
                 const snap=await h.getDoc(h.doc(db,'ventas',id));
                 if(snap.exists()){
                     const remote=snap.data();
-                    const remotePagos=(remote.cobranza&&remote.cobranza.pagos)||[];
-                    const localPagos=(toWrite.cobranza&&toWrite.cobranza.pagos)||[];
-                    const localIds=new Set(localPagos.map(p=>String(p.id)));
-                    const faltantes=remotePagos.filter(p=>!localIds.has(String(p.id)));
-                    if(faltantes.length>0){
-                        // Hay pagos en Firestore que la copia local no conocia: los preservamos.
-                        const merged=localPagos.concat(faltantes);
-                        if(!toWrite.cobranza)toWrite.cobranza={montoTotal:0,moneda:'USD',pagos:[]};
-                        toWrite.cobranza.pagos=merged;
-                        console.warn('[FS] ventas/'+id+': se preservaron '+faltantes.length+' pagos remotos al hacer push.');
+                    // Solo preservamos pagos remotos faltantes si el server fue modificado por OTRA persona
+                    // DESPUÉS de la versión que estamos escribiendo (tRemote > tLocal). Si el server es igual
+                    // o más viejo, respetamos nuestra versión TAL CUAL —incluidas las eliminaciones de pagos—
+                    // para que borrar un pago realmente persista (antes se "resucitaba" en cada push).
+                    const tRemote=num(remote._lastModifiedAt)||0;
+                    const tLocal=num(toWrite._lastModifiedAt)||0;
+                    if(tRemote>tLocal){
+                        const remotePagos=(remote.cobranza&&remote.cobranza.pagos)||[];
+                        const localPagos=(toWrite.cobranza&&toWrite.cobranza.pagos)||[];
+                        const localIds=new Set(localPagos.map(p=>String(p.id)));
+                        const faltantes=remotePagos.filter(p=>!localIds.has(String(p.id)));
+                        if(faltantes.length>0){
+                            const merged=localPagos.concat(faltantes);
+                            if(!toWrite.cobranza)toWrite.cobranza={montoTotal:0,moneda:'USD',pagos:[]};
+                            toWrite.cobranza.pagos=merged;
+                            console.warn('[FS] ventas/'+id+': se preservaron '+faltantes.length+' pagos remotos (edición concurrente más nueva).');
+                        }
                     }
                 }
             }catch(e){console.warn('[FS] no se pudo merge-de-pagos previo a setDoc, escribiendo igual:',id,e);}
@@ -7079,6 +7086,7 @@ function savePago(){
         // Modo creación: agregar nuevo pago
         v.cobranza.pagos.push({id:'p_'+Date.now(),fecha,monto,metodo,referencia,nota,descripcion});
     }
+    v._lastModifiedAt=Date.now();   // marca de edición: mi cambio es el más reciente (para el merge de pagos)
     saveVentas(ventas);
     pagoEditandoId=null;
     togglePagoForm();
@@ -7101,6 +7109,7 @@ function removePago(pagoId){
     const v=ventas.find(x=>x.id===ventaId);
     if(!v||!v.cobranza)return;
     v.cobranza.pagos=(v.cobranza.pagos||[]).filter(p=>p.id!==pagoId);
+    v._lastModifiedAt=Date.now();   // marca de edición: el borrado es lo más reciente (para el merge de pagos)
     saveVentas(ventas);
     renderPagosTable();
     recalcCobranza();
