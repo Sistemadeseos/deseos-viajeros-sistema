@@ -1959,6 +1959,12 @@ async function loadAllFromFirestore(){
             if(!localPagos.length)return;
             if(!v.cobranza)v.cobranza={montoTotal:0,moneda:'USD',pagos:[]};
             if(!Array.isArray(v.cobranza.pagos))v.cobranza.pagos=[];
+            // ANTI-RESURRECCIÓN: solo "rescatamos" pagos locales que faltan en el server SI la copia local
+            // es igual o más nueva que la del server. Si el server es más nuevo, significa que otra persona
+            // editó/borró pagos después de que cargamos: respetamos el server (así no reaparece un pago que
+            // otro usuario eliminó). Si local es igual/más nuevo, preservamos (anti-pérdida de lo no sincronizado).
+            const tLocal=num(lv._lastModifiedAt)||0,tServer=num(v._lastModifiedAt)||0;
+            if(tServer>tLocal)return;
             const serverPagoIds=new Set(v.cobranza.pagos.map(p=>String(p.id)));
             localPagos.forEach(p=>{if(!serverPagoIds.has(String(p.id))){v.cobranza.pagos.push(p);pagosRescatados++;}});
         });
