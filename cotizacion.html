@@ -7113,6 +7113,28 @@ function removePago(pagoId){
     renderPagosTable();
     recalcCobranza();
     renderVentas();
+    _diagVerificarPagosEnNube(ventaId,pagoId);   // DIAGNÓSTICO TEMPORAL
+}
+
+// DIAGNÓSTICO TEMPORAL: tras borrar, lee la venta directo de Firestore y reporta si el borrado llegó.
+async function _diagVerificarPagosEnNube(ventaId,pagoIdBorrado){
+    try{
+        const h=window.fbHelpers,db=window.fbDb;
+        if(!h||!db){alert('DIAGNÓSTICO: Firebase no disponible.');return;}
+        await new Promise(r=>setTimeout(r,3000));  // esperar a que termine el envío a la nube
+        const snap=await h.getDoc(h.doc(db,'ventas',ventaId));
+        if(!snap.exists()){alert('DIAGNÓSTICO: la venta no existe en la nube.');return;}
+        const d=snap.data();
+        const pagos=(d.cobranza&&d.cobranza.pagos)||[];
+        const sigue=pagos.some(p=>String(p.id)===String(pagoIdBorrado));
+        const detalle=pagos.map(p=>(p.fecha||'?')+' $'+(p.monto||0)).join('\n');
+        alert('DIAGNÓSTICO tras borrar el pago:\n\n'+
+              'En la NUBE quedaron '+pagos.length+' pago(s).\n'+
+              'El pago que borraste '+(sigue?'❌ TODAVÍA ESTÁ en la nube':'✓ YA NO está en la nube')+'.\n'+
+              '_lastModifiedAt (nube): '+(d._lastModifiedAt||'—')+'\n'+
+              '_lastModifiedBy: '+(d._lastModifiedBy||'—')+'\n\n'+
+              'Pagos en la nube:\n'+detalle+'\n\n(Mandale esta captura a soporte.)');
+    }catch(e){alert('DIAGNÓSTICO error: '+e.message);}
 }
 
 function generarEstadoCuenta(){
