@@ -1580,10 +1580,40 @@ const CONTACTO_URGENCIAS=[
 let _fsEnabled=false; // true después de loadAllFromFirestore()
 let _fsSyncInProgress=false; // evita loops cuando la carga inicial escribe al cache
 
-// Override en memoria: si la memoria local del navegador está llena y no se pudo cachear una clave,
-// guardamos su valor acá para que la sesión siga viendo el dato fresco (la fuente real es la nube).
-const _memOverride={};
-function getLS(k){try{const s=(_memOverride[k]!=null)?_memOverride[k]:localStorage.getItem(k);return JSON.parse(s||'[]');}catch(e){return[];}}
+// ============================================================================
+// CACHE PERSISTENTE: IndexedDB (capacidad amplia) + espejo en memoria (_cache).
+// getLS/setLS siguen siendo SÍNCRONOS (leen/escriben _cache). La persistencia va a
+// IndexedDB (async). Firestore sigue siendo la fuente de verdad. localStorage queda
+// SOLO como respaldo (antes de init, o si IndexedDB no está disponible).
+// ============================================================================
+const _cache={};
+let _idb=null,_idbReady=false;
+const _IDB_DB='dv_store',_IDB_STORE='kv';
+// Claves de DATOS (colecciones) que migramos a IndexedDB. El resto de claves dv_ (preferencias de UI,
+// respaldos, estado de vistas) se quedan en localStorage tal como estaban.
+const _CLAVES_DATOS=['dv_cotizaciones','dv_ventas','dv_clientes','dv_encabezados','dv_config','dv_grupos','dv_hoteles','dv_rrhh_colillas','dv_rrhh_vacaciones','dv_rrhh_horasextra'];
+function _esClaveDatos(k){return _CLAVES_DATOS.indexOf(k)>=0;}
+function _idbOpen(){return new Promise(resolve=>{try{if(!window.indexedDB)return resolve(null);const req=indexedDB.open(_IDB_DB,1);req.onupgradeneeded=()=>{const db=req.result;if(!db.objectStoreNames.contains(_IDB_STORE))db.createObjectStore(_IDB_STORE);};req.onsuccess=()=>resolve(req.result);req.onerror=()=>resolve(null);}catch(e){resolve(null);}});}
+function _idbSet(k,str){if(!_idb)return;try{_idb.transaction(_IDB_STORE,'readwrite').objectStore(_IDB_STORE).put(str,k);}catch(e){console.warn('[idb] set',k,e);}}
+function _idbRemove(k){if(!_idb)return;try{_idb.transaction(_IDB_STORE,'readwrite').objectStore(_IDB_STORE).delete(k);}catch(e){}}
+function _idbGetAll(){return new Promise(resolve=>{if(!_idb)return resolve({});try{const out={},tx=_idb.transaction(_IDB_STORE,'readonly'),st=tx.objectStore(_IDB_STORE),req=st.openCursor();req.onsuccess=()=>{const c=req.result;if(c){out[c.key]=c.value;c.continue();}else resolve(out);};req.onerror=()=>resolve(out);}catch(e){resolve({});}});}
+// Arranque: abre IndexedDB, carga todo al espejo y MIGRA las claves de datos que estén en localStorage
+// (copiándolas a IndexedDB y liberándolas del localStorage chico de ~5MB).
+async function initPersistentCache(){
+    _idb=await _idbOpen();
+    if(_idb){
+        const all=await _idbGetAll();
+        Object.keys(all).forEach(k=>{if(all[k]!=null)_cache[k]=all[k];});
+        const migrar=[];
+        for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(_esClaveDatos(k))migrar.push(k);}
+        migrar.forEach(k=>{const v=localStorage.getItem(k);if(v!=null){if(_cache[k]===undefined){_cache[k]=v;_idbSet(k,v);}try{localStorage.removeItem(k);}catch(e){}}});
+        console.log('[idb] cache persistente lista ('+Object.keys(_cache).length+' claves); localStorage liberado de datos grandes.');
+    }else{console.warn('[idb] IndexedDB no disponible; se usa localStorage como antes.');}
+    _idbReady=true;
+}
+function _readRaw(k){if(_cache[k]!==undefined)return _cache[k];try{return localStorage.getItem(k);}catch(e){return null;}}
+function _writeRaw(k,s){_cache[k]=s;if(_idbReady&&_idb){_idbSet(k,s);}else{try{localStorage.setItem(k,s);}catch(e){}}}
+function getLS(k){try{return JSON.parse(_readRaw(k)||'[]');}catch(e){return[];}}
 // Verifica si un error es por cuota de almacenamiento llena
 function esErrorCuota(e){
     return e&&(e.name==='QuotaExceededError'||e.name==='NS_ERROR_DOM_QUOTA_REACHED'||(e.code&&(e.code===22||e.code===1014)));
@@ -1599,47 +1629,16 @@ function purgarSnapshotsLocales(){
     return n;
 }
 function setLS(k,v){
-    const s=JSON.stringify(v);
-    // La nube es la fuente de verdad: sincronizamos SIEMPRE primero, aunque la memoria local esté llena.
+    // La nube es la fuente de verdad: sincronizamos SIEMPRE. La copia local vive en IndexedDB (amplio).
     if(_fsEnabled&&!_fsSyncInProgress)pushToFirestore(k,v).catch(err=>console.error('[FS] push error:',k,err));
-    try{localStorage.setItem(k,s);delete _memOverride[k];return true;}
-    catch(e){
-        if(esErrorCuota(e)){
-            // Auto-limpiar snapshots y reintentar una vez (segura: snapshots son backups locales, no fuente de verdad)
-            const purgados=purgarSnapshotsLocales();
-            if(purgados>0){try{localStorage.setItem(k,s);delete _memOverride[k];return true;}catch(e2){}}
-            // No entró en el cache local: lo mantenemos en memoria para que ESTA sesión vea el dato fresco.
-            _memOverride[k]=s;
-            const info=getStorageInfo();
-            alert('⚠ La memoria local del navegador está llena ('+info.usedMB+' MB de ~5 MB).\n\nTu cambio SÍ se guardó en la nube y las demás lo verán al refrescar.\n\nPara normalizar ESTE equipo: andá a Configuración → "Limpiar caché local" y refrescá la página.');
-        }else{
-            console.error('[setLS] error guardando',k,e);
-            _memOverride[k]=s;
-            alert('No se pudo guardar en la copia local: '+e.message+'\n\n(El cambio se envió a la nube igualmente.)');
-        }
-        return false;
-    }
+    _writeRaw(k,JSON.stringify(v));
+    return true;
 }
-function getLSObj(k){try{const s=(_memOverride[k]!=null)?_memOverride[k]:localStorage.getItem(k);return JSON.parse(s||'{}');}catch(e){return {};}}
+function getLSObj(k){try{return JSON.parse(_readRaw(k)||'{}');}catch(e){return {};}}
 function setLSObj(k,v){
-    const s=JSON.stringify(v);
-    // La nube es la fuente de verdad: sincronizamos SIEMPRE primero, aunque la memoria local est\u00e9 llena.
     if(_fsEnabled&&!_fsSyncInProgress)pushToFirestore(k,v).catch(err=>console.error('[FS] push error:',k,err));
-    try{localStorage.setItem(k,s);delete _memOverride[k];return true;}
-    catch(e){
-        if(esErrorCuota(e)){
-            const purgados=purgarSnapshotsLocales();
-            if(purgados>0){try{localStorage.setItem(k,s);delete _memOverride[k];return true;}catch(e2){}}
-            _memOverride[k]=s;
-            const info=getStorageInfo();
-            alert('\u26A0 La memoria local del navegador est\u00e1 llena ('+info.usedMB+' MB de ~5 MB).\n\nTu cambio S\u00cd se guard\u00f3 en la nube y las dem\u00e1s lo ver\u00e1n al refrescar.\n\nPara normalizar ESTE equipo: and\u00e1 a Configuraci\u00f3n \u2192 "Limpiar cach\u00e9 local" y refresc\u00e1 la p\u00e1gina.');
-        }else{
-            console.error('[setLSObj] error guardando',k,e);
-            _memOverride[k]=s;
-            alert('No se pudo guardar en la copia local: '+e.message+'\n\n(El cambio se envi\u00f3 a la nube igualmente.)');
-        }
-        return false;
-    }
+    _writeRaw(k,JSON.stringify(v));
+    return true;
 }
 
 // ===== FIRESTORE SYNC LAYER =====
@@ -1745,10 +1744,8 @@ async function pushToFirestore(key,value){
         if(key==='dv_config'){
             // Subir logo/watermark a Storage si vinieron como dataUrl
             const toWrite=await uploadImagesInObject(value,'config');
-            // Actualizar localStorage con las URLs (evita re-uploads)
-            _fsSyncInProgress=true;
-            localStorage.setItem('dv_config',JSON.stringify(toWrite));
-            _fsSyncInProgress=false;
+            // Actualizar la copia local (IndexedDB) con las URLs (evita re-uploads)
+            _writeRaw('dv_config',JSON.stringify(toWrite));
             // Sincronizar globales logoDataUrl y watermarkDataUrl con las URLs de Storage
             if(toWrite.logo!==undefined)logoDataUrl=toWrite.logo||null;
             if(toWrite.watermark!==undefined)watermarkDataUrl=toWrite.watermark||null;
@@ -1867,9 +1864,7 @@ async function syncDestinos(destObj){
         }
     }
     _fsDocIds.destinos=newPaisesSet;
-    _fsSyncInProgress=true;
-    localStorage.setItem('dv_encabezados',JSON.stringify(newObjWithUrls));
-    _fsSyncInProgress=false;
+    _writeRaw('dv_encabezados',JSON.stringify(newObjWithUrls));
     console.log('[FS] destinos sincronizados');
 }
 
@@ -1912,24 +1907,8 @@ async function loadAllFromFirestore(){
 
     _fsSyncInProgress=true;
     let recuperadosTotal=0;
-    // Guardado local resiliente: si la memoria del navegador está llena, purga respaldos y reintenta;
-    // si aun así no entra, NO corta la carga (cuenta el fallo y sigue con las demás colecciones).
-    // Los otros errores (red/Firebase) sí burbujean al catch. Los datos viven en la nube de todos modos.
-    let _cuotaFallos=0,_snapsPurgados=false;
-    const guardarLocal=(key,val)=>{
-        const str=JSON.stringify(val);
-        try{localStorage.setItem(key,str);delete _memOverride[key];return true;}
-        catch(e){
-            if(esErrorCuota(e)){
-                if(!_snapsPurgados){purgarSnapshotsLocales();_snapsPurgados=true;try{localStorage.setItem(key,str);delete _memOverride[key];return true;}catch(e2){}}
-                _cuotaFallos++;
-                _memOverride[key]=str;   // mantener en memoria la versión de la nube recién cargada
-                console.warn('[storage] no se pudo cachear '+key+' (memoria local llena); se usa en memoria. La fuente real está en la nube.');
-                return false;
-            }
-            throw e;
-        }
-    };
+    // La copia local vive en IndexedDB (amplio): guardar no falla por la cuota chica de localStorage.
+    const guardarLocal=(key,val)=>{_writeRaw(key,JSON.stringify(val));return true;};
 
     try{
         // config/default
@@ -2068,14 +2047,6 @@ async function loadAllFromFirestore(){
                 alert('\u26A0 Se recuperaron '+recuperadosTotal+' item(s) desde el respaldo local que faltaban en el servidor. Se re-subir\u00e1n autom\u00e1ticamente.');
             },500);
         }
-        // La carga TERMIN\u00d3 ok (los datos est\u00e1n en memoria y en la nube), pero la memoria local
-        // del navegador no alcanz\u00f3 para cachear todo. Avisamos con el mensaje correcto (no es Firebase).
-        if(_cuotaFallos>0){
-            setTimeout(()=>{
-                const info=getStorageInfo();
-                alert('\u26A0 La memoria local del navegador est\u00e1 llena ('+info.usedMB+' MB de ~5 MB).\n\nTus datos est\u00e1n a salvo en la nube y el sistema sigue funcionando, pero la copia local qued\u00f3 incompleta y podr\u00edas no ver lo m\u00e1s reciente hasta liberar espacio.\n\nSoluci\u00f3n: and\u00e1 a Configuraci\u00f3n \u2192 "Limpiar cach\u00e9 local" y luego refresc\u00e1 la p\u00e1gina.');
-            },600);
-        }
     }catch(e){
         // === MEJORA 2: Si falla la carga, NO pisar localStorage ===
         // Los datos ya cargados parcialmente quedan en localStorage pero no ejecutamos
@@ -2098,19 +2069,29 @@ async function loadAllFromFirestore(){
 function getStorageInfo(){
     let totalBytes=0;
     const byKey={};
-    for(let i=0;i<localStorage.length;i++){
-        const k=localStorage.key(i);
-        const v=localStorage.getItem(k)||'';
+    // Datos reales: viven en IndexedDB (espejo _cache).
+    Object.keys(_cache).forEach(k=>{
+        const v=_cache[k]||'';
         const bytes=(k.length+v.length)*2; // UTF-16 aprox
         totalBytes+=bytes;
-        if(k.startsWith('dv_'))byKey[k]=bytes;
+        if(k.indexOf('dv_')===0)byKey[k]=bytes;
+    });
+    // Lo que quede en localStorage (respaldos, preferencias, o si no hay IndexedDB).
+    for(let i=0;i<localStorage.length;i++){
+        const k=localStorage.key(i);
+        if(_cache[k]!==undefined)continue; // ya contado desde el espejo
+        const v=localStorage.getItem(k)||'';
+        const bytes=(k.length+v.length)*2;
+        totalBytes+=bytes;
+        if(k&&k.indexOf('dv_')===0)byKey[k]=bytes;
     }
+    const usaIDB=!!_idb;
+    const capBytes=usaIDB?(250*1024*1024):(5*1024*1024); // IndexedDB amplio vs localStorage chico
     return{
         usedBytes:totalBytes,
         usedMB:(totalBytes/1024/1024).toFixed(2),
-        byKey,
-        // Estimación del límite (~5MB en la mayoría de navegadores)
-        pct:Math.min(100,Math.round((totalBytes/(5*1024*1024))*100))
+        byKey,usaIDB,capMB:usaIDB?250:5,
+        pct:Math.min(100,Math.round((totalBytes/capBytes)*100))
     };
 }
 
@@ -4916,6 +4897,9 @@ function limpiarCacheLocal(){
             if(k&&(k.startsWith('dv_')||k.startsWith('dv_snapshot_')))keysToRemove.push(k);
         }
         keysToRemove.forEach(k=>localStorage.removeItem(k));
+        // Vaciar también IndexedDB (donde ahora vive la copia local grande) y el espejo en memoria.
+        Object.keys(_cache).forEach(k=>{delete _cache[k];});
+        try{if(_idb){_idb.transaction(_IDB_STORE,'readwrite').objectStore(_IDB_STORE).clear();}}catch(e){console.warn('[idb] clear',e);}
         alert('Caché local limpiada. La página se va a recargar para bajar los datos desde Firebase.');
         location.reload();
     }catch(e){
@@ -4924,7 +4908,7 @@ function limpiarCacheLocal(){
 }
 function resetConfigToDefaults(){
     if(!confirm('\u00bfRestaurar toda la configuraci\u00f3n a los valores por defecto? Esta acci\u00f3n no se puede deshacer.'))return;
-    localStorage.removeItem('dv_config');
+    delete _cache['dv_config'];_idbRemove('dv_config');try{localStorage.removeItem('dv_config');}catch(e){}
     populateEncargadosSelect();
     renderConfiguracion();
     alert('Configuraci\u00f3n restaurada.');
@@ -5709,6 +5693,7 @@ function renderStorageIndicator(targetId){
     const pct=info.pct;
     const color=pct>85?'var(--danger)':(pct>65?'#d4830f':'var(--success)');
     const msg=pct>85?'\u26A0 Almacenamiento casi lleno':(pct>65?'\u2139 Almacenamiento alto':'\u2713 Almacenamiento con espacio');
+    const capTxt=info.usaIDB?`${info.usedMB} MB usados (almacenamiento amplio)`:`${info.usedMB} MB / ~5 MB`;
     // Desglose por clave (de mayor a menor) para ver qu\u00E9 ocupa el espacio.
     const filas=Object.entries(info.byKey||{}).sort((a,b)=>b[1]-a[1]).filter(([k,b])=>b>1024).map(([k,b])=>{
         const mb=(b/1024/1024).toFixed(2);const kpct=info.usedBytes>0?Math.round(b/info.usedBytes*100):0;
@@ -5717,7 +5702,7 @@ function renderStorageIndicator(targetId){
     t.innerHTML=`<div style="background:var(--bg);border-radius:8px;padding:10px 14px;border-left:4px solid ${color};">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
             <div style="font-weight:600;font-size:0.82rem;color:${color};">${msg}</div>
-            <div style="font-size:0.78rem;color:var(--text-light);">${info.usedMB} MB / ~5 MB</div>
+            <div style="font-size:0.78rem;color:var(--text-light);">${capTxt}</div>
         </div>
         <div style="height:8px;background:rgba(0,0,0,0.08);border-radius:4px;overflow:hidden;">
             <div style="height:100%;width:${pct}%;background:${color};transition:width 0.3s;"></div>
@@ -8361,6 +8346,8 @@ window.onUserReady=async function(user){
     renderSidebarUser(user);
     if(!appInitialized){
         appInitialized=true;
+        // Abrir la caché persistente (IndexedDB) y migrar localStorage ANTES de leer/cargar datos.
+        await initPersistentCache();
         // Cargar datos desde Firestore antes de inicializar la app
         await loadAllFromFirestore();
         init();
