@@ -6953,9 +6953,16 @@ function recalcCobranza(){
     const montoTotal=num(document.getElementById('cobMontoTotal').value);
     const moneda=document.getElementById('cobMoneda').value;
     if(!v.cobranza)v.cobranza={pagos:[]};
-    v.cobranza.montoTotal=montoTotal;
-    v.cobranza.moneda=moneda;
-    saveVentas(ventas);
+    // Solo guardar (y re-subir a la nube) si REALMENTE cambió el monto o la moneda. Abrir el estado de
+    // cuenta para VER no debe re-subir la venta: si la copia local está desactualizada, pisaría cambios de
+    // otra persona (p.ej. reviviría un pago que alguien borró). El guardado real de pagos va por su función.
+    const huboCambio=(num(v.cobranza.montoTotal)!==montoTotal)||((v.cobranza.moneda||'USD')!==moneda);
+    if(huboCambio){
+        v.cobranza.montoTotal=montoTotal;
+        v.cobranza.moneda=moneda;
+        v._lastModifiedAt=Date.now();
+        saveVentas(ventas);
+    }
     const c=calcCobranzaStatus(v);
     document.getElementById('cobTotalDisp').textContent=fmtMoney(c.montoTotal,c.moneda);
     document.getElementById('cobPagadoDisp').textContent=fmtMoney(c.pagado,c.moneda);
