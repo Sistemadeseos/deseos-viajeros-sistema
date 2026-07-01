@@ -1797,24 +1797,21 @@ async function syncArrayCollection(collName,newArray,hasImages){
                 const snap=await h.getDoc(h.doc(db,'ventas',id));
                 if(snap.exists()){
                     const remote=snap.data();
-                    // Solo preservamos pagos remotos faltantes si el server fue modificado por OTRA persona
-                    // DESPUÉS de la versión que estamos escribiendo (tRemote > tLocal). Si el server es igual
-                    // o más viejo, respetamos nuestra versión TAL CUAL —incluidas las eliminaciones de pagos—
-                    // para que borrar un pago realmente persista (antes se "resucitaba" en cada push).
-                    const tRemote=num(remote._lastModifiedAt)||0;
-                    const tLocal=num(toWrite._lastModifiedAt)||0;
-                    if(tRemote>tLocal){
-                        const remotePagos=(remote.cobranza&&remote.cobranza.pagos)||[];
-                        const localPagos=(toWrite.cobranza&&toWrite.cobranza.pagos)||[];
-                        const localIds=new Set(localPagos.map(p=>String(p.id)));
-                        const faltantes=remotePagos.filter(p=>!localIds.has(String(p.id)));
-                        if(faltantes.length>0){
-                            const merged=localPagos.concat(faltantes);
-                            if(!toWrite.cobranza)toWrite.cobranza={montoTotal:0,moneda:'USD',pagos:[]};
-                            toWrite.cobranza.pagos=merged;
-                            console.warn('[FS] ventas/'+id+': se preservaron '+faltantes.length+' pagos remotos (edición concurrente más nueva).');
-                        }
-                    }
+                    const remoteCob=remote.cobranza||{};
+                    const localCob=toWrite.cobranza||{montoTotal:0,moneda:'USD',pagos:[]};
+                    // Unión de las marcas de borrado (tombstones) de ambos lados: un pago borrado por
+                    // CUALQUIER usuaria queda borrado para siempre, sin depender de relojes.
+                    const tomb=new Set([].concat(localCob.pagosEliminados||[],remoteCob.pagosEliminados||[]).map(String));
+                    const remotePagos=remoteCob.pagos||[];
+                    const localPagos=localCob.pagos||[];
+                    const localIds=new Set(localPagos.map(p=>String(p.id)));
+                    // Preservar pagos remotos que la copia local no tiene Y que NO fueron borrados.
+                    const faltantes=remotePagos.filter(p=>!localIds.has(String(p.id))&&!tomb.has(String(p.id)));
+                    // Resultado: locales (sin los borrados) + remotos faltantes (sin los borrados).
+                    const pagosFinal=localPagos.filter(p=>!tomb.has(String(p.id))).concat(faltantes);
+                    if(!toWrite.cobranza)toWrite.cobranza={montoTotal:0,moneda:'USD',pagos:[]};
+                    toWrite.cobranza.pagos=pagosFinal;
+                    toWrite.cobranza.pagosEliminados=Array.from(tomb);
                 }
             }catch(e){console.warn('[FS] no se pudo merge-de-pagos previo a setDoc, escribiendo igual:',id,e);}
         }
@@ -1941,18 +1938,17 @@ async function loadAllFromFirestore(){
         const localVentasMap=new Map((localVentas||[]).map(lv=>[String(lv.id),lv]));
         ventas.forEach(v=>{
             const lv=localVentasMap.get(String(v.id));if(!lv)return;
-            const localPagos=(lv.cobranza&&lv.cobranza.pagos)||[];
-            if(!localPagos.length)return;
+            const localCob=lv.cobranza||{};
             if(!v.cobranza)v.cobranza={montoTotal:0,moneda:'USD',pagos:[]};
             if(!Array.isArray(v.cobranza.pagos))v.cobranza.pagos=[];
-            // ANTI-RESURRECCIÓN: solo "rescatamos" pagos locales que faltan en el server SI la copia local
-            // es igual o más nueva que la del server. Si el server es más nuevo, significa que otra persona
-            // editó/borró pagos después de que cargamos: respetamos el server (así no reaparece un pago que
-            // otro usuario eliminó). Si local es igual/más nuevo, preservamos (anti-pérdida de lo no sincronizado).
-            const tLocal=num(lv._lastModifiedAt)||0,tServer=num(v._lastModifiedAt)||0;
-            if(tServer>tLocal)return;
+            // TOMBSTONES: un pago borrado por cualquiera (marca en pagosEliminados) NO se revive, sin
+            // depender de relojes. Se recuperan solo pagos locales no sincronizados que NO estén borrados.
+            const tomb=new Set([].concat(v.cobranza.pagosEliminados||[],localCob.pagosEliminados||[]).map(String));
+            const localPagos=localCob.pagos||[];
             const serverPagoIds=new Set(v.cobranza.pagos.map(p=>String(p.id)));
-            localPagos.forEach(p=>{if(!serverPagoIds.has(String(p.id))){v.cobranza.pagos.push(p);pagosRescatados++;}});
+            localPagos.forEach(p=>{if(!serverPagoIds.has(String(p.id))&&!tomb.has(String(p.id))){v.cobranza.pagos.push(p);pagosRescatados++;}});
+            if(tomb.size)v.cobranza.pagos=v.cobranza.pagos.filter(p=>!tomb.has(String(p.id)));
+            v.cobranza.pagosEliminados=Array.from(tomb);
         });
         if(pagosRescatados>0){
             console.warn('[FS] ventas: '+pagosRescatados+' pagos recuperados desde local que no estaban en Firestore.');
@@ -7107,8 +7103,12 @@ function removePago(pagoId){
     const ventas=getVentas();
     const v=ventas.find(x=>x.id===ventaId);
     if(!v||!v.cobranza)return;
+    // TOMBSTONE (marca de borrado): registramos el id borrado para que NINGUNA sesión lo reviva,
+    // sin depender del reloj de las computadoras (que no están sincronizados entre usuarias).
+    if(!Array.isArray(v.cobranza.pagosEliminados))v.cobranza.pagosEliminados=[];
+    if(v.cobranza.pagosEliminados.indexOf(pagoId)<0)v.cobranza.pagosEliminados.push(pagoId);
     v.cobranza.pagos=(v.cobranza.pagos||[]).filter(p=>p.id!==pagoId);
-    v._lastModifiedAt=Date.now();   // marca de edición: el borrado es lo más reciente (para el merge de pagos)
+    v._lastModifiedAt=Date.now();
     saveVentas(ventas);
     renderPagosTable();
     recalcCobranza();
