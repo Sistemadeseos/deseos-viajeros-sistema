@@ -5701,6 +5701,7 @@ function subirImagenDestino(p,d){
     inp.click();
 }
 function getDestinoImage(p,d){const enc=getEncabezados();return(enc[p]&&enc[p][d])||null;}
+const _LS_KEY_LABEL={dv_cotizaciones:'Cotizaciones',dv_ventas:'Ventas y pagos',dv_clientes:'Contactos',dv_encabezados:'Im\u00E1genes de destinos',dv_config:'Configuraci\u00F3n (incluye im\u00E1genes de encabezado)',dv_grupos:'Grupos',dv_hoteles:'Hoteles',dv_rrhh_colillas:'Colillas de pago',dv_rrhh_vacaciones:'Vacaciones',dv_rrhh_horasextra:'Horas extra'};
 function renderStorageIndicator(targetId){
     const t=document.getElementById(targetId||'storageIndicator');
     if(!t)return;
@@ -5708,6 +5709,11 @@ function renderStorageIndicator(targetId){
     const pct=info.pct;
     const color=pct>85?'var(--danger)':(pct>65?'#d4830f':'var(--success)');
     const msg=pct>85?'\u26A0 Almacenamiento casi lleno':(pct>65?'\u2139 Almacenamiento alto':'\u2713 Almacenamiento con espacio');
+    // Desglose por clave (de mayor a menor) para ver qu\u00E9 ocupa el espacio.
+    const filas=Object.entries(info.byKey||{}).sort((a,b)=>b[1]-a[1]).filter(([k,b])=>b>1024).map(([k,b])=>{
+        const mb=(b/1024/1024).toFixed(2);const kpct=info.usedBytes>0?Math.round(b/info.usedBytes*100):0;
+        return `<div style="display:flex;justify-content:space-between;font-size:0.72rem;color:var(--text-light);padding:1px 0;"><span>${esc(_LS_KEY_LABEL[k]||k)}</span><span>${mb} MB \u00B7 ${kpct}%</span></div>`;
+    }).join('');
     t.innerHTML=`<div style="background:var(--bg);border-radius:8px;padding:10px 14px;border-left:4px solid ${color};">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
             <div style="font-weight:600;font-size:0.82rem;color:${color};">${msg}</div>
@@ -5716,6 +5722,7 @@ function renderStorageIndicator(targetId){
         <div style="height:8px;background:rgba(0,0,0,0.08);border-radius:4px;overflow:hidden;">
             <div style="height:100%;width:${pct}%;background:${color};transition:width 0.3s;"></div>
         </div>
+        ${filas?`<div style="margin-top:8px;border-top:1px solid var(--border);padding-top:6px;">${filas}</div>`:''}
     </div>`;
 }
 
