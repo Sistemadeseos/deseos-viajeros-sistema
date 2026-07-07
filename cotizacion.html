@@ -1579,6 +1579,8 @@ const CONTACTO_URGENCIAS=[
 // Las escrituras: se escriben a localStorage (sync) + push a Firestore (async fire-and-forget).
 let _fsEnabled=false; // true después de loadAllFromFirestore()
 let _fsSyncInProgress=false; // evita loops cuando la carga inicial escribe al cache
+// Número de versión visible: para confirmar que TODAS las usuarias corren el código actualizado.
+const APP_VERSION='v2026.07.06-B';
 
 // ============================================================================
 // CACHE PERSISTENTE: IndexedDB (capacidad amplia) + espejo en memoria (_cache).
@@ -7129,6 +7131,7 @@ async function _diagVerificarPagosEnNube(ventaId,pagoIdBorrado){
         const sigue=pagos.some(p=>String(p.id)===String(pagoIdBorrado));
         const detalle=pagos.map(p=>(p.fecha||'?')+' $'+(p.monto||0)).join('\n');
         alert('DIAGNÓSTICO tras borrar el pago:\n\n'+
+              'Tu versión del sistema: '+APP_VERSION+'\n\n'+
               'En la NUBE quedaron '+pagos.length+' pago(s).\n'+
               'El pago que borraste '+(sigue?'❌ TODAVÍA ESTÁ en la nube':'✓ YA NO está en la nube')+'.\n'+
               '_lastModifiedAt (nube): '+(d._lastModifiedAt||'—')+'\n'+
@@ -8416,7 +8419,7 @@ function renderSidebarUser(user){
     const email=user.email||'';
     const nombre=email.split('@')[0].replace(/^\w/,c=>c.toUpperCase());
     const inicial=nombre.charAt(0).toUpperCase();
-    box.innerHTML=`<div class="user-avatar">${esc(inicial)}</div><div class="user-info"><div class="user-name">${esc(nombre)}</div><div class="user-email">${esc(email)}</div></div><button class="logout-btn" onclick="cerrarSesion()" title="Cerrar sesi\u00f3n">Salir</button>`;
+    box.innerHTML=`<div class="user-avatar">${esc(inicial)}</div><div class="user-info"><div class="user-name">${esc(nombre)}</div><div class="user-email">${esc(email)}</div><div class="user-email" style="opacity:0.7;">Versi\u00f3n ${esc(APP_VERSION)}</div></div><button class="logout-btn" onclick="cerrarSesion()" title="Cerrar sesi\u00f3n">Salir</button>`;
 }
 
 async function cerrarSesion(){
