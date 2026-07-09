@@ -1238,6 +1238,7 @@ onAuthStateChanged(fbAuth, (user) => {
                 <button class="config-subtab" data-cfgsubtab="noincluye" onclick="switchConfigSubTab('noincluye')">No incluye</button>
                 <button class="config-subtab" data-cfgsubtab="alertas" onclick="switchConfigSubTab('alertas')">Alertas</button>
                 <button class="config-subtab" data-cfgsubtab="fees" onclick="switchConfigSubTab('fees')">Fees calculadora</button>
+                <button class="config-subtab" data-cfgsubtab="transporte" onclick="switchConfigSubTab('transporte')">Transporte</button>
                 <button class="config-subtab" data-cfgsubtab="hoteles" onclick="switchConfigSubTab('hoteles')">Hoteles</button>
                 <button class="config-subtab" data-cfgsubtab="destinos" onclick="switchConfigSubTab('destinos')">Destinos</button>
             </div>
@@ -1246,6 +1247,7 @@ onAuthStateChanged(fbAuth, (user) => {
             <div class="config-subpane" id="cfgPane-noincluye"></div>
             <div class="config-subpane" id="cfgPane-alertas"></div>
             <div class="config-subpane" id="cfgPane-fees"></div>
+            <div class="config-subpane" id="cfgPane-transporte"></div>
             <div class="config-subpane" id="cfgPane-hoteles"></div>
             <div class="config-subpane" id="cfgPane-destinos"></div>
         </div>
@@ -1511,6 +1513,7 @@ onAuthStateChanged(fbAuth, (user) => {
 <div class="modal-overlay" id="modalRrhhVacacion"></div>
 <div class="modal-overlay" id="modalRrhhHoraExtra"></div>
 <div class="modal-overlay" id="modalUnificarEnc"></div>
+<div class="modal-overlay" id="modalTransporteCalc"></div>
 
 <script>
 // ===== STATE =====
@@ -1580,7 +1583,7 @@ const CONTACTO_URGENCIAS=[
 let _fsEnabled=false; // true después de loadAllFromFirestore()
 let _fsSyncInProgress=false; // evita loops cuando la carga inicial escribe al cache
 // Número de versión visible: para confirmar que TODAS las usuarias corren el código actualizado.
-const APP_VERSION='v8-0707';
+const APP_VERSION='v9-0709';
 
 // ============================================================================
 // CACHE PERSISTENTE: IndexedDB (capacidad amplia) + espejo en memoria (_cache).
@@ -2837,6 +2840,7 @@ function renderConfiguracion(){
     renderConfigChecklist();
     renderConfigAlertas();
     renderConfigFees();
+    renderConfigTransporte();
     renderConfigHoteles();
     renderEncabezados();
     renderConfigRecibo();
@@ -4784,6 +4788,78 @@ function renderConfigFees(){
     </div>`;
 }
 
+// ===================== CONFIG: TRANSPORTE (costo por persona según tamaño del grupo) =====================
+function getTransportes(){const c=getConfig();return Array.isArray(c.transportes)?c.transportes:[];}
+function _saveTransportes(arr){const c=getConfig();c.transportes=arr;saveConfig(c);}
+function _newTransId(){return 'tr_'+Date.now()+'_'+Math.random().toString(36).slice(2,6);}
+function renderConfigTransporte(){
+    const pane=document.getElementById('cfgPane-transporte');
+    if(!pane)return;
+    const trans=getTransportes();
+    let html=`<p class="config-hint">Cargá el costo de transporte <strong>por persona</strong> según la cantidad de personas del grupo (los bebés no cuentan). Después, en el editor, en la fila <strong>Transporte</strong>, vas a poder elegir una o dos ciudades con el botón 🚐 y el sistema llena el costo solo.</p>
+    <div style="margin-bottom:12px;"><button class="btn btn-sm btn-accent" onclick="transAdd()">+ Agregar ciudad / ruta de transporte</button></div>`;
+    if(!trans.length){
+        html+=`<p style="font-size:0.82rem;color:var(--text-light);font-style:italic;background:var(--bg);padding:14px;border-radius:6px;">Todavía no cargaste rutas de transporte. Agregá la primera con el botón de arriba (ej: "Aeropuerto San José").</p>`;
+        pane.innerHTML=html;return;
+    }
+    html+=trans.map(t=>{
+        const costos=(t.costos||[]);
+        const filas=costos.map((c,i)=>`<tr>
+            <td style="padding:2px 8px;"><input type="number" min="1" step="1" value="${esc(c.personas)}" onchange="transCostoSet('${t.id}',${i},'personas',this.value)" style="width:80px;padding:3px 6px;"></td>
+            <td style="padding:2px 8px;"><input type="number" min="0" step="0.01" value="${esc(c.costo)}" onchange="transCostoSet('${t.id}',${i},'costo',this.value)" style="width:120px;padding:3px 6px;"></td>
+            <td style="padding:2px 8px;"><button class="btn-icon remove" title="Quitar" onclick="transCostoRemove('${t.id}',${i})">&times;</button></td>
+        </tr>`).join('');
+        return `<div style="border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:12px;">
+            <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;">
+                <input type="text" value="${esc(t.nombre||'')}" placeholder="Nombre (ej: Aeropuerto San José)" onchange="transSetNombre('${t.id}',this.value)" style="flex:1;font-weight:600;padding:5px 8px;">
+                <button class="btn btn-sm btn-danger" onclick="transRemove('${t.id}')">Eliminar ruta</button>
+            </div>
+            <table style="font-size:0.8rem;border-collapse:collapse;"><thead><tr style="color:var(--text-light);text-transform:uppercase;font-size:0.66rem;letter-spacing:0.4px;text-align:left;"><th style="padding:2px 8px;">Personas</th><th style="padding:2px 8px;">Costo por persona</th><th></th></tr></thead><tbody>${filas||`<tr><td colspan="3" style="padding:4px 8px;color:var(--text-light);font-style:italic;font-size:0.74rem;">Sin filas. Agregá una abajo.</td></tr>`}</tbody></table>
+            <button class="btn btn-sm btn-ghost" style="margin-top:6px;font-size:0.72rem;" onclick="transCostoAdd('${t.id}')">+ Agregar fila (cantidad de personas)</button>
+        </div>`;
+    }).join('');
+    pane.innerHTML=html;
+}
+function transAdd(){
+    const arr=getTransportes().map(x=>Object.assign({},x));
+    arr.push({id:_newTransId(),nombre:'',costos:[{personas:1,costo:0},{personas:2,costo:0},{personas:3,costo:0},{personas:4,costo:0}]});
+    _saveTransportes(arr);renderConfigTransporte();
+}
+function transRemove(id){
+    const t=getTransportes().find(x=>x.id===id);
+    if(!confirm('¿Eliminar la ruta de transporte "'+((t&&t.nombre)||'')+'"?'))return;
+    _saveTransportes(getTransportes().filter(x=>x.id!==id));renderConfigTransporte();
+}
+function transSetNombre(id,val){
+    const arr=getTransportes().map(x=>Object.assign({},x));
+    const t=arr.find(x=>x.id===id);if(!t)return;t.nombre=val;_saveTransportes(arr);
+}
+function transCostoAdd(id){
+    const arr=getTransportes().map(x=>Object.assign({},x,{costos:(x.costos||[]).slice()}));
+    const t=arr.find(x=>x.id===id);if(!t)return;
+    const ultima=t.costos.length?num(t.costos[t.costos.length-1].personas)+1:1;
+    t.costos.push({personas:ultima,costo:0});_saveTransportes(arr);renderConfigTransporte();
+}
+function transCostoRemove(id,idx){
+    const arr=getTransportes().map(x=>Object.assign({},x,{costos:(x.costos||[]).slice()}));
+    const t=arr.find(x=>x.id===id);if(!t)return;t.costos.splice(idx,1);_saveTransportes(arr);renderConfigTransporte();
+}
+function transCostoSet(id,idx,field,val){
+    const arr=getTransportes().map(x=>Object.assign({},x,{costos:(x.costos||[]).map(c=>Object.assign({},c))}));
+    const t=arr.find(x=>x.id===id);if(!t||!t.costos[idx])return;
+    t.costos[idx][field]=field==='personas'?Math.max(1,Math.round(num(val))):num(val);
+    _saveTransportes(arr);
+}
+// Costo por persona de una ruta para un tamaño de grupo. Exacto si existe; si no, el tramo <= más cercano; si el grupo es menor al mínimo, el mínimo.
+function _transCostoPorPersona(t,grupo){
+    const costos=(t.costos||[]).map(c=>({personas:num(c.personas),costo:num(c.costo)})).filter(c=>c.personas>0).sort((a,b)=>a.personas-b.personas);
+    if(!costos.length)return 0;
+    let exacto=null;costos.forEach(c=>{if(c.personas===grupo)exacto=c;});
+    if(exacto)return exacto.costo;
+    let leq=null;costos.forEach(c=>{if(c.personas<=grupo)leq=c;});
+    return leq?leq.costo:costos[0].costo;
+}
+
 function collectConfigListFromDOM(containerId,isTextarea){
     const list=[];
     const sel=isTextarea?'textarea':'input[type="text"]';
@@ -5073,7 +5149,7 @@ function buildCalcHtml(opId,calc){
     }
     const dynamicRowsHtml=rows.map(r=>{
         const fld=r.fld,name=r.name;
-        return`<tr data-calc-fld="${fld}" draggable="true"><td style="display:flex;align-items:center;gap:2px;padding-left:2px;"><span class="drag-handle calc-drag" draggable="false" title="Arrastrar para reordenar" style="font-size:0.75rem;padding:2px 3px;">&#9776;</span><input type="text" data-op="${opId}" data-rowname="${fld}" value="${esc(name)}" placeholder="Nombre" style="flex:1;min-width:0;font-size:0.7rem;font-weight:600;border:1px solid var(--border);border-radius:3px;padding:1px 3px;" oninput="onCalcInput(this)"><button class="btn-icon remove" style="width:18px;height:18px;font-size:0.6rem;flex-shrink:0;" onclick="removeCalcRow(this,'${opId}')" title="Eliminar fila">&times;</button></td><td><input data-op="${opId}" data-fld="${fld}" data-col="ad" oninput="onCalcInput(this)" onblur="showCalcResult(this)"></td><td><input data-op="${opId}" data-fld="${fld}" data-col="n11" oninput="onCalcInput(this)" onblur="showCalcResult(this)"></td><td><input data-op="${opId}" data-fld="${fld}" data-col="n3" oninput="onCalcInput(this)" onblur="showCalcResult(this)"></td></tr>`;
+        return`<tr data-calc-fld="${fld}" draggable="true"><td style="display:flex;align-items:center;gap:2px;padding-left:2px;"><span class="drag-handle calc-drag" draggable="false" title="Arrastrar para reordenar" style="font-size:0.75rem;padding:2px 3px;">&#9776;</span><input type="text" data-op="${opId}" data-rowname="${fld}" value="${esc(name)}" placeholder="Nombre" style="flex:1;min-width:0;font-size:0.7rem;font-weight:600;border:1px solid var(--border);border-radius:3px;padding:1px 3px;" oninput="onCalcInput(this)">${fld==='transp'?`<button class="btn-icon" style="width:18px;height:18px;font-size:0.72rem;flex-shrink:0;color:var(--primary);padding:0;background:none;border:none;cursor:pointer;" onclick="openTransporteCalc('${opId}','${fld}')" title="Calcular transporte automáticamente">&#128656;</button>`:''}<button class="btn-icon remove" style="width:18px;height:18px;font-size:0.6rem;flex-shrink:0;" onclick="removeCalcRow(this,'${opId}')" title="Eliminar fila">&times;</button></td><td><input data-op="${opId}" data-fld="${fld}" data-col="ad" oninput="onCalcInput(this)" onblur="showCalcResult(this)"></td><td><input data-op="${opId}" data-fld="${fld}" data-col="n11" oninput="onCalcInput(this)" onblur="showCalcResult(this)"></td><td><input data-op="${opId}" data-fld="${fld}" data-col="n3" oninput="onCalcInput(this)" onblur="showCalcResult(this)"></td></tr>`;
     }).join('');
 
     return`<td colspan="5"><div class="calc-container">
@@ -5113,7 +5189,7 @@ function addCalcRow(opId){
     const tr=document.createElement('tr');
     tr.dataset.calcFld=fld;
     tr.draggable=true;
-    tr.innerHTML=`<td style="display:flex;align-items:center;gap:2px;padding-left:2px;"><span class="drag-handle calc-drag" draggable="false" title="Arrastrar para reordenar" style="font-size:0.75rem;padding:2px 3px;">&#9776;</span><input type="text" data-op="${opId}" data-rowname="${fld}" value="" placeholder="Nombre" style="flex:1;min-width:0;font-size:0.7rem;font-weight:600;border:1px solid var(--border);border-radius:3px;padding:1px 3px;" oninput="onCalcInput(this)"><button class="btn-icon remove" style="width:18px;height:18px;font-size:0.6rem;flex-shrink:0;" onclick="removeCalcRow(this,'${opId}')" title="Eliminar fila">&times;</button></td><td><input data-op="${opId}" data-fld="${fld}" data-col="ad" oninput="onCalcInput(this)" onblur="showCalcResult(this)"></td><td><input data-op="${opId}" data-fld="${fld}" data-col="n11" oninput="onCalcInput(this)" onblur="showCalcResult(this)"></td><td><input data-op="${opId}" data-fld="${fld}" data-col="n3" oninput="onCalcInput(this)" onblur="showCalcResult(this)"></td>`;
+    tr.innerHTML=`<td style="display:flex;align-items:center;gap:2px;padding-left:2px;"><span class="drag-handle calc-drag" draggable="false" title="Arrastrar para reordenar" style="font-size:0.75rem;padding:2px 3px;">&#9776;</span><input type="text" data-op="${opId}" data-rowname="${fld}" value="" placeholder="Nombre" style="flex:1;min-width:0;font-size:0.7rem;font-weight:600;border:1px solid var(--border);border-radius:3px;padding:1px 3px;" oninput="onCalcInput(this)">${fld==='transp'?`<button class="btn-icon" style="width:18px;height:18px;font-size:0.72rem;flex-shrink:0;color:var(--primary);padding:0;background:none;border:none;cursor:pointer;" onclick="openTransporteCalc('${opId}','${fld}')" title="Calcular transporte automáticamente">&#128656;</button>`:''}<button class="btn-icon remove" style="width:18px;height:18px;font-size:0.6rem;flex-shrink:0;" onclick="removeCalcRow(this,'${opId}')" title="Eliminar fila">&times;</button></td><td><input data-op="${opId}" data-fld="${fld}" data-col="ad" oninput="onCalcInput(this)" onblur="showCalcResult(this)"></td><td><input data-op="${opId}" data-fld="${fld}" data-col="n11" oninput="onCalcInput(this)" onblur="showCalcResult(this)"></td><td><input data-op="${opId}" data-fld="${fld}" data-col="n3" oninput="onCalcInput(this)" onblur="showCalcResult(this)"></td>`;
     tbody.appendChild(tr);
     initCalcRowDrag(tbody);
     tr.querySelector('input[data-rowname]').focus();
@@ -5285,6 +5361,59 @@ function applyCalcToRow(opId){
     tr.classList.remove('row-manual-override');
     recalcRow(opId,true);
     updatePreview();
+}
+
+// ----- Calculadora de TRANSPORTE (llena la fila Transporte según ciudad(es) y tamaño del grupo) -----
+let _transCalcOpId=null,_transCalcFld=null;
+function openTransporteCalc(opId,fld){
+    const trans=getTransportes();
+    if(!trans.length){alert('Primero cargá las rutas de transporte en Configuración → Cotización → Transporte.');return;}
+    _transCalcOpId=opId;_transCalcFld=fld;
+    const ad=num((document.querySelector(`input[data-op="${opId}"][data-pax="ad"]`)||{}).value)||0;
+    const ni=num((document.querySelector(`input[data-op="${opId}"][data-pax="n11"]`)||{}).value)||0;
+    const grupo=ad+ni; // bebés no cuentan
+    const opts=trans.map(t=>`<label style="display:flex;align-items:center;gap:8px;padding:5px 2px;font-size:0.86rem;cursor:pointer;"><input type="checkbox" class="transchk" value="${esc(t.id)}" onchange="_transCalcPreview()" style="width:auto;margin:0;"> ${esc(t.nombre||'(sin nombre)')}</label>`).join('');
+    const overlay=document.getElementById('modalTransporteCalc');
+    overlay.innerHTML=`<div class="modal" style="max-width:460px;">
+        <div class="modal-header"><h3>&#128656; Calcular transporte</h3><button class="modal-close" onclick="closeModal('modalTransporteCalc')">&times;</button></div>
+        <div class="modal-body">
+            <p style="font-size:0.84rem;margin:0 0 2px;">Grupo: <strong>${ad} adulto(s) + ${ni} niño(s) = ${grupo} persona(s)</strong></p>
+            <p style="font-size:0.74rem;color:var(--text-light);margin:0 0 10px;">Los bebés no cuentan. El tamaño del grupo sale de "Pax del grupo" de esta opción.</p>
+            <div style="font-size:0.78rem;font-weight:600;margin-bottom:2px;">Elegí una o dos ciudades / rutas (se suman):</div>
+            <div style="margin:4px 0 10px;">${opts}</div>
+            <div id="transCalcPreview" style="background:var(--bg);border-radius:8px;padding:10px 12px;font-size:0.84rem;"></div>
+        </div>
+        <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modalTransporteCalc')">Cancelar</button><button class="btn btn-success" onclick="_transCalcAplicar()">Aplicar al transporte</button></div>
+    </div>`;
+    overlay.dataset.grupo=grupo;overlay.dataset.total='';
+    overlay.classList.add('open');
+    _transCalcPreview();
+}
+function _transCalcPreview(){
+    const overlay=document.getElementById('modalTransporteCalc');
+    const box=document.getElementById('transCalcPreview');
+    if(!box)return;
+    const grupo=num(overlay.dataset.grupo);
+    const trans=getTransportes();
+    const checked=Array.from(document.querySelectorAll('.transchk:checked')).map(c=>c.value);
+    if(!grupo){box.innerHTML='<span style="color:var(--danger);">El grupo tiene 0 personas. Cargá los Adultos/Niños en "Pax del grupo" antes de calcular.</span>';overlay.dataset.total='';return;}
+    if(!checked.length){box.innerHTML='<span style="color:var(--text-light);">Elegí al menos una ciudad para ver el costo.</span>';overlay.dataset.total='';return;}
+    let total=0,lineas=[],aviso=false;
+    checked.forEach(id=>{const t=trans.find(x=>x.id===id);if(!t)return;const cp=_transCostoPorPersona(t,grupo);total+=cp;const exacto=(t.costos||[]).some(c=>num(c.personas)===grupo);if(!exacto)aviso=true;lineas.push(esc(t.nombre||'ruta')+': '+cp.toFixed(2)+(exacto?'':' *'));});
+    box.innerHTML=lineas.join('<br>')+'<hr style="border:none;border-top:1px solid var(--border);margin:6px 0;"><strong>Transporte por persona: '+total.toFixed(2)+'</strong>'+(aviso?'<br><span style="font-size:0.72rem;color:#b8860b;">* No hay costo cargado para exactamente '+grupo+' persona(s); se usó el más cercano por debajo. Podés agregar esa cantidad en Configuración → Transporte.</span>':'');
+    overlay.dataset.total=total;
+}
+function _transCalcAplicar(){
+    const overlay=document.getElementById('modalTransporteCalc');
+    if(!Array.from(document.querySelectorAll('.transchk:checked')).length){alert('Elegí al menos una ciudad.');return;}
+    if(overlay.dataset.total===''){alert('No se pudo calcular. Revisá que el grupo tenga personas.');return;}
+    const total=Math.round(num(overlay.dataset.total)*100)/100;
+    const opId=_transCalcOpId,fld=_transCalcFld;
+    const set=(col,val)=>{const inp=document.querySelector(`input[data-op="${opId}"][data-fld="${fld}"][data-col="${col}"]`);if(inp){if(inp.dataset.formula){delete inp.dataset.formula;inp.removeAttribute('title');}inp.value=val;}};
+    set('ad',total);set('n11',total);set('n3',0);   // bebés no pagan
+    recalcRow(opId,true);
+    updatePreview();
+    closeModal('modalTransporteCalc');
 }
 
 function recalcRow(opId,autoFill){
