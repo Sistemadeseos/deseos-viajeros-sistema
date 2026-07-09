@@ -1583,7 +1583,7 @@ const CONTACTO_URGENCIAS=[
 let _fsEnabled=false; // true después de loadAllFromFirestore()
 let _fsSyncInProgress=false; // evita loops cuando la carga inicial escribe al cache
 // Número de versión visible: para confirmar que TODAS las usuarias corren el código actualizado.
-const APP_VERSION='v10-0709';
+const APP_VERSION='v11-0709';
 
 // ============================================================================
 // CACHE PERSISTENTE: IndexedDB (capacidad amplia) + espejo en memoria (_cache).
@@ -5435,8 +5435,13 @@ function _transCalcAplicar(){
     if(overlay.dataset.total===''){alert('No se pudo calcular. Revisá que el grupo tenga personas.');return;}
     const total=Math.round(num(overlay.dataset.total)*100)/100;
     const opId=_transCalcOpId,fld=_transCalcFld;
+    // Solo poner costo en las categorías que realmente viajan: si no hay niños, la columna Niño queda vacía.
+    const ad=num((document.querySelector(`input[data-op="${opId}"][data-pax="ad"]`)||{}).value)||0;
+    const ni=num((document.querySelector(`input[data-op="${opId}"][data-pax="n11"]`)||{}).value)||0;
     const set=(col,val)=>{const inp=document.querySelector(`input[data-op="${opId}"][data-fld="${fld}"][data-col="${col}"]`);if(inp){if(inp.dataset.formula){delete inp.dataset.formula;inp.removeAttribute('title');}inp.value=val;}};
-    set('ad',total);set('n11',total);set('n3',0);   // bebés no pagan
+    set('ad',ad>0?total:'');
+    set('n11',ni>0?total:'');   // sin niños → columna Niño vacía
+    set('n3','');                // bebés no pagan
     recalcRow(opId,true);
     updatePreview();
     closeModal('modalTransporteCalc');
