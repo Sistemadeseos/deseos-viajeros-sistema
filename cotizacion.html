@@ -1583,7 +1583,7 @@ const CONTACTO_URGENCIAS=[
 let _fsEnabled=false; // true después de loadAllFromFirestore()
 let _fsSyncInProgress=false; // evita loops cuando la carga inicial escribe al cache
 // Número de versión visible: para confirmar que TODAS las usuarias corren el código actualizado.
-const APP_VERSION='v11-0709';
+const APP_VERSION='v12-0709';
 
 // ============================================================================
 // CACHE PERSISTENTE: IndexedDB (capacidad amplia) + espejo en memoria (_cache).
@@ -1831,11 +1831,9 @@ async function syncArrayCollection(collName,newArray,hasImages){
         }
     }
     _fsDocIds[collName]=newIdsSet;
-    // Actualizar localStorage con URLs (para que las próximas lecturas no re-suban dataUrls ya subidos)
+    // Actualizar la copia local (IndexedDB) con URLs (para que las próximas lecturas no re-suban dataUrls ya subidos)
     if(hasImages){
-        _fsSyncInProgress=true;
-        localStorage.setItem('dv_'+collName,JSON.stringify(newArrayWithUrls));
-        _fsSyncInProgress=false;
+        _writeRaw('dv_'+collName,JSON.stringify(newArrayWithUrls));
     }
     console.log(`[FS] ${collName} sincronizada (${newArrayWithUrls.length} items)`);
 }
