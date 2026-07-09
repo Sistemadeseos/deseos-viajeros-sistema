@@ -1583,7 +1583,7 @@ const CONTACTO_URGENCIAS=[
 let _fsEnabled=false; // true después de loadAllFromFirestore()
 let _fsSyncInProgress=false; // evita loops cuando la carga inicial escribe al cache
 // Número de versión visible: para confirmar que TODAS las usuarias corren el código actualizado.
-const APP_VERSION='v9-0709';
+const APP_VERSION='v10-0709';
 
 // ============================================================================
 // CACHE PERSISTENTE: IndexedDB (capacidad amplia) + espejo en memoria (_cache).
@@ -4792,38 +4792,59 @@ function renderConfigFees(){
 function getTransportes(){const c=getConfig();return Array.isArray(c.transportes)?c.transportes:[];}
 function _saveTransportes(arr){const c=getConfig();c.transportes=arr;saveConfig(c);}
 function _newTransId(){return 'tr_'+Date.now()+'_'+Math.random().toString(36).slice(2,6);}
+function _transPaisSelectHtml(t,paises){
+    const opts=['<option value="">— Sin país —</option>']
+        .concat(paises.map(p=>`<option value="${esc(p)}" ${t.pais===p?'selected':''}>${esc(p)}</option>`));
+    if(t.pais&&paises.indexOf(t.pais)<0)opts.push(`<option value="${esc(t.pais)}" selected>${esc(t.pais)}</option>`);
+    return `<select onchange="transSetPais('${t.id}',this.value)" style="padding:5px 8px;font-size:0.8rem;max-width:180px;">${opts.join('')}</select>`;
+}
+function _transCardHtml(t,paises){
+    const costos=(t.costos||[]);
+    const filas=costos.map((c,i)=>`<tr>
+        <td style="padding:2px 8px;"><input type="number" min="1" step="1" value="${esc(c.personas)}" onchange="transCostoSet('${t.id}',${i},'personas',this.value)" style="width:80px;padding:3px 6px;"></td>
+        <td style="padding:2px 8px;"><input type="number" min="0" step="0.01" value="${esc(c.costo)}" onchange="transCostoSet('${t.id}',${i},'costo',this.value)" style="width:120px;padding:3px 6px;"></td>
+        <td style="padding:2px 8px;"><button class="btn-icon remove" title="Quitar" onclick="transCostoRemove('${t.id}',${i})">&times;</button></td>
+    </tr>`).join('');
+    return `<div style="border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:12px;">
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap;">
+            <input type="text" value="${esc(t.nombre||'')}" placeholder="Nombre (ej: Aeropuerto San José)" onchange="transSetNombre('${t.id}',this.value)" style="flex:1;min-width:160px;font-weight:600;padding:5px 8px;">
+            <label style="font-size:0.74rem;color:var(--text-light);display:flex;align-items:center;gap:4px;">País: ${_transPaisSelectHtml(t,paises)}</label>
+            <button class="btn btn-sm btn-danger" onclick="transRemove('${t.id}')">Eliminar</button>
+        </div>
+        <table style="font-size:0.8rem;border-collapse:collapse;"><thead><tr style="color:var(--text-light);text-transform:uppercase;font-size:0.66rem;letter-spacing:0.4px;text-align:left;"><th style="padding:2px 8px;">Personas</th><th style="padding:2px 8px;">Costo por persona</th><th></th></tr></thead><tbody>${filas||`<tr><td colspan="3" style="padding:4px 8px;color:var(--text-light);font-style:italic;font-size:0.74rem;">Sin filas. Agregá una abajo.</td></tr>`}</tbody></table>
+        <button class="btn btn-sm btn-ghost" style="margin-top:6px;font-size:0.72rem;" onclick="transCostoAdd('${t.id}')">+ Agregar fila (cantidad de personas)</button>
+    </div>`;
+}
 function renderConfigTransporte(){
     const pane=document.getElementById('cfgPane-transporte');
     if(!pane)return;
     const trans=getTransportes();
-    let html=`<p class="config-hint">Cargá el costo de transporte <strong>por persona</strong> según la cantidad de personas del grupo (los bebés no cuentan). Después, en el editor, en la fila <strong>Transporte</strong>, vas a poder elegir una o dos ciudades con el botón 🚐 y el sistema llena el costo solo.</p>
+    const paises=Object.keys(getEncabezados()).sort((a,b)=>a.localeCompare(b));
+    let html=`<p class="config-hint">Cargá el costo de transporte <strong>por persona</strong> según la cantidad de personas del grupo (los bebés no cuentan). Asigná un <strong>país</strong> a cada ruta: en el editor, al elegir el país, solo aparecerán las rutas de ese país. Después, en la fila <strong>Transporte</strong> de la calculadora, con el botón 🚐 elegís una o dos ciudades y el sistema llena el costo solo.</p>
     <div style="margin-bottom:12px;"><button class="btn btn-sm btn-accent" onclick="transAdd()">+ Agregar ciudad / ruta de transporte</button></div>`;
     if(!trans.length){
-        html+=`<p style="font-size:0.82rem;color:var(--text-light);font-style:italic;background:var(--bg);padding:14px;border-radius:6px;">Todavía no cargaste rutas de transporte. Agregá la primera con el botón de arriba (ej: "Aeropuerto San José").</p>`;
+        html+=`<p style="font-size:0.82rem;color:var(--text-light);font-style:italic;background:var(--bg);padding:14px;border-radius:6px;">Todavía no cargaste rutas de transporte. Agregá la primera con el botón de arriba (ej: "Aeropuerto San José") y asignale su país.</p>`;
         pane.innerHTML=html;return;
     }
-    html+=trans.map(t=>{
-        const costos=(t.costos||[]);
-        const filas=costos.map((c,i)=>`<tr>
-            <td style="padding:2px 8px;"><input type="number" min="1" step="1" value="${esc(c.personas)}" onchange="transCostoSet('${t.id}',${i},'personas',this.value)" style="width:80px;padding:3px 6px;"></td>
-            <td style="padding:2px 8px;"><input type="number" min="0" step="0.01" value="${esc(c.costo)}" onchange="transCostoSet('${t.id}',${i},'costo',this.value)" style="width:120px;padding:3px 6px;"></td>
-            <td style="padding:2px 8px;"><button class="btn-icon remove" title="Quitar" onclick="transCostoRemove('${t.id}',${i})">&times;</button></td>
-        </tr>`).join('');
-        return `<div style="border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:12px;">
-            <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;">
-                <input type="text" value="${esc(t.nombre||'')}" placeholder="Nombre (ej: Aeropuerto San José)" onchange="transSetNombre('${t.id}',this.value)" style="flex:1;font-weight:600;padding:5px 8px;">
-                <button class="btn btn-sm btn-danger" onclick="transRemove('${t.id}')">Eliminar ruta</button>
-            </div>
-            <table style="font-size:0.8rem;border-collapse:collapse;"><thead><tr style="color:var(--text-light);text-transform:uppercase;font-size:0.66rem;letter-spacing:0.4px;text-align:left;"><th style="padding:2px 8px;">Personas</th><th style="padding:2px 8px;">Costo por persona</th><th></th></tr></thead><tbody>${filas||`<tr><td colspan="3" style="padding:4px 8px;color:var(--text-light);font-style:italic;font-size:0.74rem;">Sin filas. Agregá una abajo.</td></tr>`}</tbody></table>
-            <button class="btn btn-sm btn-ghost" style="margin-top:6px;font-size:0.72rem;" onclick="transCostoAdd('${t.id}')">+ Agregar fila (cantidad de personas)</button>
-        </div>`;
+    const SINPAIS='￿';
+    const grupos={};
+    trans.forEach(t=>{const key=t.pais||SINPAIS;if(!grupos[key])grupos[key]=[];grupos[key].push(t);});
+    const keys=Object.keys(grupos).sort((a,b)=>a.localeCompare(b));
+    html+=keys.map(k=>{
+        const label=k===SINPAIS?'Sin país asignado':k;
+        return `<div style="font-weight:700;color:var(--primary-dark);font-size:0.88rem;margin:14px 0 8px;border-bottom:2px solid var(--border);padding-bottom:4px;">${esc(label)} <span style="font-weight:400;color:var(--text-light);font-size:0.76rem;">(${grupos[k].length})</span></div>`
+            +grupos[k].map(t=>_transCardHtml(t,paises)).join('');
     }).join('');
     pane.innerHTML=html;
 }
 function transAdd(){
     const arr=getTransportes().map(x=>Object.assign({},x));
-    arr.push({id:_newTransId(),nombre:'',costos:[{personas:1,costo:0},{personas:2,costo:0},{personas:3,costo:0},{personas:4,costo:0}]});
+    arr.push({id:_newTransId(),nombre:'',pais:'',costos:[{personas:1,costo:0},{personas:2,costo:0},{personas:3,costo:0},{personas:4,costo:0}]});
     _saveTransportes(arr);renderConfigTransporte();
+}
+function transSetPais(id,val){
+    const arr=getTransportes().map(x=>Object.assign({},x));
+    const t=arr.find(x=>x.id===id);if(!t)return;t.pais=val;_saveTransportes(arr);renderConfigTransporte();
 }
 function transRemove(id){
     const t=getTransportes().find(x=>x.id===id);
@@ -5366,8 +5387,12 @@ function applyCalcToRow(opId){
 // ----- Calculadora de TRANSPORTE (llena la fila Transporte según ciudad(es) y tamaño del grupo) -----
 let _transCalcOpId=null,_transCalcFld=null;
 function openTransporteCalc(opId,fld){
-    const trans=getTransportes();
-    if(!trans.length){alert('Primero cargá las rutas de transporte en Configuración → Cotización → Transporte.');return;}
+    const todas=getTransportes();
+    if(!todas.length){alert('Primero cargá las rutas de transporte en Configuración → Cotización → Transporte.');return;}
+    // Filtrar por el país elegido en el editor: solo las rutas de ese país (más las sin país asignado).
+    const paisSel=((document.getElementById('paisSelect')||{}).value||'').trim();
+    const trans=paisSel?todas.filter(t=>!t.pais||t.pais===paisSel):todas;
+    if(!trans.length){alert('No hay rutas de transporte para "'+paisSel+'".\n\nAgregá una en Configuración → Cotización → Transporte y asignale ese país.');return;}
     _transCalcOpId=opId;_transCalcFld=fld;
     const ad=num((document.querySelector(`input[data-op="${opId}"][data-pax="ad"]`)||{}).value)||0;
     const ni=num((document.querySelector(`input[data-op="${opId}"][data-pax="n11"]`)||{}).value)||0;
@@ -5379,6 +5404,7 @@ function openTransporteCalc(opId,fld){
         <div class="modal-body">
             <p style="font-size:0.84rem;margin:0 0 2px;">Grupo: <strong>${ad} adulto(s) + ${ni} niño(s) = ${grupo} persona(s)</strong></p>
             <p style="font-size:0.74rem;color:var(--text-light);margin:0 0 10px;">Los bebés no cuentan. El tamaño del grupo sale de "Pax del grupo" de esta opción.</p>
+            ${paisSel?`<div style="font-size:0.74rem;color:var(--text-light);margin-bottom:6px;">Rutas de: <strong>${esc(paisSel)}</strong></div>`:''}
             <div style="font-size:0.78rem;font-weight:600;margin-bottom:2px;">Elegí una o dos ciudades / rutas (se suman):</div>
             <div style="margin:4px 0 10px;">${opts}</div>
             <div id="transCalcPreview" style="background:var(--bg);border-radius:8px;padding:10px 12px;font-size:0.84rem;"></div>
