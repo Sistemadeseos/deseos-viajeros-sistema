@@ -1583,7 +1583,7 @@ const CONTACTO_URGENCIAS=[
 let _fsEnabled=false; // true después de loadAllFromFirestore()
 let _fsSyncInProgress=false; // evita loops cuando la carga inicial escribe al cache
 // Número de versión visible: para confirmar que TODAS las usuarias corren el código actualizado.
-const APP_VERSION='v12-0709';
+const APP_VERSION='v13-0709';
 
 // ============================================================================
 // CACHE PERSISTENTE: IndexedDB (capacidad amplia) + espejo en memoria (_cache).
@@ -5111,19 +5111,23 @@ function addOpcion(data){
     const tbody=document.getElementById('opcionesBody');
     const opId='op_'+Date.now()+'_'+Math.random().toString(36).slice(2,7);
     const fees=cfgGet().fees;
-    // Estado inicial del calc (pre-rellena fees desde config)
+    // Al agregar una opción NUEVA (sin data) y si ya existe otra opción, heredar de la PRIMERA:
+    // Boleto aéreo, Fee, Transporte y Pax del grupo (para no re-tipear lo que se repite entre opciones).
+    let _her=null;
+    if(!data){const primera=document.querySelector('#opcionesBody tr.opcion-row');if(primera)_her=_leerHerenciaCalc(primera.dataset.opcionId);}
+    // Estado inicial del calc (pre-rellena fees desde config, o hereda de la primera opción)
     const calc=(data&&data.calc)?data.calc:{
         expanded:false,
         values:{
-            boleto:{ad:'',n11:'',n3:''},
+            boleto:_her?_her.boleto:{ad:'',n11:'',n3:''},
             hotel:{ad:'',n11:'',n3:''},
             tours:{ad:'',n11:'',n3:''},
-            transp:{ad:'',n11:'',n3:''},
-            fee:{ad:String(fees.fee_adulto||''),n11:String(fees.fee_nino||''),n3:String(fees.fee_bebe||'')},
+            transp:_her?_her.transp:{ad:'',n11:'',n3:''},
+            fee:_her?_her.fee:{ad:String(fees.fee_adulto||''),n11:String(fees.fee_nino||''),n3:String(fees.fee_bebe||'')},
             xgrupo:{ad:'',n11:'',n3:''},
             reserva:{ad:'',n11:'',n3:''}
         },
-        paxCount:{ad:1,n11:0,n3:0}
+        paxCount:_her?_her.pax:{ad:1,n11:0,n3:0}
     };
     // Fila principal
     const tr=document.createElement('tr');
@@ -5330,6 +5334,19 @@ function populateCalcInputs(opId,calc){
         const p=document.querySelector(`input[data-op="${opId}"][data-pax="${col}"]`);
         if(p&&calc.paxCount&&calc.paxCount[col]!=null)p.value=calc.paxCount[col];
     });
+}
+
+// Lee de una opción existente (por DOM) los valores que se heredan a una opción nueva:
+// Boleto aéreo, Fee, Transporte y Pax del grupo. Copia la fórmula si la celda tiene una.
+function _leerHerenciaCalc(opId){
+    const cell=(fld,col)=>{const inp=document.querySelector(`input[data-op="${opId}"][data-fld="${fld}"][data-col="${col}"]`);return inp?(inp.dataset.formula||inp.value||''):'';};
+    const pax=(k)=>{const inp=document.querySelector(`input[data-op="${opId}"][data-pax="${k}"]`);return inp?(num(inp.value)||0):0;};
+    return {
+        boleto:{ad:cell('boleto','ad'),n11:cell('boleto','n11'),n3:cell('boleto','n3')},
+        transp:{ad:cell('transp','ad'),n11:cell('transp','n11'),n3:cell('transp','n3')},
+        fee:{ad:cell('fee','ad'),n11:cell('fee','n11'),n3:cell('fee','n3')},
+        pax:{ad:pax('ad'),n11:pax('n11'),n3:pax('n3')}
+    };
 }
 
 function toggleCalc(btn){
