@@ -1583,7 +1583,7 @@ const CONTACTO_URGENCIAS=[
 let _fsEnabled=false; // true después de loadAllFromFirestore()
 let _fsSyncInProgress=false; // evita loops cuando la carga inicial escribe al cache
 // Número de versión visible: para confirmar que TODAS las usuarias corren el código actualizado.
-const APP_VERSION='v13-0709';
+const APP_VERSION='v14-0709';
 
 // ============================================================================
 // CACHE PERSISTENTE: IndexedDB (capacidad amplia) + espejo en memoria (_cache).
@@ -5410,15 +5410,14 @@ function openTransporteCalc(opId,fld){
     if(!trans.length){alert('No hay rutas de transporte para "'+paisSel+'".\n\nAgregá una en Configuración → Cotización → Transporte y asignale ese país.');return;}
     _transCalcOpId=opId;_transCalcFld=fld;
     const ad=num((document.querySelector(`input[data-op="${opId}"][data-pax="ad"]`)||{}).value)||0;
-    const ni=num((document.querySelector(`input[data-op="${opId}"][data-pax="n11"]`)||{}).value)||0;
-    const grupo=ad+ni; // bebés no cuentan
+    const grupo=ad; // el transporte se calcula SOLO por adultos (niños y bebés no cuentan ni pagan)
     const opts=trans.map(t=>`<label style="display:flex;align-items:center;gap:8px;padding:5px 2px;font-size:0.86rem;cursor:pointer;"><input type="checkbox" class="transchk" value="${esc(t.id)}" onchange="_transCalcPreview()" style="width:auto;margin:0;"> ${esc(t.nombre||'(sin nombre)')}</label>`).join('');
     const overlay=document.getElementById('modalTransporteCalc');
     overlay.innerHTML=`<div class="modal" style="max-width:460px;">
         <div class="modal-header"><h3>&#128656; Calcular transporte</h3><button class="modal-close" onclick="closeModal('modalTransporteCalc')">&times;</button></div>
         <div class="modal-body">
-            <p style="font-size:0.84rem;margin:0 0 2px;">Grupo: <strong>${ad} adulto(s) + ${ni} niño(s) = ${grupo} persona(s)</strong></p>
-            <p style="font-size:0.74rem;color:var(--text-light);margin:0 0 10px;">Los bebés no cuentan. El tamaño del grupo sale de "Pax del grupo" de esta opción.</p>
+            <p style="font-size:0.84rem;margin:0 0 2px;">Se calcula por: <strong>${ad} adulto(s)</strong></p>
+            <p style="font-size:0.74rem;color:var(--text-light);margin:0 0 10px;">El transporte se calcula solo por la cantidad de adultos. Niños y bebés no se cuentan ni pagan. Sale de "Pax del grupo" de esta opción.</p>
             ${paisSel?`<div style="font-size:0.74rem;color:var(--text-light);margin-bottom:6px;">Rutas de: <strong>${esc(paisSel)}</strong></div>`:''}
             <div style="font-size:0.78rem;font-weight:600;margin-bottom:2px;">Elegí una o dos ciudades / rutas (se suman):</div>
             <div style="margin:4px 0 10px;">${opts}</div>
@@ -5437,11 +5436,11 @@ function _transCalcPreview(){
     const grupo=num(overlay.dataset.grupo);
     const trans=getTransportes();
     const checked=Array.from(document.querySelectorAll('.transchk:checked')).map(c=>c.value);
-    if(!grupo){box.innerHTML='<span style="color:var(--danger);">El grupo tiene 0 personas. Cargá los Adultos/Niños en "Pax del grupo" antes de calcular.</span>';overlay.dataset.total='';return;}
+    if(!grupo){box.innerHTML='<span style="color:var(--danger);">No hay adultos en el grupo. Cargá la cantidad de Adultos en "Pax del grupo" antes de calcular.</span>';overlay.dataset.total='';return;}
     if(!checked.length){box.innerHTML='<span style="color:var(--text-light);">Elegí al menos una ciudad para ver el costo.</span>';overlay.dataset.total='';return;}
     let total=0,lineas=[],aviso=false;
     checked.forEach(id=>{const t=trans.find(x=>x.id===id);if(!t)return;const cp=_transCostoPorPersona(t,grupo);total+=cp;const exacto=(t.costos||[]).some(c=>num(c.personas)===grupo);if(!exacto)aviso=true;lineas.push(esc(t.nombre||'ruta')+': '+cp.toFixed(2)+(exacto?'':' *'));});
-    box.innerHTML=lineas.join('<br>')+'<hr style="border:none;border-top:1px solid var(--border);margin:6px 0;"><strong>Transporte por persona: '+total.toFixed(2)+'</strong>'+(aviso?'<br><span style="font-size:0.72rem;color:#b8860b;">* No hay costo cargado para exactamente '+grupo+' persona(s); se usó el más cercano por debajo. Podés agregar esa cantidad en Configuración → Transporte.</span>':'');
+    box.innerHTML=lineas.join('<br>')+'<hr style="border:none;border-top:1px solid var(--border);margin:6px 0;"><strong>Transporte por adulto: '+total.toFixed(2)+'</strong>'+(aviso?'<br><span style="font-size:0.72rem;color:#b8860b;">* No hay costo cargado para exactamente '+grupo+' adulto(s); se usó el más cercano por debajo. Podés agregar esa cantidad en Configuración → Transporte.</span>':'');
     overlay.dataset.total=total;
 }
 function _transCalcAplicar(){
@@ -5450,13 +5449,11 @@ function _transCalcAplicar(){
     if(overlay.dataset.total===''){alert('No se pudo calcular. Revisá que el grupo tenga personas.');return;}
     const total=Math.round(num(overlay.dataset.total)*100)/100;
     const opId=_transCalcOpId,fld=_transCalcFld;
-    // Solo poner costo en las categorías que realmente viajan: si no hay niños, la columna Niño queda vacía.
-    const ad=num((document.querySelector(`input[data-op="${opId}"][data-pax="ad"]`)||{}).value)||0;
-    const ni=num((document.querySelector(`input[data-op="${opId}"][data-pax="n11"]`)||{}).value)||0;
+    // El transporte se cobra SOLO a los adultos: llena la columna Adulto; Niño y Bebé quedan vacíos.
     const set=(col,val)=>{const inp=document.querySelector(`input[data-op="${opId}"][data-fld="${fld}"][data-col="${col}"]`);if(inp){if(inp.dataset.formula){delete inp.dataset.formula;inp.removeAttribute('title');}inp.value=val;}};
-    set('ad',ad>0?total:'');
-    set('n11',ni>0?total:'');   // sin niños → columna Niño vacía
-    set('n3','');                // bebés no pagan
+    set('ad',total);
+    set('n11','');   // niños no pagan transporte
+    set('n3','');    // bebés no pagan transporte
     recalcRow(opId,true);
     updatePreview();
     closeModal('modalTransporteCalc');
