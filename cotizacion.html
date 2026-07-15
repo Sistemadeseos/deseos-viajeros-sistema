@@ -1075,6 +1075,11 @@ onAuthStateChanged(fbAuth, (user) => {
         <!-- Destino libre (solo visible en formato Europa/Asia) -->
         <div class="form-group" id="destinoTextoGroup" style="display:none;"><label>Destino</label><input type="text" id="destinoTexto" placeholder="Ej: Roma, Par&iacute;s y Londres" oninput="updatePreview()"></div>
         <div class="form-row"><div class="form-group"><label>Fecha inicio</label><input type="date" id="fechaInicio" oninput="updatePreview()"></div><div class="form-group"><label>Fecha fin</label><input type="date" id="fechaFin" oninput="updatePreview()"></div></div>
+        <div class="form-group"><label>Cantidad de personas</label><div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;">
+            <label style="display:flex;align-items:center;gap:5px;font-size:0.82rem;font-weight:600;color:var(--text-light);margin:0;">Adultos <input type="number" id="pkgAdultos" min="0" value="1" style="width:62px;" oninput="onPkgPaxChange()"></label>
+            <label style="display:flex;align-items:center;gap:5px;font-size:0.82rem;font-weight:600;color:var(--text-light);margin:0;">Niños <input type="number" id="pkgNinos" min="0" value="0" style="width:62px;" oninput="onPkgPaxChange()"></label>
+            <label style="display:flex;align-items:center;gap:5px;font-size:0.82rem;font-weight:600;color:var(--text-light);margin:0;">Bebés <input type="number" id="pkgBebes" min="0" value="0" style="width:62px;" oninput="onPkgPaxChange()"></label>
+        </div></div>
         <div class="form-group"><label>Alerta (opcional)</label><select id="alertaPresetSelect" onchange="aplicarAlertaPreset(this)" style="margin-bottom:4px;"><option value="">-- Mensaje r&aacute;pido (opcional) --</option></select><textarea id="alertaDestino" placeholder="Ej: Vacuna obligatoria..." oninput="updatePreview()"></textarea></div>
         <div class="form-group"><label>Info adicional (opcional)</label><textarea id="infoDestino" placeholder="Informaci&oacute;n relevante..." oninput="updatePreview()"></textarea></div>
     </div></div>
@@ -1583,7 +1588,7 @@ const CONTACTO_URGENCIAS=[
 let _fsEnabled=false; // true después de loadAllFromFirestore()
 let _fsSyncInProgress=false; // evita loops cuando la carga inicial escribe al cache
 // Número de versión visible: para confirmar que TODAS las usuarias corren el código actualizado.
-const APP_VERSION='v14-0709';
+const APP_VERSION='v15-0710';
 
 // ============================================================================
 // CACHE PERSISTENTE: IndexedDB (capacidad amplia) + espejo en memoria (_cache).
@@ -5127,7 +5132,7 @@ function addOpcion(data){
             xgrupo:{ad:'',n11:'',n3:''},
             reserva:{ad:'',n11:'',n3:''}
         },
-        paxCount:_her?_her.pax:{ad:1,n11:0,n3:0}
+        paxCount:getPkgPax()
     };
     // Fila principal
     const tr=document.createElement('tr');
@@ -5191,12 +5196,7 @@ function buildCalcHtml(opId,calc){
             </tbody>
         </table>
         <button class="btn btn-sm btn-ghost" style="margin-top:6px;font-size:0.7rem;" onclick="addCalcRow('${opId}')">+ Agregar fila</button>
-        <div class="calc-paxcount">
-            Pax del grupo:
-            <label>Ad <input type="number" data-op="${opId}" data-pax="ad" min="1" value="1" oninput="onCalcInput(this)"></label>
-            <label>Ni&ntilde;o <input type="number" data-op="${opId}" data-pax="n11" min="0" value="0" oninput="onCalcInput(this)"></label>
-            <label>Beb&eacute; <input type="number" data-op="${opId}" data-pax="n3" min="0" value="0" oninput="onCalcInput(this)"></label>
-        </div>
+        <div style="font-size:0.68rem;color:var(--text-light);margin-top:6px;">La cantidad de personas se toma de <strong>Datos del Paquete</strong> (arriba).</div>
         <div class="calc-actions">
             <button class="calc-apply" onclick="applyCalcToRow('${opId}')">Aplicar total al precio</button>
             <small style="color:var(--text-light);font-size:0.68rem;align-self:center;">Total redondeado al siguiente n\u00famero terminado en 9.</small>
@@ -5340,13 +5340,27 @@ function populateCalcInputs(opId,calc){
 // Boleto aéreo, Fee, Transporte y Pax del grupo. Copia la fórmula si la celda tiene una.
 function _leerHerenciaCalc(opId){
     const cell=(fld,col)=>{const inp=document.querySelector(`input[data-op="${opId}"][data-fld="${fld}"][data-col="${col}"]`);return inp?(inp.dataset.formula||inp.value||''):'';};
-    const pax=(k)=>{const inp=document.querySelector(`input[data-op="${opId}"][data-pax="${k}"]`);return inp?(num(inp.value)||0):0;};
     return {
         boleto:{ad:cell('boleto','ad'),n11:cell('boleto','n11'),n3:cell('boleto','n3')},
         transp:{ad:cell('transp','ad'),n11:cell('transp','n11'),n3:cell('transp','n3')},
-        fee:{ad:cell('fee','ad'),n11:cell('fee','n11'),n3:cell('fee','n3')},
-        pax:{ad:pax('ad'),n11:pax('n11'),n3:pax('n3')}
+        fee:{ad:cell('fee','ad'),n11:cell('fee','n11'),n3:cell('fee','n3')}
     };
+}
+
+// Cantidad de personas: una sola para toda la cotización (vive en "Datos del Paquete", no por opción).
+function getPkgPax(){
+    const g=id=>{const el=document.getElementById(id);return el?Math.max(0,parseInt(el.value||'0',10)||0):0;};
+    return {ad:g('pkgAdultos'),n11:g('pkgNinos'),n3:g('pkgBebes')};
+}
+function setPkgPax(p){
+    p=p||{};
+    const s=(id,v)=>{const el=document.getElementById(id);if(el)el.value=(v!=null?v:0);};
+    s('pkgAdultos',p.ad!=null?p.ad:1);s('pkgNinos',p.n11!=null?p.n11:0);s('pkgBebes',p.n3!=null?p.n3:0);
+}
+// Al cambiar las personas, recalcular todas las opciones y refrescar la vista previa.
+function onPkgPaxChange(){
+    document.querySelectorAll('#opcionesBody tr.opcion-row').forEach(tr=>recalcRow(tr.dataset.opcionId,true));
+    updatePreview();
 }
 
 function toggleCalc(btn){
@@ -5409,7 +5423,7 @@ function openTransporteCalc(opId,fld){
     const trans=paisSel?todas.filter(t=>!t.pais||t.pais===paisSel):todas;
     if(!trans.length){alert('No hay rutas de transporte para "'+paisSel+'".\n\nAgregá una en Configuración → Cotización → Transporte y asignale ese país.');return;}
     _transCalcOpId=opId;_transCalcFld=fld;
-    const ad=num((document.querySelector(`input[data-op="${opId}"][data-pax="ad"]`)||{}).value)||0;
+    const ad=getPkgPax().ad;
     const grupo=ad; // el transporte se calcula SOLO por adultos (niños y bebés no cuentan ni pagan)
     const opts=trans.map(t=>`<label style="display:flex;align-items:center;gap:8px;padding:5px 2px;font-size:0.86rem;cursor:pointer;"><input type="checkbox" class="transchk" value="${esc(t.id)}" onchange="_transCalcPreview()" style="width:auto;margin:0;"> ${esc(t.nombre||'(sin nombre)')}</label>`).join('');
     const overlay=document.getElementById('modalTransporteCalc');
@@ -5486,10 +5500,9 @@ function recalcRow(opId,autoFill){
             calc.values[fld][col]=inp?(inp.dataset.formula||inp.value):'';
         });
     });
-    ['ad','n11','n3'].forEach(col=>{
-        const p=document.querySelector(`input[data-op="${opId}"][data-pax="${col}"]`);
-        calc.paxCount[col]=p?parseInt(p.value||'0',10):0;
-    });
+    // Pax único de toda la cotización (Datos del Paquete). Se guarda igual en cada opción por compatibilidad.
+    const _pkgPax=getPkgPax();
+    calc.paxCount={ad:_pkgPax.ad,n11:_pkgPax.n11,n3:_pkgPax.n3};
     // Preservar expanded y persistir en dataset
     const prev=JSON.parse(tr.dataset.calc||'{}');
     calc.expanded=prev.expanded||false;
@@ -5937,7 +5950,7 @@ function isoToDmy(s){
 function formatDateRange(sRaw,eRaw){const s=normalizeFechaIso(sRaw),e=normalizeFechaIso(eRaw);if(!s||!e)return'';const sd=new Date(s+'T12:00:00'),ed=new Date(e+'T12:00:00');if(isNaN(sd)||isNaN(ed))return'';const m=['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];if(sd.getMonth()===ed.getMonth()&&sd.getFullYear()===ed.getFullYear())return`${sd.getDate()} al ${ed.getDate()} de ${m[sd.getMonth()]} ${sd.getFullYear()}`;return`${sd.getDate()} de ${m[sd.getMonth()]} al ${ed.getDate()} de ${m[ed.getMonth()]} ${ed.getFullYear()}`;}
 
 // ===== COLLECT FORM DATA =====
-function collectFormData(){const data={formato:currentFormat,tipoCliente,mostrarCliente:document.getElementById('mostrarClienteEnCot')?.checked!==false,clienteNombre:document.getElementById('clienteNombre').value,clienteTelefono:document.getElementById('clienteTelefono').value,clienteEmail:document.getElementById('clienteEmail').value,empresaNombre:document.getElementById('empresaNombre').value,empresaContacto:document.getElementById('empresaContacto').value,empresaTelefono:document.getElementById('empresaTelefono').value,empresaEmail:document.getElementById('empresaEmail').value,pais:document.getElementById('paisSelect').value,destinoSelect:document.getElementById('destinoSelect').value,destino:document.getElementById('destinoSelect').value&&document.getElementById('destinoSelect').value!=='__custom'?document.getElementById('destinoSelect').value:document.getElementById('destino').value,fechaInicio:normalizeFechaIso(document.getElementById('fechaInicio').value),fechaFin:normalizeFechaIso(document.getElementById('fechaFin').value),destinoTexto:document.getElementById('destinoTexto')?.value||'',alerta:document.getElementById('alertaDestino').value,infoDestino:document.getElementById('infoDestino').value,moneda:document.getElementById('moneda').value,precioReserva:loadedReservaLegacy.ad||'',precioReservaNino:loadedReservaLegacy.n||'',precioReservaBebe:loadedReservaLegacy.b||'',razonSocial:document.getElementById('razonSocial').value,cedulaEmpresa:document.getElementById('cedulaEmpresa').value,encargado:document.getElementById('encargado').value,adjuntos:adjuntos.map(a=>({id:a.id,categoria:a.categoria,descripcion:a.descripcion,dataUrl:a.dataUrl}))};
+function collectFormData(){const data={formato:currentFormat,tipoCliente,mostrarCliente:document.getElementById('mostrarClienteEnCot')?.checked!==false,clienteNombre:document.getElementById('clienteNombre').value,clienteTelefono:document.getElementById('clienteTelefono').value,clienteEmail:document.getElementById('clienteEmail').value,empresaNombre:document.getElementById('empresaNombre').value,empresaContacto:document.getElementById('empresaContacto').value,empresaTelefono:document.getElementById('empresaTelefono').value,empresaEmail:document.getElementById('empresaEmail').value,pais:document.getElementById('paisSelect').value,destinoSelect:document.getElementById('destinoSelect').value,destino:document.getElementById('destinoSelect').value&&document.getElementById('destinoSelect').value!=='__custom'?document.getElementById('destinoSelect').value:document.getElementById('destino').value,fechaInicio:normalizeFechaIso(document.getElementById('fechaInicio').value),fechaFin:normalizeFechaIso(document.getElementById('fechaFin').value),destinoTexto:document.getElementById('destinoTexto')?.value||'',alerta:document.getElementById('alertaDestino').value,infoDestino:document.getElementById('infoDestino').value,moneda:document.getElementById('moneda').value,pax:getPkgPax(),precioReserva:loadedReservaLegacy.ad||'',precioReservaNino:loadedReservaLegacy.n||'',precioReservaBebe:loadedReservaLegacy.b||'',razonSocial:document.getElementById('razonSocial').value,cedulaEmpresa:document.getElementById('cedulaEmpresa').value,encargado:document.getElementById('encargado').value,adjuntos:adjuntos.map(a=>({id:a.id,categoria:a.categoria,descripcion:a.descripcion,dataUrl:a.dataUrl}))};
 data.servicios=[];document.querySelectorAll('#serviciosContainer .service-item').forEach(it=>{const cb=it.querySelector('input[type="checkbox"]'),tx=it.querySelector('input[type="text"]').value;if(cb.checked&&tx.trim())data.servicios.push(tx);});
 data.opciones=[];document.querySelectorAll('#opcionesBody tr.opcion-row').forEach(tr=>{const nombre=tr.querySelector('.op-nombre')?.value||'';const adulto=tr.querySelector('.op-adulto')?.value||'';const nino=tr.querySelector('.op-nino')?.value||'';const bebe=tr.querySelector('.op-bebe')?.value||'';if(nombre.trim()){let calc=null;try{calc=JSON.parse(tr.dataset.calc||'null');}catch(e){}data.opciones.push({nombre,adulto,nino,bebe,calc,manualOverride:tr.dataset.manualOverride==='1'});}});
 data.noIncluye=[];document.querySelectorAll('#noIncluyeContainer .service-item').forEach(it=>{const cb=it.querySelector('input[type="checkbox"]');const t=it.querySelector('input[type="text"]').value;if(t.trim()&&(!cb||cb.checked))data.noIncluye.push(t);});
@@ -6082,6 +6095,8 @@ populatePaisSelect();if(d.pais){document.getElementById('paisSelect').value=d.pa
 const destTextoEl=document.getElementById('destinoTexto');if(destTextoEl)destTextoEl.value=d.destinoTexto||'';document.getElementById('alertaDestino').value=d.alerta||'';document.getElementById('infoDestino').value=d.infoDestino||'';document.getElementById('moneda').value=d.moneda||'USD';loadedReservaLegacy={ad:d.precioReserva||'',n:d.precioReservaNino||'',b:d.precioReservaBebe||''};document.getElementById('razonSocial').value=d.razonSocial||'Deseos Viajeros MYX SRL';document.getElementById('cedulaEmpresa').value=d.cedulaEmpresa||'3-102-862093';document.getElementById('encargado').value=d.encargado||'';
 adjuntos=(d.adjuntos||[]).map(a=>({id:a.id,categoria:a.categoria,descripcion:a.descripcion,dataUrl:a.dataUrl}));renderAdjuntos();
 const sc=document.getElementById('serviciosContainer');sc.innerHTML='';(d.servicios||[]).forEach(s=>addServicioItem(s,true));
+// Cantidad de personas: una sola para toda la cotización. Compat: si es vieja, tomar del primer cálculo.
+setPkgPax(d.pax||((d.opciones&&d.opciones[0]&&d.opciones[0].calc&&d.opciones[0].calc.paxCount)||{ad:1,n11:0,n3:0}));
 const ob=document.getElementById('opcionesBody');ob.innerHTML='';(d.opciones||[]).forEach(o=>{
     const opId=addOpcion(o);
     if(o.manualOverride){
@@ -8464,7 +8479,7 @@ loadedReservaLegacy={ad:'',n:'',b:''};
 document.getElementById('hospedajeContainer').innerHTML='';
 document.getElementById('toursContainer').innerHTML='';
 document.getElementById('itinerarioContainer').innerHTML='';
-document.getElementById('paisSelect').value='';document.getElementById('encargado').value='';document.getElementById('destinoPreviewImg').classList.remove('visible');onPaisChange();document.getElementById('opcionesBody').innerHTML='';document.getElementById('puertosContainer').innerHTML='';switchTipoCliente('persona');switchFormat(currentFormat);addOpcion();populateEncargadosSelect();syncFechaViajePicker();updatePreview();}
+document.getElementById('paisSelect').value='';document.getElementById('encargado').value='';document.getElementById('destinoPreviewImg').classList.remove('visible');onPaisChange();document.getElementById('opcionesBody').innerHTML='';document.getElementById('puertosContainer').innerHTML='';setPkgPax({ad:1,n11:0,n3:0});switchTipoCliente('persona');switchFormat(currentFormat);addOpcion();populateEncargadosSelect();syncFechaViajePicker();updatePreview();}
 
 // ===== UTILS =====
 function esc(t){const d=document.createElement('div');d.textContent=t;return d.innerHTML;}
