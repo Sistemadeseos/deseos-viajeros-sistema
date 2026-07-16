@@ -1021,9 +1021,12 @@ onAuthStateChanged(fbAuth, (user) => {
         <button class="mobile-menu-btn" onclick="toggleSidebar()" title="Men&uacute;">&#9776;</button>
         <h1 id="headerTitle">Editor de Cotizaci&oacute;n</h1>
     </div>
-    <div class="header-actions" id="headerActions">
-        <button class="btn btn-outline" onclick="resetForm()">&#128260; Nueva</button>
-        <button class="btn btn-accent" onclick="window.print()">&#128424; Exportar PDF</button>
+    <div style="display:flex;align-items:center;gap:10px;">
+        <div id="notifBellWrap"></div>
+        <div class="header-actions" id="headerActions">
+            <button class="btn btn-outline" onclick="resetForm()">&#128260; Nueva</button>
+            <button class="btn btn-accent" onclick="window.print()">&#128424; Exportar PDF</button>
+        </div>
     </div>
 </div>
 <div class="main-views">
@@ -1519,6 +1522,8 @@ onAuthStateChanged(fbAuth, (user) => {
 <div class="modal-overlay" id="modalRrhhHoraExtra"></div>
 <div class="modal-overlay" id="modalUnificarEnc"></div>
 <div class="modal-overlay" id="modalTransporteCalc"></div>
+<div class="modal-overlay" id="modalNotif"></div>
+<div class="modal-overlay" id="modalNotifNueva"></div>
 
 <script>
 // ===== STATE =====
@@ -1588,7 +1593,7 @@ const CONTACTO_URGENCIAS=[
 let _fsEnabled=false; // true después de loadAllFromFirestore()
 let _fsSyncInProgress=false; // evita loops cuando la carga inicial escribe al cache
 // Número de versión visible: para confirmar que TODAS las usuarias corren el código actualizado.
-const APP_VERSION='v15-0710';
+const APP_VERSION='v16-0711';
 
 // ============================================================================
 // CACHE PERSISTENTE: IndexedDB (capacidad amplia) + espejo en memoria (_cache).
@@ -1663,7 +1668,7 @@ function setLSObj(k,v){
 //   destinos/{pais}/{ciudad}_{timestamp}
 
 // Tracking de IDs que ya subimos a Firestore (para poder detectar eliminaciones)
-const _fsDocIds={cotizaciones:new Set(),ventas:new Set(),clientes:new Set(),destinos:new Set(),hoteles:new Set(),grupos:new Set(),rrhh_colillas:new Set(),rrhh_vacaciones:new Set(),rrhh_horasextra:new Set()};
+const _fsDocIds={cotizaciones:new Set(),ventas:new Set(),clientes:new Set(),destinos:new Set(),hoteles:new Set(),grupos:new Set(),rrhh_colillas:new Set(),rrhh_vacaciones:new Set(),rrhh_horasextra:new Set(),notificaciones:new Set()};
 
 // ===== METADATA (timestamp + autor en cada save) =====
 // Agrega _lastModifiedAt y _lastModifiedBy a un objeto antes de guardarlo.
@@ -1696,6 +1701,7 @@ function guardarSnapshotRespaldo(motivo){
             rrhh_colillas:getLS('dv_rrhh_colillas'),
             rrhh_vacaciones:getLS('dv_rrhh_vacaciones'),
             rrhh_horasextra:getLS('dv_rrhh_horasextra'),
+            notificaciones:getLS('dv_notificaciones'),
             config:getLSObj('dv_config')
         };
         localStorage.setItem(key,JSON.stringify(snap));
@@ -1780,6 +1786,8 @@ async function pushToFirestore(key,value){
             await syncArrayCollection('rrhh_vacaciones',value,false);
         }else if(key==='dv_rrhh_horasextra'){
             await syncArrayCollection('rrhh_horasextra',value,false);
+        }else if(key==='dv_notificaciones'){
+            await syncArrayCollection('notificaciones',value,false);
         }
     }catch(e){
         console.error('[FS] error en pushToFirestore para',key,':',e);
@@ -2045,6 +2053,14 @@ async function loadAllFromFirestore(){
         horasextra=mergedHe.merged;recuperadosTotal+=mergedHe.recovered;
         guardarLocal('dv_rrhh_horasextra',horasextra);
         if(mergedHe.recovered>0)setTimeout(()=>{if(_fsEnabled)pushToFirestore('dv_rrhh_horasextra',horasextra).catch(e=>console.error(e));},11500);
+        // notificaciones: avisos y tareas (array de docs independientes, defensivo)
+        const localNotif=getLS('dv_notificaciones');
+        const notifSnap=await h.getDocs(h.collection(db,'notificaciones'));
+        let notificaciones=[];notifSnap.forEach(dd=>{notificaciones.push(dd.data());_fsDocIds.notificaciones.add(dd.id);});
+        const mergedNotif=mergeArrayDefensivo('notificaciones',notificaciones,localNotif);
+        notificaciones=mergedNotif.merged;recuperadosTotal+=mergedNotif.recovered;
+        guardarLocal('dv_notificaciones',notificaciones);
+        if(mergedNotif.recovered>0)setTimeout(()=>{if(_fsEnabled)pushToFirestore('dv_notificaciones',notificaciones).catch(e=>console.error(e));},12500);
         console.log(`[FS] datos cargados: ${cots.length} cotizaciones, ${ventas.length} ventas, ${clientes.length} clientes, ${Object.keys(destObj).length} pa\u00edses, ${hoteles.length} hoteles${recuperadosTotal>0?' ('+recuperadosTotal+' items recuperados de localStorage)':''}`);
         if(recuperadosTotal>0){
             setTimeout(()=>{
@@ -2445,6 +2461,7 @@ function aplicarPermisosUI(){
     document.body.classList.toggle('sin-costos',!tienePermiso('cotizaciones.ver_costos'));
     const tabBtn=document.querySelector('.config-tab[data-cfgtab="usuarios"]');
     if(tabBtn)tabBtn.style.display=soyMaestro()?'':'none';
+    renderNotifBell();
 }
 
 // ===== NAV =====
@@ -2453,6 +2470,7 @@ function nav(view){
     if(view==='encabezados'){nav('configuracion');setTimeout(()=>{switchConfigTab('cotizacion');switchConfigSubTab('destinos');},0);return;}
     // Guardrail: si no tiene permiso para la vista, redirigir a Inicio (siempre permitido).
     if(!puedeVerVista(view)){if(view!=='inicio')return nav('inicio');}
+    renderNotifBell();
     document.querySelectorAll('.sidebar-item').forEach(el=>el.classList.remove('active'));
     const items=document.querySelectorAll('.sidebar-item');
     const map={inicio:0,dashboard:1,editor:2,historial:3,ventas:4,clientes:5,clientesventas:6,reportePagos:7,configuracion:8,rrhh:9};
@@ -3944,15 +3962,22 @@ function guardarRrhhColilla(){
         cargaPatronalCCSS:r.cargaPatronalCCSS,paramSnapshot:r.paramSnapshot,factorPeriodo:r.factorPeriodo,
         estado:inp.estado||'borrador',notas:inp.notas||''
     };
+    let prevEmitida=false,colillaId=id;
     if(id){
         const u=colillas.find(x=>x.id===id);
         if(!u){alert('No se encontró la colilla.');return;}
+        prevEmitida=(u.estado==='emitida');
         Object.assign(u,datos);u._lastEditTs=Date.now();
     }else{
         datos.id=newRrhhId();datos.creadaTs=Date.now();datos.creadaPor=(window.currentUser&&window.currentUser.email)||'';
-        colillas.push(datos);
+        colillas.push(datos);colillaId=datos.id;
     }
     saveRrhhColillas(colillas);
+    // Notificar a la empleada cuando la colilla queda EMITIDA (y no lo estaba antes).
+    if((inp.estado||'borrador')==='emitida'&&!prevEmitida){
+        const _emC=_emailDeEmpleado(inp.empleadoId);
+        if(_emC)crearNotificacion({tipo:'info',titulo:'Tu colilla de pago está lista',detalle:'La colilla del período '+(inp.periodoEtiqueta||(fmtFechaCorta(inp.periodoDesde)+' a '+fmtFechaCorta(inp.periodoHasta)))+' ya está disponible en Planilla.',paraEmail:_emC,origen:'colilla',refId:colillaId});
+    }
     const cfg=getConfig();
     _appendBitacoraRrhh(cfg,(id?'Editó':'Generó')+' la colilla de "'+inp.empleadoNombre+'" ('+(inp.periodoEtiqueta||(fmtFechaCorta(inp.periodoDesde)+' a '+fmtFechaCorta(inp.periodoHasta)))+'), neto '+fmtCRC(r.neto));
     saveConfig(cfg);
@@ -4237,6 +4262,10 @@ function guardarRrhhVacacion(){
         arr.push(datos);
     }
     saveRrhhVacaciones(arr);
+    // Solicitud nueva pendiente → avisar a quienes aprueban vacaciones.
+    if(!id&&estado==='solicitada'){
+        crearNotificacion({tipo:'tarea',titulo:'Solicitud de vacaciones por aprobar',detalle:(datos.empleadoNombre||'')+' solicitó vacaciones del '+fmtFechaCorta(desde)+' al '+fmtFechaCorta(hasta)+' ('+dias+' día(s)). Aprobá o rechazá en Planilla → Vacaciones.',paraPermiso:'rrhh.vacaciones.aprobar',origen:'vacaciones',refId:datos.id});
+    }
     const cfg=getConfig();
     _appendBitacoraRrhh(cfg,(id?'Editó':'Registró')+' solicitud de vacaciones de "'+(datos.empleadoNombre||'')+'" ('+fmtFechaCorta(desde)+' a '+fmtFechaCorta(hasta)+', '+dias+' días, '+(_RRHH_VAC_ESTADO_LABEL[estado]||estado)+')');
     saveConfig(cfg);
@@ -4257,6 +4286,9 @@ function aprobarRrhhVacacion(id,decision){
     s.aprobadaPor=(window.currentUser&&window.currentUser.email)||'';
     s.aprobadaTs=Date.now();
     saveRrhhVacaciones(arr);
+    // Avisar a la empleada el resultado.
+    const _emV=_emailDeEmpleado(s.empleadoId);
+    if(_emV)crearNotificacion({tipo:'info',titulo:'Tus vacaciones: '+(_RRHH_VAC_ESTADO_LABEL[decision]||decision),detalle:'Tu solicitud del '+fmtFechaCorta(s.fechaDesde)+' al '+fmtFechaCorta(s.fechaHasta)+' quedó: '+(_RRHH_VAC_ESTADO_LABEL[decision]||decision)+'.',paraEmail:_emV,origen:'vacaciones',refId:s.id});
     const cfg=getConfig();
     _appendBitacoraRrhh(cfg,(_RRHH_VAC_ESTADO_LABEL[decision]||decision)+' la solicitud de vacaciones de "'+(s.empleadoNombre||'')+'" ('+fmtFechaCorta(s.fechaDesde)+' a '+fmtFechaCorta(s.fechaHasta)+')');
     saveConfig(cfg);
@@ -4460,6 +4492,10 @@ function guardarRrhhHoraExtra(){
         arr.push({id:newRrhhId(),colaboradorId:empId,colaboradorNombre:emp?emp.nombre:'',tipo:tipo,fecha:fecha,horaInicio:inicio,horaFin:fin,minutos:minutos,nota:nota,estado:'PENDIENTE',aprobadoPor:'',aprobadoPorEmail:'',aprobadoTs:null,creadoPor:(window.currentUser&&window.currentUser.email)||'',creadaTs:Date.now()});
     }
     saveRrhhHorasExtra(arr);
+    // Movimiento nuevo → avisar a quienes aprueban horas extra.
+    if(!id){
+        crearNotificacion({tipo:'tarea',titulo:'Horas extra por aprobar',detalle:(emp?emp.nombre:'')+' registró '+(_RRHH_HE_TIPO_LABEL[tipo]||tipo)+' del '+fmtFechaCorta(fecha)+' ('+_heFmtHM(minutos)+'). Revisá y aprobá en Planilla → Horas extra.',paraPermiso:'rrhh.horasextra.aprobar',origen:'horasextra'});
+    }
     const cfg=getConfig();
     _appendBitacoraRrhh(cfg,(id?'Editó':'Registró')+' '+(_RRHH_HE_TIPO_LABEL[tipo]||tipo)+' de "'+(emp?emp.nombre:'')+'" ('+fmtFechaCorta(fecha)+', '+_heFmtHM(minutos)+')');
     saveConfig(cfg);
@@ -4477,6 +4513,9 @@ function aprobarRrhhHoraExtra(id,decision){
     const email=(window.currentUser&&window.currentUser.email)||'';
     m.aprobadoPor=_rrhhNombreDeEmail(email);m.aprobadoPorEmail=email;m.aprobadoTs=Date.now();
     saveRrhhHorasExtra(arr);
+    // Avisar a la colaboradora el resultado.
+    const _emH=_emailDeEmpleado(m.colaboradorId);
+    if(_emH)crearNotificacion({tipo:'info',titulo:'Tus horas extra: '+(decision==='APROBADO'?'aprobadas':'rechazadas'),detalle:(_RRHH_HE_TIPO_LABEL[m.tipo]||m.tipo)+' del '+fmtFechaCorta(m.fecha)+' ('+_heFmtHM(num(m.minutos))+') quedó: '+(decision==='APROBADO'?'aprobado':'rechazado')+'.',paraEmail:_emH,origen:'horasextra',refId:m.id});
     const cfg=getConfig();
     _appendBitacoraRrhh(cfg,(decision==='APROBADO'?'Aprobó':'Rechazó')+' '+(_RRHH_HE_TIPO_LABEL[m.tipo]||m.tipo)+' de "'+(m.colaboradorNombre||'')+'" ('+fmtFechaCorta(m.fecha)+', '+_heFmtHM(num(m.minutos))+')');
     saveConfig(cfg);
@@ -4558,6 +4597,122 @@ function renderHorasExtraReporte(empId,mes){
         </div>
         <div style="margin-top:16px;font-size:0.64rem;color:#aaa;text-align:center;">Reporte generado por el sistema de ${esc(ag.nombre||'Deseos Viajeros')}. Incluye solo movimientos aprobados.</div>
     </div>`;
+}
+// =====================================================================================
+
+// ============================================================================
+// NOTIFICACIONES (avisos ℹ️ + tareas pendientes 📋, dentro del sistema)
+// Colección sincronizada dv_notificaciones. Se dirigen a un correo o a quien tenga
+// cierto permiso. Tipos: 'info' (se marca leído) y 'tarea' (se marca hecho).
+// ============================================================================
+function getNotificaciones(){return getLS('dv_notificaciones');}
+function saveNotificaciones(arr){return setLS('dv_notificaciones',Array.isArray(arr)?arr:[]);}
+function _notifEmailActual(){return _normEmail(window.currentUser&&window.currentUser.email);}
+function _emailDeEmpleado(empId){const e=getRrhhEmpleados().find(x=>x.id===empId);return e?(e.email||''):'';}
+// Crea una notificación. opts:{tipo,titulo,detalle,paraEmail,paraPermiso,origen,refId}
+function crearNotificacion(opts){
+    opts=opts||{};
+    if(!opts.paraEmail&&!opts.paraPermiso)return;
+    const arr=getNotificaciones().map(x=>Object.assign({},x));
+    arr.push({id:newRrhhId(),tipo:opts.tipo==='tarea'?'tarea':'info',titulo:opts.titulo||'',detalle:opts.detalle||'',
+        paraEmail:_normEmail(opts.paraEmail||''),paraPermiso:opts.paraPermiso||'',estado:'pendiente',
+        origen:opts.origen||'',refId:opts.refId||'',creadaTs:Date.now(),creadaPor:_notifEmailActual()});
+    saveNotificaciones(arr);
+    renderNotifBell();
+}
+function _notifEsParaMi(n){
+    if(!n)return false;
+    const yo=_notifEmailActual();
+    if(n.paraEmail&&_normEmail(n.paraEmail)===yo)return true;
+    if(n.paraPermiso&&(soyMaestro()||tienePermiso(n.paraPermiso)))return true;
+    return false;
+}
+function misNotificaciones(){
+    return getNotificaciones().filter(_notifEsParaMi).slice().sort((a,b)=>{
+        const pa=(a.estado==='pendiente')?0:1,pb=(b.estado==='pendiente')?0:1;
+        if(pa!==pb)return pa-pb;
+        if(a.estado==='pendiente'){const ta=(a.tipo==='tarea')?0:1,tb=(b.tipo==='tarea')?0:1;if(ta!==tb)return ta-tb;}
+        return num(b.creadaTs)-num(a.creadaTs);
+    });
+}
+function _notifPendientesCount(){return getNotificaciones().filter(n=>_notifEsParaMi(n)&&n.estado==='pendiente').length;}
+function renderNotifBell(){
+    const wrap=document.getElementById('notifBellWrap');
+    if(!wrap)return;
+    if(!window.currentUser){wrap.innerHTML='';return;}
+    const n=_notifPendientesCount();
+    wrap.innerHTML=`<button onclick="openNotifPanel()" title="Notificaciones" style="position:relative;background:none;border:none;cursor:pointer;font-size:1.35rem;line-height:1;padding:4px 6px;">&#128276;${n>0?`<span style="position:absolute;top:-1px;right:-1px;background:var(--danger);color:#fff;border-radius:10px;font-size:0.6rem;font-weight:700;min-width:16px;height:16px;line-height:16px;padding:0 4px;text-align:center;">${n>99?'99+':n}</span>`:''}</button>`;
+}
+function _notifFecha(ts){try{return fmtFechaCorta(new Date(num(ts)).toISOString().slice(0,10));}catch(e){return '';}}
+function openNotifPanel(){
+    const overlay=document.getElementById('modalNotif');
+    const lista=misNotificaciones();
+    const item=n=>{
+        const esTarea=n.tipo==='tarea';
+        const resuelta=n.estado!=='pendiente';
+        const icono=esTarea?'&#128203;':'&#8505;&#65039;';
+        const color=esTarea?'#d4830f':'#0a7e8c';
+        const btn=resuelta
+            ?`<span style="font-size:0.7rem;color:var(--success);font-weight:700;">${esTarea?'Hecho':'Leído'} &#10003;</span>`
+            :`<button class="btn btn-sm ${esTarea?'btn-success':'btn-ghost'}" style="padding:3px 10px;font-size:0.72rem;" onclick="notifResolver('${n.id}')">${esTarea?'Marcar hecho':'Marcar leído'}</button>`;
+        return `<div style="border:1px solid var(--border);border-left:4px solid ${color};border-radius:8px;padding:10px 12px;margin-bottom:8px;${resuelta?'opacity:0.55;':''}">
+            <div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start;">
+                <div style="font-weight:700;font-size:0.86rem;">${icono} ${esc(n.titulo||'')}</div>
+                <button class="btn-icon remove" title="Eliminar" style="flex-shrink:0;" onclick="notifEliminar('${n.id}')">&times;</button>
+            </div>
+            ${n.detalle?`<div style="font-size:0.8rem;color:var(--text);margin:3px 0;">${esc(n.detalle)}</div>`:''}
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;gap:8px;">
+                <span style="font-size:0.7rem;color:var(--text-light);">${_notifFecha(n.creadaTs)}</span>${btn}
+            </div>
+        </div>`;
+    };
+    overlay.innerHTML=`<div class="modal" style="max-width:520px;">
+        <div class="modal-header"><h3>&#128276; Notificaciones</h3><button class="modal-close" onclick="closeModal('modalNotif')">&times;</button></div>
+        <div class="modal-body">
+            <div style="margin-bottom:10px;"><button class="btn btn-sm btn-accent" onclick="openNotifNueva()">+ Nueva tarea / aviso</button></div>
+            ${lista.length?lista.map(item).join(''):`<p style="font-size:0.84rem;color:var(--text-light);font-style:italic;text-align:center;padding:16px;">No tenés notificaciones.</p>`}
+        </div>
+        <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modalNotif')">Cerrar</button></div>
+    </div>`;
+    overlay.classList.add('open');
+}
+function notifResolver(id){
+    const arr=getNotificaciones().map(x=>Object.assign({},x));
+    const n=arr.find(x=>x.id===id);if(!n)return;
+    n.estado=(n.tipo==='tarea')?'hecha':'leida';n.resueltaPor=_notifEmailActual();n.resueltaTs=Date.now();
+    saveNotificaciones(arr);renderNotifBell();openNotifPanel();
+}
+function notifEliminar(id){
+    saveNotificaciones(getNotificaciones().filter(x=>x.id!==id));renderNotifBell();openNotifPanel();
+}
+function openNotifNueva(){
+    const emp=getRrhhEmpleados().filter(e=>e.email);
+    const opts=emp.map(e=>`<option value="${esc(_normEmail(e.email))}">${esc(e.nombre)} (${esc(e.email)})</option>`).join('');
+    const overlay=document.getElementById('modalNotifNueva');
+    overlay.innerHTML=`<div class="modal" style="max-width:460px;">
+        <div class="modal-header"><h3>Nueva tarea / aviso</h3><button class="modal-close" onclick="closeModal('modalNotifNueva')">&times;</button></div>
+        <div class="modal-body">
+            <div class="form-group"><label>Tipo</label><select id="ntTipo">
+                <option value="tarea">📋 Tarea pendiente (se marca hecho)</option>
+                <option value="info">ℹ️ Aviso informativo (se marca leído)</option>
+            </select></div>
+            <div class="form-group"><label>Para *</label><select id="ntPara"><option value="">-- Elegir persona --</option>${opts}</select>
+                <div style="font-size:0.72rem;color:var(--text-light);margin-top:3px;">Solo aparecen personas con correo cargado en su ficha de empleado (Planilla → Empleados).</div></div>
+            <div class="form-group"><label>Título *</label><input type="text" id="ntTitulo" placeholder="Ej: Llamar al hotel Crown Paradise"></div>
+            <div class="form-group"><label>Detalle</label><textarea id="ntDetalle" rows="2" placeholder="Opcional"></textarea></div>
+        </div>
+        <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modalNotifNueva')">Cancelar</button><button class="btn btn-success" onclick="guardarNotifNueva()">Enviar</button></div>
+    </div>`;
+    overlay.classList.add('open');
+}
+function guardarNotifNueva(){
+    const para=document.getElementById('ntPara').value;
+    const titulo=(document.getElementById('ntTitulo').value||'').trim();
+    if(!para){alert('Elegí a quién se la enviás.');return;}
+    if(!titulo){alert('Escribí un título.');return;}
+    crearNotificacion({tipo:document.getElementById('ntTipo').value,titulo:titulo,detalle:(document.getElementById('ntDetalle').value||'').trim(),paraEmail:para,origen:'manual'});
+    closeModal('modalNotifNueva');closeModal('modalNotif');
+    alert('Enviado. Le va a aparecer a esa persona la próxima vez que entre o recargue el sistema.');
 }
 // =====================================================================================
 
