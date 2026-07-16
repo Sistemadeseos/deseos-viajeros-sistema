@@ -1593,7 +1593,7 @@ const CONTACTO_URGENCIAS=[
 let _fsEnabled=false; // true después de loadAllFromFirestore()
 let _fsSyncInProgress=false; // evita loops cuando la carga inicial escribe al cache
 // Número de versión visible: para confirmar que TODAS las usuarias corren el código actualizado.
-const APP_VERSION='v16-0711';
+const APP_VERSION='v17-0711';
 
 // ============================================================================
 // CACHE PERSISTENTE: IndexedDB (capacidad amplia) + espejo en memoria (_cache).
@@ -4645,6 +4645,7 @@ function renderNotifBell(){
 }
 function _notifFecha(ts){try{return fmtFechaCorta(new Date(num(ts)).toISOString().slice(0,10));}catch(e){return '';}}
 function openNotifPanel(){
+    try{generarNotificacionesViajesProximos();}catch(e){console.error('[notif viajes]',e);}
     const overlay=document.getElementById('modalNotif');
     const lista=misNotificaciones();
     const item=n=>{
@@ -4713,6 +4714,35 @@ function guardarNotifNueva(){
     crearNotificacion({tipo:document.getElementById('ntTipo').value,titulo:titulo,detalle:(document.getElementById('ntDetalle').value||'').trim(),paraEmail:para,origen:'manual'});
     closeModal('modalNotifNueva');closeModal('modalNotif');
     alert('Enviado. Le va a aparecer a esa persona la próxima vez que entre o recargue el sistema.');
+}
+// Genera (una sola vez por venta) tareas de "viaje próximo" para viajes que salen dentro de 7 días.
+function generarNotificacionesViajesProximos(){
+    const DIAS=7;
+    const ventas=getVentas();
+    if(!ventas.length)return 0;
+    const hoy=new Date();hoy.setHours(0,0,0,0);
+    const limite=new Date(hoy);limite.setDate(limite.getDate()+DIAS);
+    const arr=getNotificaciones().map(x=>Object.assign({},x));
+    const yaViaje=new Set(arr.filter(n=>n.origen==='viaje').map(n=>String(n.refId)));
+    const emails=getEncargadosEmails();
+    let creadas=0;
+    ventas.forEach(v=>{
+        if(!v||v.estado==='cancelada'||!v.fechaInicio)return;
+        const fi=new Date(v.fechaInicio+'T12:00:00');if(isNaN(fi))return;
+        if(fi<hoy||fi>limite)return;              // ya pasó, o todavía lejos
+        if(yaViaje.has(String(v.id)))return;       // ya se generó su aviso
+        const email=(v.encargado&&emails[v.encargado])?_normEmail(emails[v.encargado]):'';
+        const diasFaltan=Math.max(0,Math.ceil((fi-hoy)/86400000));
+        const destino=v.destino||v.grupoNombre||'Viaje';
+        arr.push({id:newRrhhId(),tipo:'tarea',
+            titulo:'Viaje próximo: '+destino,
+            detalle:(v.clienteNombre?v.clienteNombre+' — ':'')+'sale en '+diasFaltan+' día(s) ('+fmtFechaCorta(v.fechaInicio)+'). Revisá que esté todo listo: checklist, saldo pendiente y documentos.',
+            paraEmail:email,paraPermiso:email?'':'ventas.ver',
+            estado:'pendiente',origen:'viaje',refId:String(v.id),creadaTs:Date.now(),creadaPor:'sistema'});
+        yaViaje.add(String(v.id));creadas++;
+    });
+    if(creadas>0)saveNotificaciones(arr);
+    return creadas;
 }
 // =====================================================================================
 
@@ -8695,6 +8725,7 @@ window.onUserReady=async function(user){
         // Cargar datos desde Firestore antes de inicializar la app
         await loadAllFromFirestore();
         init();
+        try{generarNotificacionesViajesProximos();}catch(e){console.error('[notif viajes]',e);}
     }
     // Activar control de inactividad (auto-logout)
     iniciarInactividad();
