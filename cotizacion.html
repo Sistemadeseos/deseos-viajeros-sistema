@@ -1524,6 +1524,7 @@ onAuthStateChanged(fbAuth, (user) => {
 <div class="modal-overlay" id="modalTransporteCalc"></div>
 <div class="modal-overlay" id="modalNotif"></div>
 <div class="modal-overlay" id="modalNotifNueva"></div>
+<div class="modal-overlay" id="modalAnuncio"></div>
 
 <script>
 // ===== STATE =====
@@ -1593,7 +1594,7 @@ const CONTACTO_URGENCIAS=[
 let _fsEnabled=false; // true después de loadAllFromFirestore()
 let _fsSyncInProgress=false; // evita loops cuando la carga inicial escribe al cache
 // Número de versión visible: para confirmar que TODAS las usuarias corren el código actualizado.
-const APP_VERSION='v17-0711';
+const APP_VERSION='v18-0711';
 
 // ============================================================================
 // CACHE PERSISTENTE: IndexedDB (capacidad amplia) + espejo en memoria (_cache).
@@ -4714,6 +4715,37 @@ function guardarNotifNueva(){
     crearNotificacion({tipo:document.getElementById('ntTipo').value,titulo:titulo,detalle:(document.getElementById('ntDetalle').value||'').trim(),paraEmail:para,origen:'manual'});
     closeModal('modalNotifNueva');closeModal('modalNotif');
     alert('Enviado. Le va a aparecer a esa persona la próxima vez que entre o recargue el sistema.');
+}
+// Anuncio de novedades: se muestra una sola vez por navegador (clave dvAnuncioVisto, no se migra ni se borra con la caché).
+const _ANUNCIO_ID='notif-v1';
+function mostrarAnuncioNotif(){
+    try{if(localStorage.getItem('dvAnuncioVisto')===_ANUNCIO_ID)return;}catch(e){}
+    const overlay=document.getElementById('modalAnuncio');
+    if(!overlay)return;
+    overlay.innerHTML=`<div class="modal" style="max-width:500px;">
+        <div class="modal-header"><h3>&#128276; ¡Novedad! Notificaciones</h3></div>
+        <div class="modal-body" style="font-size:0.9rem;line-height:1.5;">
+            <p>Agregamos una <strong>campanita 🔔</strong> arriba a la derecha para avisarte cosas importantes. El <strong>número rojo</strong> te dice cuántas cosas pendientes tenés; tocala para verlas.</p>
+            <p style="margin:12px 0 4px;font-weight:700;">Hay dos tipos:</p>
+            <div style="background:var(--bg);border-radius:8px;padding:10px 12px;margin-bottom:10px;">
+                <div style="margin-bottom:6px;">📋 <strong>Tareas pendientes</strong> — algo que tenés que hacer (ej: aprobar una solicitud). Cuando lo resolvés, tocás <strong>“Marcar hecho”</strong>.</div>
+                <div>ℹ️ <strong>Avisos</strong> — información (ej: tu colilla de pago está lista, tu solicitud fue aprobada). Tocás <strong>“Marcar leído”</strong>.</div>
+            </div>
+            <p style="margin:0 0 4px;font-weight:700;">Vas a recibir avisos cuando:</p>
+            <ul style="margin:0 0 10px 18px;padding:0;">
+                <li>tu <strong>colilla de pago</strong> esté lista;</li>
+                <li>aprueben o rechacen tus <strong>vacaciones</strong> u <strong>horas extra</strong>;</li>
+                <li>se acerque un <strong>viaje</strong> tuyo (7 días antes).</li>
+            </ul>
+            <p style="font-size:0.82rem;color:var(--text-light);">También podés crear una tarea y asignársela a alguien del equipo con el botón <strong>“+ Nueva tarea / aviso”</strong> dentro de la campanita.</p>
+        </div>
+        <div class="modal-footer"><button class="btn btn-success" onclick="cerrarAnuncioNotif()">Entendido</button></div>
+    </div>`;
+    overlay.classList.add('open');
+}
+function cerrarAnuncioNotif(){
+    try{localStorage.setItem('dvAnuncioVisto',_ANUNCIO_ID);}catch(e){}
+    closeModal('modalAnuncio');
 }
 // Genera (una sola vez por venta) tareas de "viaje próximo" para viajes que salen dentro de 7 días.
 function generarNotificacionesViajesProximos(){
@@ -8731,6 +8763,8 @@ window.onUserReady=async function(user){
     iniciarInactividad();
     // Aplicar guardrails de permisos según el usuario logueado
     aplicarPermisosUI();
+    // Mostrar (una sola vez) el anuncio de novedades.
+    setTimeout(()=>{try{mostrarAnuncioNotif();}catch(e){console.error('[anuncio]',e);}},600);
 };
 
 // Handler del form de login
