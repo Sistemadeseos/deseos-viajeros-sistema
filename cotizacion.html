@@ -1307,12 +1307,12 @@ onAuthStateChanged(fbAuth, (user) => {
         <div class="form-group"><label>Fecha</label><input type="text" id="mcFechasTentativas" placeholder="Ej: Diciembre 2026, Semana Santa..."></div>
     </div>
     <div class="form-group"><label>Notas adicionales</label><textarea id="mcNotas" placeholder="Cualquier detalle: presupuesto, preferencias, hoteles, etc." style="min-height:55px;"></textarea></div>
+    <div class="form-group"><label>Asignado a</label><input type="text" id="mcAsignadoA" placeholder="Email del encargado"></div>
+    <div id="mcCapturaInfo" style="font-size:0.7rem;color:var(--text-light);margin-bottom:10px;"></div>
 
     <!-- Datos adicionales (colapsado): disponibles para cuando el cliente reserva o para no duplicar contactos -->
     <details class="mc-section" style="margin-top:12px;"><summary>Datos adicionales (opcional)</summary><div class="mc-section-body">
         <div class="form-group"><label>Email</label><input type="email" id="mcEmail" placeholder="correo@ejemplo.com" oninput="checkDuplicates('mc')"></div>
-        <div class="form-group"><label>Asignado a</label><input type="text" id="mcAsignadoA" placeholder="Email del encargado"></div>
-        <div id="mcCapturaInfo" style="font-size:0.7rem;color:var(--text-light);margin-bottom:10px;"></div>
         <div class="form-row"><div class="form-group"><label>Servicio de inter&eacute;s</label><select id="mcServicio"><option value="">-- Seleccionar --</option></select></div><div class="form-group"><label>Urgencia</label><select id="mcUrgencia"><option value="">-- Seleccionar --</option></select></div></div>
         <div class="form-group"><label>Notas sobre la necesidad</label><textarea id="mcNecesidadNotas" style="min-height:45px;"></textarea></div>
         <div class="form-row"><div class="form-group"><label>Tipo documento</label><select id="mcTipoDoc"><option value="cedula">C&eacute;dula</option><option value="pasaporte">Pasaporte</option><option value="otro">Otro</option></select></div><div class="form-group"><label>N&uacute;mero documento</label><input type="text" id="mcNumDoc"></div></div>
@@ -1571,7 +1571,7 @@ const CONTACTO_URGENCIAS=[
 let _fsEnabled=false; // true después de loadAllFromFirestore()
 let _fsSyncInProgress=false; // evita loops cuando la carga inicial escribe al cache
 // Número de versión visible: para confirmar que TODAS las usuarias corren el código actualizado.
-const APP_VERSION='v21-0715';
+const APP_VERSION='v22-0715';
 
 // ============================================================================
 // CACHE PERSISTENTE: IndexedDB (capacidad amplia) + espejo en memoria (_cache).
