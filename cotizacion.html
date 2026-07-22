@@ -1533,12 +1533,11 @@ const defaultAlertas=['A partir del 11 de enero 2025 es obligatoria la vacuna de
 // ===== ESTADOS Y ORIGENES DEL PIPELINE DE CONTACTOS =====
 const CONTACTO_ESTADOS=[
     {id:'nuevo',label:'Nuevo'},
-    {id:'contactado',label:'Contactado'},
-    {id:'cotizado',label:'Cotizado'},
-    {id:'negociacion',label:'Negociaci\u00f3n'},
-    {id:'cliente',label:'Cliente'},
-    {id:'perdido',label:'Perdido'}
+    {id:'cotizado',label:'Cotizado'}
 ];
+// Normaliza estados viejos (contactado, negociaci\u00f3n, cliente, perdido) a los 2 vigentes, para
+// que los contactos ya guardados no queden "colgados" al mostrarse.
+function _estadoContactoNorm(e){return (e==='cotizado'||e==='negociacion'||e==='cliente')?'cotizado':'nuevo';}
 const CONTACTO_ORIGENES=[
     {id:'presencial',label:'Presencial'},
     {id:'telefono',label:'Tel\u00e9fono'},
@@ -1572,7 +1571,7 @@ const CONTACTO_URGENCIAS=[
 let _fsEnabled=false; // true después de loadAllFromFirestore()
 let _fsSyncInProgress=false; // evita loops cuando la carga inicial escribe al cache
 // Número de versión visible: para confirmar que TODAS las usuarias corren el código actualizado.
-const APP_VERSION='v19-0715';
+const APP_VERSION='v20-0715';
 
 // ============================================================================
 // CACHE PERSISTENTE: IndexedDB (capacidad amplia) + espejo en memoria (_cache).
@@ -7766,7 +7765,7 @@ function renderListadoContactos(mode){
     const rows=filtered.map(c=>{
         const numCots=hist.filter(h=>h.clienteId===c.id).length;
         const numVentas=ventas.filter(v=>v.clienteId===c.id).length;
-        const estado=c.estado||'nuevo';
+        const estado=_estadoContactoNorm(c.estado||'nuevo');
         const estadoBadge=`<span class="estado-badge st-${estado}">${esc(estadoLabels[estado]||estado)}</span>`;
         const origenTxt=c.origen&&origenLabels[c.origen]?esc(origenLabels[c.origen]):'<span style="color:var(--text-light);">-</span>';
         const etiquetasHtml=Array.isArray(c.etiquetas)&&c.etiquetas.length?`<div style="margin-top:3px;display:flex;flex-wrap:wrap;gap:3px;">${c.etiquetas.map(t=>`<span style="font-size:0.62rem;padding:1px 7px;border-radius:10px;background:var(--primary-light);color:var(--primary-dark);font-weight:600;">${esc(t)}</span>`).join('')}</div>`:'';
@@ -8404,8 +8403,9 @@ function populateSelectConstante(selectId,constArr,currentValue){
 function renderPipelineBar(estadoActual){
     const bar=document.getElementById('mcPipelineBar');
     if(!bar)return;
+    const _act=_estadoContactoNorm(estadoActual);
     bar.innerHTML=CONTACTO_ESTADOS.map(s=>{
-        const active=s.id===estadoActual?'active':'';
+        const active=s.id===_act?'active':'';
         return`<div class="pipeline-step st-${s.id} ${active}" data-estado="${s.id}" onclick="seleccionarEstado('${s.id}')">${esc(s.label)}</div>`;
     }).join('');
 }
@@ -8461,7 +8461,7 @@ function openClienteModal(id){
         document.getElementById('mcEtiquetasInput').value='';
         renderEtiquetasChips();
         // Pipeline + origen + servicio + urgencia
-        _estadoActualModal=c.estado||'nuevo';
+        _estadoActualModal=_estadoContactoNorm(c.estado||'nuevo');
         renderPipelineBar(_estadoActualModal);
         populateSelectConstante('mcOrigen',CONTACTO_ORIGENES,c.origen||'');
         populateSelectConstante('mcServicio',CONTACTO_SERVICIOS,c.servicio||'');
