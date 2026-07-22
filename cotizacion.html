@@ -1291,65 +1291,43 @@ onAuthStateChanged(fbAuth, (user) => {
     <p style="font-size:0.7rem;color:var(--text-light);text-transform:uppercase;font-weight:700;letter-spacing:1px;margin-bottom:4px;">Estado del contacto</p>
     <div class="pipeline-bar" id="mcPipelineBar"></div>
 
-    <!-- Wizard de 3 pasos -->
-    <div class="wizard-tabs">
-        <div class="wizard-tab active" data-step="1" onclick="goWizardStep(1)"><span class="tab-num">1</span>Identificaci&oacute;n</div>
-        <div class="wizard-tab" data-step="2" onclick="goWizardStep(2)"><span class="tab-num">2</span>Necesidad</div>
-        <div class="wizard-tab" data-step="3" onclick="goWizardStep(3)"><span class="tab-num">3</span>Viaje so&ntilde;ado</div>
+    <!-- Formulario simple -->
+    <div class="form-group"><label>Nombre completo *</label><input type="text" id="mcNombre" placeholder="Nombre completo del contacto"></div>
+    <div class="form-row">
+        <div class="form-group"><label>Tel&eacute;fono</label><input type="text" id="mcTelefono" placeholder="8888-8888" oninput="checkDuplicates('mc')"></div>
+        <div class="form-group"><label>C&oacute;mo nos encontr&oacute;</label><select id="mcOrigen"><option value="">-- Seleccionar --</option></select></div>
     </div>
-
-    <!-- Paso 1: Identificación -->
-    <div class="wizard-step active" data-step="1">
-        <div class="form-group"><label>Nombre completo *</label><input type="text" id="mcNombre" placeholder="Nombre completo del contacto"></div>
-        <div class="form-row"><div class="form-group"><label>Tel&eacute;fono</label><input type="text" id="mcTelefono" placeholder="8888-8888" oninput="checkDuplicates('mc')"></div><div class="form-group"><label>Email</label><input type="email" id="mcEmail" placeholder="correo@ejemplo.com" oninput="checkDuplicates('mc')"></div></div>
-        <div class="dup-warning" id="mcDupWarning"><div class="dup-warning-header">&#9888; Posibles contactos ya existentes</div><div class="dup-warning-list" id="mcDupList"></div></div>
-        <div class="form-group"><label>C&oacute;mo nos encontr&oacute; (origen)</label><select id="mcOrigen"><option value="">-- Seleccionar --</option></select></div>
-    </div>
-
-    <!-- Paso 2: Necesidad -->
-    <div class="wizard-step" data-step="2">
-        <div class="form-group"><label>Servicio de inter&eacute;s</label><select id="mcServicio"><option value="">-- Seleccionar --</option></select></div>
-        <div class="form-group"><label>Urgencia</label><select id="mcUrgencia"><option value="">-- Seleccionar --</option></select></div>
-        <div class="form-group" style="margin-bottom:0;"><label>Notas sobre la necesidad</label><textarea id="mcNecesidadNotas" placeholder="Ej: Viaja con esposa e hija de 8 a&ntilde;os. Presupuesto flexible." style="min-height:50px;"></textarea></div>
-    </div>
-
-    <!-- Paso 3: Viaje soñado -->
-    <div class="wizard-step" data-step="3">
-        <div class="form-group"><label>Destinos tentativos</label><textarea id="mcDestinosTentativos" placeholder="Ej: Finlandia, Laponia, Islandia..." style="min-height:50px;"></textarea></div>
-        <div class="form-group" style="margin-bottom:0;"><label>Fechas tentativas</label><input type="text" id="mcFechasTentativas" placeholder="Ej: Diciembre 2026, Semana Santa, Julio..."></div>
-    </div>
-
-    <!-- Nav del wizard -->
-    <div class="wizard-nav">
-        <button type="button" class="btn btn-ghost btn-sm" id="mcWizardPrev" onclick="wizardPrev()">&larr; Anterior</button>
-        <div class="wizard-hint">Solo el paso 1 es obligatorio para guardar</div>
-        <button type="button" class="btn btn-primary btn-sm" id="mcWizardNext" onclick="wizardNext()">Siguiente &rarr;</button>
-    </div>
+    <div class="dup-warning" id="mcDupWarning"><div class="dup-warning-header">&#9888; Posibles contactos ya existentes</div><div class="dup-warning-list" id="mcDupList"></div></div>
 
     <hr class="wizard-divider">
-    <div class="wizard-divider-label">Datos adicionales y asignaci&oacute;n</div>
+    <div class="wizard-divider-label">Sobre la cotizaci&oacute;n que quiere</div>
+    <div class="form-group"><label>Destino</label><input type="text" id="mcDestinosTentativos" placeholder="Ej: Canc&uacute;n, Europa, Punta Cana..."></div>
+    <div class="form-row">
+        <div class="form-group"><label>Cu&aacute;ntas personas</label><input type="text" id="mcPersonas" placeholder="Ej: 2 adultos + 1 ni&ntilde;o"></div>
+        <div class="form-group"><label>Fecha</label><input type="text" id="mcFechasTentativas" placeholder="Ej: Diciembre 2026, Semana Santa..."></div>
+    </div>
+    <div class="form-group"><label>Notas adicionales</label><textarea id="mcNotas" placeholder="Cualquier detalle: presupuesto, preferencias, hoteles, etc." style="min-height:55px;"></textarea></div>
 
-    <div class="form-group"><label>Asignado a</label><input type="text" id="mcAsignadoA" placeholder="Email del encargado"></div>
-    <div id="mcCapturaInfo" style="font-size:0.7rem;color:var(--text-light);margin-bottom:10px;"></div>
-    <details class="mc-section"><summary>Documento e identificaci&oacute;n</summary><div class="mc-section-body">
+    <!-- Datos adicionales (colapsado): disponibles para cuando el cliente reserva o para no duplicar contactos -->
+    <details class="mc-section" style="margin-top:12px;"><summary>Datos adicionales (opcional)</summary><div class="mc-section-body">
+        <div class="form-group"><label>Email</label><input type="email" id="mcEmail" placeholder="correo@ejemplo.com" oninput="checkDuplicates('mc')"></div>
+        <div class="form-group"><label>Asignado a</label><input type="text" id="mcAsignadoA" placeholder="Email del encargado"></div>
+        <div id="mcCapturaInfo" style="font-size:0.7rem;color:var(--text-light);margin-bottom:10px;"></div>
+        <div class="form-row"><div class="form-group"><label>Servicio de inter&eacute;s</label><select id="mcServicio"><option value="">-- Seleccionar --</option></select></div><div class="form-group"><label>Urgencia</label><select id="mcUrgencia"><option value="">-- Seleccionar --</option></select></div></div>
+        <div class="form-group"><label>Notas sobre la necesidad</label><textarea id="mcNecesidadNotas" style="min-height:45px;"></textarea></div>
         <div class="form-row"><div class="form-group"><label>Tipo documento</label><select id="mcTipoDoc"><option value="cedula">C&eacute;dula</option><option value="pasaporte">Pasaporte</option><option value="otro">Otro</option></select></div><div class="form-group"><label>N&uacute;mero documento</label><input type="text" id="mcNumDoc"></div></div>
         <div class="form-row"><div class="form-group"><label>Nacionalidad</label><input type="text" id="mcNacionalidad"></div><div class="form-group"><label>Fecha nacimiento</label><input type="date" id="mcFechaNac"></div></div>
-    </div></details>
-    <details class="mc-section"><summary>Direcci&oacute;n y empresa</summary><div class="mc-section-body">
         <div class="form-group"><label>Direcci&oacute;n</label><input type="text" id="mcDireccion"></div>
-        <div class="form-group" style="margin-bottom:0;"><label>Empresa (opcional)</label><input type="text" id="mcEmpresa"></div>
-    </div></details>
-    <details class="mc-section"><summary>Documentos de viaje</summary><div class="mc-section-body">
+        <div class="form-group"><label>Empresa (opcional)</label><input type="text" id="mcEmpresa"></div>
         <div class="form-row"><div class="form-group"><label>N&ordm; pasaporte</label><input type="text" id="mcPasaporte"></div><div class="form-group"><label>Vencimiento pasaporte</label><input type="date" id="mcPasaporteVenc"></div></div>
         <div class="form-row"><div class="form-group"><label>Programa viajero - Aerol&iacute;nea</label><input type="text" id="mcVFAerolinea"></div><div class="form-group"><label>N&ordm; viajero frecuente</label><input type="text" id="mcVFNumero"></div></div>
-    </div></details>
-    <div class="form-group" style="margin-top:10px;"><label>Etiquetas</label>
-        <div class="tag-input-container" id="mcEtiquetasContainer" onclick="document.getElementById('mcEtiquetasInput').focus()">
-            <input type="text" class="tag-input-field" id="mcEtiquetasInput" placeholder="Ej: Grupal Finlandia, Luna de miel, VIP..." onkeydown="handleEtiquetaKey(event)">
+        <div class="form-group"><label>Etiquetas</label>
+            <div class="tag-input-container" id="mcEtiquetasContainer" onclick="document.getElementById('mcEtiquetasInput').focus()">
+                <input type="text" class="tag-input-field" id="mcEtiquetasInput" placeholder="Ej: Grupal Finlandia, Luna de miel, VIP..." onkeydown="handleEtiquetaKey(event)">
+            </div>
+            <small style="font-size:0.7rem;color:var(--text-light);">Presione <strong>Enter</strong> o <strong>,</strong> para agregar. Click en &times; para quitar.</small>
         </div>
-        <small style="font-size:0.7rem;color:var(--text-light);">Presione <strong>Enter</strong> o <strong>,</strong> para agregar una etiqueta. Click en &times; para quitarla.</small>
-    </div>
-    <div class="form-group"><label>Notas</label><textarea id="mcNotas" placeholder="Notas generales sobre el contacto..." style="min-height:60px;"></textarea></div>
+    </div></details>
 
     <!-- Bitacora / Timeline (solo visible en modo edicion) -->
     <div class="bitacora-section" id="mcBitacoraSection" style="display:none;">
@@ -1594,7 +1572,7 @@ const CONTACTO_URGENCIAS=[
 let _fsEnabled=false; // true después de loadAllFromFirestore()
 let _fsSyncInProgress=false; // evita loops cuando la carga inicial escribe al cache
 // Número de versión visible: para confirmar que TODAS las usuarias corren el código actualizado.
-const APP_VERSION='v18-0711';
+const APP_VERSION='v19-0715';
 
 // ============================================================================
 // CACHE PERSISTENTE: IndexedDB (capacidad amplia) + espejo en memoria (_cache).
@@ -8451,7 +8429,7 @@ function openClienteModal(id){
     const titulo=document.getElementById('modalClienteTitulo');
     const ahora=new Date().toISOString();
     const usuarioEmail=(window.currentUser&&window.currentUser.email)||'';
-    const editFields=['mcNombre','mcNumDoc','mcNacionalidad','mcFechaNac','mcTelefono','mcEmail','mcDireccion','mcEmpresa','mcPasaporte','mcPasaporteVenc','mcVFAerolinea','mcVFNumero','mcNotas','mcAsignadoA','mcNecesidadNotas','mcDestinosTentativos','mcFechasTentativas'];
+    const editFields=['mcNombre','mcNumDoc','mcNacionalidad','mcFechaNac','mcTelefono','mcEmail','mcDireccion','mcEmpresa','mcPasaporte','mcPasaporteVenc','mcVFAerolinea','mcVFNumero','mcNotas','mcAsignadoA','mcNecesidadNotas','mcDestinosTentativos','mcFechasTentativas','mcPersonas'];
     if(id){
         const clientes=getClientes();
         const c=clientes.find(x=>x.id===id);
@@ -8477,6 +8455,7 @@ function openClienteModal(id){
         document.getElementById('mcNecesidadNotas').value=c.necesidadNotas||'';
         document.getElementById('mcDestinosTentativos').value=c.destinosTentativos||'';
         document.getElementById('mcFechasTentativas').value=c.fechasTentativas||'';
+        document.getElementById('mcPersonas').value=c.personas||'';
         // Etiquetas
         _mcEtiquetas=Array.isArray(c.etiquetas)?c.etiquetas.slice():[];
         document.getElementById('mcEtiquetasInput').value='';
@@ -8571,6 +8550,7 @@ function guardarCliente(){
         necesidadNotas:document.getElementById('mcNecesidadNotas').value||'',
         destinosTentativos:document.getElementById('mcDestinosTentativos').value||'',
         fechasTentativas:document.getElementById('mcFechasTentativas').value||'',
+        personas:(document.getElementById('mcPersonas')||{}).value||'',
         asignadoA:document.getElementById('mcAsignadoA').value||usuarioEmail,
         fechaCreacion:ahora,
         fechaActualizacion:ahora
