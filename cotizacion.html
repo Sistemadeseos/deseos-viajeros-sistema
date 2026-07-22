@@ -1540,7 +1540,7 @@ const CONTACTO_ESTADOS=[
 function _estadoContactoNorm(e){return (e==='cotizado'||e==='negociacion'||e==='cliente')?'cotizado':'nuevo';}
 const CONTACTO_ORIGENES=[
     {id:'presencial',label:'Presencial'},
-    {id:'telefono',label:'Tel\u00e9fono'},
+    {id:'redes',label:'Redes Sociales'},
     {id:'whatsapp',label:'WhatsApp'},
     {id:'referido',label:'Referido'},
     {id:'web',label:'Web'}
@@ -1571,7 +1571,7 @@ const CONTACTO_URGENCIAS=[
 let _fsEnabled=false; // true después de loadAllFromFirestore()
 let _fsSyncInProgress=false; // evita loops cuando la carga inicial escribe al cache
 // Número de versión visible: para confirmar que TODAS las usuarias corren el código actualizado.
-const APP_VERSION='v20-0715';
+const APP_VERSION='v21-0715';
 
 // ============================================================================
 // CACHE PERSISTENTE: IndexedDB (capacidad amplia) + espejo en memoria (_cache).
