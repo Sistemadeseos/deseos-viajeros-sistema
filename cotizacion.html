@@ -1407,7 +1407,7 @@ onAuthStateChanged(fbAuth, (user) => {
         <div class="form-row">
             <div class="form-group"><label>Fecha</label><input type="date" id="pagoFecha"></div>
             <div class="form-group"><label>Monto</label><input type="number" id="pagoMonto" step="0.01" placeholder="0.00"></div>
-            <div class="form-group"><label>M&eacute;todo</label><select id="pagoMetodo"><option>Transferencia BAC d&oacute;lares</option><option>Transferencia BAC colones</option><option>Sinpe m&oacute;vil</option><option>Efectivo</option><option>Tarjeta de cr&eacute;dito</option><option>Dep&oacute;sito</option><option>Otro</option></select></div>
+            <div class="form-group"><label>M&eacute;todo</label><select id="pagoMetodo"></select></div>
         </div>
         <div class="form-row">
             <div class="form-group"><label>Referencia / N&uacute;mero</label><input type="text" id="pagoReferencia" placeholder="Opcional"></div>
@@ -1576,7 +1576,7 @@ const CONTACTO_URGENCIAS=[
 let _fsEnabled=false; // true después de loadAllFromFirestore()
 let _fsSyncInProgress=false; // evita loops cuando la carga inicial escribe al cache
 // Número de versión visible: para confirmar que TODAS las usuarias corren el código actualizado.
-const APP_VERSION='v27-0723';
+const APP_VERSION='v28-0723';
 
 // ============================================================================
 // CACHE PERSISTENTE: IndexedDB (capacidad amplia) + espejo en memoria (_cache).
@@ -8159,7 +8159,9 @@ function togglePagoForm(preservarEstado){
             document.getElementById('pagoReferencia').value='';
             document.getElementById('pagoNota').value='';
             document.getElementById('pagoDescripcion').value='';
-            document.getElementById('pagoMetodo').selectedIndex=0;
+            _llenarMetodosPago('');
+        }else{
+            _llenarMetodosPago();
         }
         updatePagoFormUI();
         setTimeout(()=>document.getElementById('pagoMonto').focus(),100);
@@ -8169,6 +8171,36 @@ function togglePagoForm(preservarEstado){
     }
 }
 
+// Los métodos de pago salen de Configuración → Cuentas bancarias (así una cuenta nueva
+// aparece sola acá), más las formas de pago genéricas que no son una cuenta.
+const METODOS_PAGO_FIJOS=['Efectivo','Tarjeta de crédito','Depósito','Otro'];
+function _metodosPago(){
+    const out=[];
+    (cfgGet().cuentas||[]).forEach(c=>{
+        const tipo=String(c&&c.tipo||'').trim();
+        if(!tipo)return;
+        // "Sinpe móvil" no es una transferencia: se nombra tal cual.
+        const label=/^sinpe/i.test(tipo)?tipo:('Transferencia '+tipo);
+        if(out.indexOf(label)<0)out.push(label);
+    });
+    METODOS_PAGO_FIJOS.forEach(m=>{if(out.indexOf(m)<0)out.push(m);});
+    return out;
+}
+// Llena el desplegable conservando el método ya elegido (o el de un pago que se está editando).
+function _llenarMetodosPago(seleccionado){
+    const sel=document.getElementById('pagoMetodo');
+    if(!sel)return;
+    const quiero=seleccionado!==undefined?seleccionado:sel.value;
+    const lista=_metodosPago();
+    sel.innerHTML=lista.map(m=>`<option value="${esc(m)}">${esc(m)}</option>`).join('');
+    if(quiero){
+        // Un pago viejo puede tener un método que ya no está en la lista: se agrega para no perderlo.
+        if(lista.indexOf(quiero)<0){
+            const o=document.createElement('option');o.value=quiero;o.textContent=quiero;sel.appendChild(o);
+        }
+        sel.value=quiero;
+    }
+}
 function updatePagoFormUI(){
     const titleEl=document.getElementById('pagoFormTitle');
     const btnSave=document.getElementById('pagoFormSaveBtn');
@@ -8202,16 +8234,8 @@ function editarPago(pagoId){
     pagoEditandoId=pagoId;
     document.getElementById('pagoFecha').value=pago.fecha||'';
     document.getElementById('pagoMonto').value=pago.monto||'';
-    // seleccionar el método (si no existe la opción, la agrego)
-    const sel=document.getElementById('pagoMetodo');
-    let found=false;
-    for(let i=0;i<sel.options.length;i++){
-        if(sel.options[i].value===pago.metodo){sel.selectedIndex=i;found=true;break;}
-    }
-    if(!found&&pago.metodo){
-        const opt=document.createElement('option');opt.value=pago.metodo;opt.textContent=pago.metodo;
-        sel.appendChild(opt);sel.value=pago.metodo;
-    }
+    // Selecciona el método del pago; si ya no está en la lista, se agrega para no perderlo.
+    _llenarMetodosPago(pago.metodo||'');
     document.getElementById('pagoReferencia').value=pago.referencia||'';
     document.getElementById('pagoNota').value=pago.nota||'';
     document.getElementById('pagoDescripcion').value=pago.descripcion||'';
