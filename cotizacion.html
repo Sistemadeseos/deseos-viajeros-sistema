@@ -1576,7 +1576,7 @@ const CONTACTO_URGENCIAS=[
 let _fsEnabled=false; // true después de loadAllFromFirestore()
 let _fsSyncInProgress=false; // evita loops cuando la carga inicial escribe al cache
 // Número de versión visible: para confirmar que TODAS las usuarias corren el código actualizado.
-const APP_VERSION='v26-0723';
+const APP_VERSION='v27-0723';
 
 // ============================================================================
 // CACHE PERSISTENTE: IndexedDB (capacidad amplia) + espejo en memoria (_cache).
@@ -2226,7 +2226,6 @@ const PERMISOS_CATALOGO=[
     // -- Tareas --
     {clave:'tareas.ver',     nombre:'Ver la sección de Tareas',            modulo:'Tareas'},
     {clave:'tareas.crear',   nombre:'Crear tareas',                            modulo:'Tareas'},
-    {clave:'tareas.asignar', nombre:'Asignar tareas a otras personas',         modulo:'Tareas'},
     {clave:'tareas.ver_todas',nombre:'Ver las tareas de todo el equipo',       modulo:'Tareas'}
 ];
 
@@ -4941,7 +4940,9 @@ function _puedoResolverAprobacion(t){
 }
 function _tareaLaAsigneYo(t){return !!(t&&_normEmail(t.creadorEmail)===_tareaEmailActual()&&!_tareaEsMia(t));}
 function _puedoVerTodasLasTareas(){return soyMaestro()||tienePermiso('tareas.ver_todas');}
-function _puedoAsignarTareas(){return soyMaestro()||tienePermiso('tareas.asignar');}
+// NOTA: todo el equipo puede asignarse tareas entre sí (decisión del usuario: las colaboradoras
+// se coordinan directamente, sin pedir permiso). Por eso no hay permiso 'tareas.asignar'.
+// Lo que sí sigue restringido es VER las tareas ajenas: eso es 'tareas.ver_todas'.
 function _tareasPendientesCount(){return getTareas().filter(t=>_tareaEsMia(t)&&_tareaAbierta(t)).length;}
 
 // Orden: vencidas primero, luego por vencimiento, luego por prioridad, luego más nueva.
@@ -5093,13 +5094,10 @@ function openTareaModal(id){
     const t=id?getTareas().find(x=>x.id===id):null;
     if(t&&_tareaEsAprobacion(t)){alert('Una aprobación no se edita: se resuelve con Aprobar o Rechazar. Los datos vienen de la solicitud original en Planilla.');return;}
     const yo=_tareaEmailActual();
-    const puedeAsignar=_puedoAsignarTareas();
     const personas=_tareaPersonas();
     const respSel=t?_normEmail(t.responsableEmail):yo;
-    const selPersonas=puedeAsignar
-        ? `<select id="tfResp">${personas.map(p=>`<option value="${esc(p.email)}"${respSel===p.email?' selected':''}>${esc(p.nombre)}${p.email===yo?' (yo)':''}</option>`).join('')}</select>`
-        : `<select id="tfResp"><option value="${esc(yo)}">${esc(_nombreDeEmail(yo)||yo)} (yo)</option></select>
-           <div style="font-size:0.72rem;color:var(--text-light);margin-top:3px;">Solo podés crear tareas para vos. Pedí el permiso "Asignar tareas" para asignárselas a otras personas.</div>`;
+    const selPersonas=`<select id="tfResp">${personas.map(p=>`<option value="${esc(p.email)}"${respSel===p.email?' selected':''}>${esc(p.nombre)}${p.email===yo?' (yo)':''}</option>`).join('')}</select>
+           <div style="font-size:0.72rem;color:var(--text-light);margin-top:3px;">Podés asignártela a vos o a cualquier compañera. Le va a llegar un aviso en la campanita.</div>`;
     const overlay=document.getElementById('modalTarea');
     overlay.innerHTML=`<div class="modal" style="max-width:520px;">
         <div class="modal-header"><h3>${t?'Editar tarea':'Nueva tarea'}</h3><button class="modal-close" onclick="closeModal('modalTarea')">&times;</button></div>
