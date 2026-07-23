@@ -1307,7 +1307,7 @@ onAuthStateChanged(fbAuth, (user) => {
         <div class="form-group"><label>Fecha</label><input type="text" id="mcFechasTentativas" placeholder="Ej: Diciembre 2026, Semana Santa..."></div>
     </div>
     <div class="form-group"><label>Notas adicionales</label><textarea id="mcNotas" placeholder="Cualquier detalle: presupuesto, preferencias, hoteles, etc." style="min-height:55px;"></textarea></div>
-    <div class="form-group"><label>Asignado a</label><input type="text" id="mcAsignadoA" placeholder="Email del encargado"></div>
+    <div class="form-group"><label>Asignado a</label><select id="mcAsignadoA"><option value="">-- Sin asignar --</option></select></div>
     <div id="mcCapturaInfo" style="font-size:0.7rem;color:var(--text-light);margin-bottom:10px;"></div>
 
     <!-- Datos adicionales (colapsado): disponibles para cuando el cliente reserva o para no duplicar contactos -->
@@ -1571,7 +1571,7 @@ const CONTACTO_URGENCIAS=[
 let _fsEnabled=false; // true después de loadAllFromFirestore()
 let _fsSyncInProgress=false; // evita loops cuando la carga inicial escribe al cache
 // Número de versión visible: para confirmar que TODAS las usuarias corren el código actualizado.
-const APP_VERSION='v22-0715';
+const APP_VERSION='v23-0715';
 
 // ============================================================================
 // CACHE PERSISTENTE: IndexedDB (capacidad amplia) + espejo en memoria (_cache).
@@ -2327,10 +2327,10 @@ function normalizarParaMatch(s){
 // Se aplica ANTES de la lógica de match por nombre, así un cambio en la lista
 // de Configuración no rompe la asignación.
 const EMAIL_ENCARGADO_OVERRIDES={
-    'operaciones@deseosviajeros.com':'Maria Perez',
-    'reservas@deseosviajeros.com':'Xavier Castro',
-    'brendagomez@deseosviajeros.com':'Brenda Gomez',
-    'miladyzuniga@deseosviajeros.com':'Milady Zuñiga',
+    'operaciones@deseosviajeros.com':'Xavier Castro',
+    'reservas@deseosviajeros.com':'María José Pérez',
+    'brendagomez@deseosviajeros.com':'Brenda Gómez',
+    'miladyzuniga@deseosviajeros.com':'Milady Zúñiga',
     'susanacastro@deseosviajeros.com':'Susana Castro'
 };
 
@@ -2369,6 +2369,24 @@ function matchEncargadoDesdeEmail(email,encargados){
     return '';
 }
 
+// Devuelve el NOMBRE de un valor "asignado a": si viene un correo (datos viejos) lo mapea a nombre;
+// si ya es un nombre, lo devuelve tal cual.
+function _asignadoNombre(val){
+    if(!val)return '';
+    if(String(val).indexOf('@')>=0){const n=matchEncargadoDesdeEmail(val,cfgGet().encargados);return n||val;}
+    return val;
+}
+// Llena el desplegable "Asignado a" con los nombres de encargados y marca el seleccionado.
+function _llenarAsignadoSelect(selected){
+    const sel=document.getElementById('mcAsignadoA');
+    if(!sel)return;
+    const names=(cfgGet().encargados||[]).slice();
+    sel.innerHTML='<option value="">-- Sin asignar --</option>'+names.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('');
+    if(selected&&names.indexOf(selected)<0){
+        const o=document.createElement('option');o.value=selected;o.textContent=selected;sel.appendChild(o);
+    }
+    sel.value=selected||'';
+}
 function populateEncargadosSelect(){
     const sel=document.getElementById('encargado');
     if(!sel)return;
@@ -7691,7 +7709,7 @@ function autoCreateCliente(data){
         // Campos de pipeline CRM (Fase 1)
         estado:'cotizado', // creado desde una cotizacion -> estado cotizado
         origen:'',
-        asignadoA:usuarioEmail,
+        asignadoA:matchEncargadoDesdeEmail(usuarioEmail,cfgGet().encargados)||usuarioEmail,
         creadoPor:usuarioEmail,
         fechaCaptura:ahora,
         fechaCreacion:ahora,fechaActualizacion:ahora,
@@ -7720,7 +7738,7 @@ function renderListadoContactos(mode){
     const creadorEmailDe=c=>{
         if(c.creadoPor)return c.creadoPor;
         if(Array.isArray(c.bitacora)){const cap=c.bitacora.find(b=>b&&b.tipo==='captura');if(cap&&cap.usuarioEmail)return cap.usuarioEmail;}
-        return c.asignadoA||'';
+        return _asignadoNombre(c.asignadoA)||'';
     };
     // Mapea email a nombre del encargado (usando los nombres de Configuracion). Si no hay match, devuelve el email tal cual.
     const encargados=(cfgGet().encargados||[]).filter(Boolean);
@@ -7770,7 +7788,7 @@ function renderListadoContactos(mode){
         const origenTxt=c.origen&&origenLabels[c.origen]?esc(origenLabels[c.origen]):'<span style="color:var(--text-light);">-</span>';
         const etiquetasHtml=Array.isArray(c.etiquetas)&&c.etiquetas.length?`<div style="margin-top:3px;display:flex;flex-wrap:wrap;gap:3px;">${c.etiquetas.map(t=>`<span style="font-size:0.62rem;padding:1px 7px;border-radius:10px;background:var(--primary-light);color:var(--primary-dark);font-weight:600;">${esc(t)}</span>`).join('')}</div>`:'';
         return`<tr>
-        <td><div class="lt-nombre">${esc(c.nombreCompleto||'-')}</div>${c.asignadoA?`<div class="lt-secondary">Asignado: ${esc(c.asignadoA)}</div>`:''}${etiquetasHtml}</td>
+        <td><div class="lt-nombre">${esc(c.nombreCompleto||'-')}</div>${c.asignadoA?`<div class="lt-secondary">Asignado: ${esc(_asignadoNombre(c.asignadoA))}</div>`:''}${etiquetasHtml}</td>
         <td>${estadoBadge}</td>
         <td>${origenTxt}</td>
         <td>${c.email?esc(c.email):'<span style="color:var(--text-light);">-</span>'}</td>
@@ -8114,7 +8132,7 @@ function guardarCapturaRapida(){
         etiquetas:_crEtiquetas.slice(),
         estado:'nuevo',
         origen,
-        asignadoA:usuarioEmail,
+        asignadoA:matchEncargadoDesdeEmail(usuarioEmail,cfgGet().encargados)||usuarioEmail,
         creadoPor:usuarioEmail,
         fechaCaptura:ahora,
         fechaCreacion:ahora,
@@ -8429,7 +8447,7 @@ function openClienteModal(id){
     const titulo=document.getElementById('modalClienteTitulo');
     const ahora=new Date().toISOString();
     const usuarioEmail=(window.currentUser&&window.currentUser.email)||'';
-    const editFields=['mcNombre','mcNumDoc','mcNacionalidad','mcFechaNac','mcTelefono','mcEmail','mcDireccion','mcEmpresa','mcPasaporte','mcPasaporteVenc','mcVFAerolinea','mcVFNumero','mcNotas','mcAsignadoA','mcNecesidadNotas','mcDestinosTentativos','mcFechasTentativas','mcPersonas'];
+    const editFields=['mcNombre','mcNumDoc','mcNacionalidad','mcFechaNac','mcTelefono','mcEmail','mcDireccion','mcEmpresa','mcPasaporte','mcPasaporteVenc','mcVFAerolinea','mcVFNumero','mcNotas','mcNecesidadNotas','mcDestinosTentativos','mcFechasTentativas','mcPersonas'];
     if(id){
         const clientes=getClientes();
         const c=clientes.find(x=>x.id===id);
@@ -8450,7 +8468,7 @@ function openClienteModal(id){
         document.getElementById('mcVFAerolinea').value=c.viajeroProgramaAerolinea||'';
         document.getElementById('mcVFNumero').value=c.viajeroProgramaNumero||'';
         document.getElementById('mcNotas').value=c.notas||'';
-        document.getElementById('mcAsignadoA').value=c.asignadoA||'';
+        _llenarAsignadoSelect(_asignadoNombre(c.asignadoA));
         // Campos del wizard (pasos 2 y 3)
         document.getElementById('mcNecesidadNotas').value=c.necesidadNotas||'';
         document.getElementById('mcDestinosTentativos').value=c.destinosTentativos||'';
@@ -8471,7 +8489,7 @@ function openClienteModal(id){
         const infoBox=document.getElementById('mcCapturaInfo');
         if(c.fechaCaptura){
             const fc=new Date(c.fechaCaptura).toLocaleString('es-CR',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'});
-            infoBox.textContent='Capturado el '+fc+(c.asignadoA?' por '+c.asignadoA:'');
+            infoBox.textContent='Capturado el '+fc+(c.asignadoA?' por '+_asignadoNombre(c.asignadoA):'');
         }else{
             infoBox.textContent='';
         }
@@ -8481,7 +8499,7 @@ function openClienteModal(id){
         editFields.forEach(fid=>{document.getElementById(fid).value='';});
         document.getElementById('mcTipoDoc').value='cedula';
         // Auto-asignar al usuario actual al crear uno nuevo
-        document.getElementById('mcAsignadoA').value=usuarioEmail;
+        _llenarAsignadoSelect(matchEncargadoDesdeEmail(usuarioEmail,cfgGet().encargados)||'');
         // Etiquetas: resetear
         _mcEtiquetas=[];
         document.getElementById('mcEtiquetasInput').value='';
@@ -8492,7 +8510,7 @@ function openClienteModal(id){
         populateSelectConstante('mcOrigen',CONTACTO_ORIGENES,'');
         populateSelectConstante('mcServicio',CONTACTO_SERVICIOS,'');
         populateSelectConstante('mcUrgencia',CONTACTO_URGENCIAS,'');
-        document.getElementById('mcCapturaInfo').textContent='Se capturar\u00e1 ahora'+(usuarioEmail?' por '+usuarioEmail:'');
+        document.getElementById('mcCapturaInfo').textContent='Se capturar\u00e1 ahora'+(usuarioEmail?' por '+(matchEncargadoDesdeEmail(usuarioEmail,cfgGet().encargados)||usuarioEmail):'');
         goWizardStep(1); // iniciar en paso 1
     }
     // Reset del aviso de duplicados (tanto para nuevo como edicion)
@@ -8551,7 +8569,7 @@ function guardarCliente(){
         destinosTentativos:document.getElementById('mcDestinosTentativos').value||'',
         fechasTentativas:document.getElementById('mcFechasTentativas').value||'',
         personas:(document.getElementById('mcPersonas')||{}).value||'',
-        asignadoA:document.getElementById('mcAsignadoA').value||usuarioEmail,
+        asignadoA:document.getElementById('mcAsignadoA').value||matchEncargadoDesdeEmail(usuarioEmail,cfgGet().encargados)||usuarioEmail,
         fechaCreacion:ahora,
         fechaActualizacion:ahora
     };
