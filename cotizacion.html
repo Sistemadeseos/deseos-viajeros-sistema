@@ -1587,7 +1587,7 @@ const CONTACTO_URGENCIAS=[
 let _fsEnabled=false; // true después de loadAllFromFirestore()
 let _fsSyncInProgress=false; // evita loops cuando la carga inicial escribe al cache
 // Número de versión visible: para confirmar que TODAS las usuarias corren el código actualizado.
-const APP_VERSION='v30-0723';
+const APP_VERSION='v31-0723';
 
 // ============================================================================
 // CACHE PERSISTENTE: IndexedDB (capacidad amplia) + espejo en memoria (_cache).
@@ -5122,7 +5122,10 @@ function openTareaModal(id){
                 <div class="form-group" style="flex:1;min-width:150px;"><label>Prioridad</label><select id="tfPrio">${TAREA_PRIORIDADES.map(p=>`<option value="${p.id}"${(t?t.prioridad:'normal')===p.id?' selected':''}>${p.label}</option>`).join('')}</select></div>
             </div>
         </div>
-        <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modalTarea')">Cancelar</button><button class="btn btn-success" onclick="guardarTarea()">Guardar</button></div>
+        <div class="modal-footer" style="justify-content:space-between;flex-wrap:wrap;gap:8px;">
+            <button class="btn btn-sm btn-outline" onclick="abrirTareaEnGoogleCal()" title="Abre Google Calendar con el evento pre-cargado">&#128197; Agregar a Google Calendar</button>
+            <span style="display:flex;gap:8px;"><button class="btn btn-ghost" onclick="closeModal('modalTarea')">Cancelar</button><button class="btn btn-success" onclick="guardarTarea()">Guardar</button></span>
+        </div>
     </div>`;
     overlay.classList.add('open');
 }
@@ -5195,6 +5198,18 @@ function _tareaGoogleCalUrl(t){
     const det=[(t.descripcion||''),resp?('Responsable: '+resp):'','','(Creado desde el sistema Deseos Viajeros)'].filter(x=>x!=='').join('\n');
     const p=new URLSearchParams({action:'TEMPLATE',text:t.titulo||'Tarea',dates:ini+'/'+fin,details:det});
     return 'https://calendar.google.com/calendar/render?'+p.toString();
+}
+// Igual que _tareaGoogleCalUrl pero leyendo lo que hay ahora mismo en el formulario de nueva/editar tarea.
+function abrirTareaEnGoogleCal(){
+    const titulo=(document.getElementById('tfTitulo').value||'').trim();
+    if(!titulo){alert('Escribí primero el título de la tarea.');return;}
+    const url=_tareaGoogleCalUrl({
+        titulo:titulo,
+        descripcion:(document.getElementById('tfDesc').value||'').trim(),
+        vence:document.getElementById('tfVence').value||'',
+        responsableNombre:(document.getElementById('tfResp').selectedOptions[0]||{}).textContent||''
+    });
+    window.open(url,'_blank','noopener');
 }
 function openTareaDetalle(id){
     const t=getTareas().find(x=>x.id===id);if(!t)return;
