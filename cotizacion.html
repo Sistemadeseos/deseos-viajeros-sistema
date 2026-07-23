@@ -999,6 +999,7 @@ onAuthStateChanged(fbAuth, (user) => {
         <div class="sidebar-item" onclick="nav('ventas')"><span class="si-icon">&#128176;</span>Ventas<span class="si-badge" id="badgeVentas"></span></div>
         <div class="sidebar-item" onclick="nav('clientes')"><span class="si-icon">&#128101;</span>Contactos<span class="si-badge" id="badgeClientes"></span></div>
         <div class="sidebar-item" onclick="nav('clientesventas')"><span class="si-icon">&#127881;</span>Clientes<span class="si-badge" id="badgeClientesVentas"></span></div>
+        <div class="sidebar-item" onclick="nav('tareas')"><span class="si-icon">&#9989;</span>Tareas<span class="si-badge" id="badgeTareas"></span></div>
     </div>
     <div class="sidebar-section">
         <div class="sidebar-section-label">Contabilidad</div>
@@ -1193,7 +1194,9 @@ onAuthStateChanged(fbAuth, (user) => {
 </div>
 
 <!-- VIEW: REPORTE DE PAGOS -->
-<div class="app-view view-list" id="viewReportePagos">
+<div class="app-view view-list" id="viewTareas"></div>
+
+<div class="app-view view-list" id="viewReportePagos"
     <div class="list-search" style="flex-wrap:wrap;">
         <input type="text" id="rpSearch" placeholder="Buscar por cliente, destino, referencia, nota..." oninput="renderReportePagos()" style="flex:1;min-width:200px;">
         <input type="date" id="rpDesde" onchange="onReportePagosDesdeHasta()" title="Fecha desde">
@@ -1502,6 +1505,8 @@ onAuthStateChanged(fbAuth, (user) => {
 <div class="modal-overlay" id="modalTransporteCalc"></div>
 <div class="modal-overlay" id="modalNotif"></div>
 <div class="modal-overlay" id="modalNotifNueva"></div>
+<div class="modal-overlay" id="modalTarea"></div>
+<div class="modal-overlay" id="modalTareaDetalle"></div>
 <div class="modal-overlay" id="modalAnuncio"></div>
 
 <script>
@@ -1571,7 +1576,7 @@ const CONTACTO_URGENCIAS=[
 let _fsEnabled=false; // true después de loadAllFromFirestore()
 let _fsSyncInProgress=false; // evita loops cuando la carga inicial escribe al cache
 // Número de versión visible: para confirmar que TODAS las usuarias corren el código actualizado.
-const APP_VERSION='v23-0715';
+const APP_VERSION='v24-0723';
 
 // ============================================================================
 // CACHE PERSISTENTE: IndexedDB (capacidad amplia) + espejo en memoria (_cache).
@@ -1646,7 +1651,7 @@ function setLSObj(k,v){
 //   destinos/{pais}/{ciudad}_{timestamp}
 
 // Tracking de IDs que ya subimos a Firestore (para poder detectar eliminaciones)
-const _fsDocIds={cotizaciones:new Set(),ventas:new Set(),clientes:new Set(),destinos:new Set(),hoteles:new Set(),grupos:new Set(),rrhh_colillas:new Set(),rrhh_vacaciones:new Set(),rrhh_horasextra:new Set(),notificaciones:new Set()};
+const _fsDocIds={cotizaciones:new Set(),ventas:new Set(),clientes:new Set(),destinos:new Set(),hoteles:new Set(),grupos:new Set(),rrhh_colillas:new Set(),rrhh_vacaciones:new Set(),rrhh_horasextra:new Set(),notificaciones:new Set(),tareas:new Set()};
 
 // ===== METADATA (timestamp + autor en cada save) =====
 // Agrega _lastModifiedAt y _lastModifiedBy a un objeto antes de guardarlo.
@@ -1680,6 +1685,7 @@ function guardarSnapshotRespaldo(motivo){
             rrhh_vacaciones:getLS('dv_rrhh_vacaciones'),
             rrhh_horasextra:getLS('dv_rrhh_horasextra'),
             notificaciones:getLS('dv_notificaciones'),
+            tareas:getLS('dv_tareas'),
             config:getLSObj('dv_config')
         };
         localStorage.setItem(key,JSON.stringify(snap));
@@ -1766,6 +1772,8 @@ async function pushToFirestore(key,value){
             await syncArrayCollection('rrhh_horasextra',value,false);
         }else if(key==='dv_notificaciones'){
             await syncArrayCollection('notificaciones',value,false);
+        }else if(key==='dv_tareas'){
+            await syncArrayCollection('tareas',value,false);
         }
     }catch(e){
         console.error('[FS] error en pushToFirestore para',key,':',e);
@@ -2039,6 +2047,14 @@ async function loadAllFromFirestore(){
         notificaciones=mergedNotif.merged;recuperadosTotal+=mergedNotif.recovered;
         guardarLocal('dv_notificaciones',notificaciones);
         if(mergedNotif.recovered>0)setTimeout(()=>{if(_fsEnabled)pushToFirestore('dv_notificaciones',notificaciones).catch(e=>console.error(e));},12500);
+        // tareas: pendientes con responsable y vencimiento (array de docs independientes, defensivo)
+        const localTareas=getLS('dv_tareas');
+        const tarSnap=await h.getDocs(h.collection(db,'tareas'));
+        let tareas=[];tarSnap.forEach(dd=>{tareas.push(dd.data());_fsDocIds.tareas.add(dd.id);});
+        const mergedTar=mergeArrayDefensivo('tareas',tareas,localTareas);
+        tareas=mergedTar.merged;recuperadosTotal+=mergedTar.recovered;
+        guardarLocal('dv_tareas',tareas);
+        if(mergedTar.recovered>0)setTimeout(()=>{if(_fsEnabled)pushToFirestore('dv_tareas',tareas).catch(e=>console.error(e));},13500);
         console.log(`[FS] datos cargados: ${cots.length} cotizaciones, ${ventas.length} ventas, ${clientes.length} clientes, ${Object.keys(destObj).length} pa\u00edses, ${hoteles.length} hoteles${recuperadosTotal>0?' ('+recuperadosTotal+' items recuperados de localStorage)':''}`);
         if(recuperadosTotal>0){
             setTimeout(()=>{
@@ -2206,7 +2222,12 @@ const PERMISOS_CATALOGO=[
     {clave:'contactos.crear_editar', nombre:'Crear y editar contactos', modulo:'Contactos'},
     {clave:'contactos.eliminar',     nombre:'Eliminar contactos',       modulo:'Contactos'},
     // -- Dashboard --
-    {clave:'dashboard.ver', nombre:'Ver dashboard y reportes', modulo:'Dashboard'}
+    {clave:'dashboard.ver', nombre:'Ver dashboard y reportes', modulo:'Dashboard'},
+    // -- Tareas --
+    {clave:'tareas.ver',     nombre:'Ver la sección de Tareas',            modulo:'Tareas'},
+    {clave:'tareas.crear',   nombre:'Crear tareas',                            modulo:'Tareas'},
+    {clave:'tareas.asignar', nombre:'Asignar tareas a otras personas',         modulo:'Tareas'},
+    {clave:'tareas.ver_todas',nombre:'Ver las tareas de todo el equipo',       modulo:'Tareas'}
 ];
 
 // Permite que un modulo futuro (ej. contabilidad) registre sus permisos sin tocar la UI ni este catalogo.
@@ -2438,6 +2459,7 @@ function puedeVerVista(view){
     if(view==='rrhh'&&_rrhhEsAutoServicio())return true;
     if(view==='inicio'||view==='documento'||view==='encabezados')return true;
     if(view==='configuracion')return soyMaestro()||tienePermiso('config.general.gestionar')||tienePermiso('config.usuarios.gestionar');
+    if(view==='tareas')return true;   // todos pueden ver sus propias tareas
     const m={dashboard:'dashboard.ver',editor:'cotizaciones.crear_editar',historial:'cotizaciones.ver',ventas:'ventas.ver',clientes:'contactos.ver',clientesventas:'contactos.ver',reportePagos:'cobranza.ver',rrhh:'rrhh.ver'};
     const p=m[view];
     return p?tienePermiso(p):true;
@@ -2451,7 +2473,7 @@ function exigirPermiso(clave,accionTxt){
 // Aplica visibilidad del menú lateral, calculadora de costos y pestaña de usuarios según permisos.
 function aplicarPermisosUI(){
     if(!window.currentUser)return;
-    const views=['inicio','dashboard','editor','historial','ventas','clientes','clientesventas','reportePagos','configuracion','rrhh'];
+    const views=['inicio','dashboard','editor','historial','ventas','clientes','clientesventas','tareas','reportePagos','configuracion','rrhh'];
     const items=document.querySelectorAll('.sidebar-item');
     items.forEach((el,i)=>{if(i<views.length)el.style.display=puedeVerVista(views[i])?'':'none';});
     document.body.classList.toggle('sin-costos',!tienePermiso('cotizaciones.ver_costos'));
@@ -2469,18 +2491,19 @@ function nav(view){
     renderNotifBell();
     document.querySelectorAll('.sidebar-item').forEach(el=>el.classList.remove('active'));
     const items=document.querySelectorAll('.sidebar-item');
-    const map={inicio:0,dashboard:1,editor:2,historial:3,ventas:4,clientes:5,clientesventas:6,reportePagos:7,configuracion:8,rrhh:9};
+    const map={inicio:0,dashboard:1,editor:2,historial:3,ventas:4,clientes:5,clientesventas:6,tareas:7,reportePagos:8,configuracion:9,rrhh:10};
     if(map[view]!==undefined)items[map[view]].classList.add('active');
     document.querySelectorAll('.app-view').forEach(v=>v.classList.remove('active'));
-    const titles={inicio:'',dashboard:'Dashboard',editor:'Editor de Cotizaci\u00f3n',historial:'Historial de Cotizaciones',encabezados:'Destinos',ventas:'Ventas',clientes:'Contactos',clientesventas:'Clientes',reportePagos:'Reporte de pagos',configuracion:'Configuraci\u00f3n',rrhh:'Planilla',documento:'Documento'};
+    const titles={inicio:'',dashboard:'Dashboard',editor:'Editor de Cotizaci\u00f3n',historial:'Historial de Cotizaciones',encabezados:'Destinos',ventas:'Ventas',clientes:'Contactos',clientesventas:'Clientes',tareas:'Tareas',reportePagos:'Reporte de pagos',configuracion:'Configuraci\u00f3n',rrhh:'Planilla',documento:'Documento'};
     document.getElementById('headerTitle').textContent=titles[view]||'';
     const ha=document.getElementById('headerActions');
     if(view==='editor')ha.innerHTML='<button class="btn btn-outline" onclick="resetForm()">&#128260; Nueva</button>'+(tienePermiso('cotizaciones.exportar')?'<button class="btn btn-accent" onclick="window.print()">&#128424; Exportar PDF</button>':'');
     else if(view==='clientes')ha.innerHTML='<button class="btn btn-accent" onclick="openClienteModal()">+ Nuevo Contacto</button>';
     else if(view==='clientesventas')ha.innerHTML='<button class="btn btn-accent" onclick="nuevoClienteConVenta()">+ Nuevo Cliente</button>';
+    else if(view==='tareas')ha.innerHTML='<button class="btn btn-accent" onclick="openTareaModal()">+ Nueva Tarea</button>';
     else if(view==='dashboard')ha.innerHTML='<button class="btn btn-outline" onclick="renderDashboard()">&#8635; Actualizar</button>';
     else ha.innerHTML='';
-    const viewIds={inicio:'viewInicio',dashboard:'viewDashboard',editor:'viewEditor',historial:'viewHistorial',encabezados:'viewEncabezados',ventas:'viewVentas',clientes:'viewClientes',clientesventas:'viewClientesVentas',reportePagos:'viewReportePagos',configuracion:'viewConfiguracion',rrhh:'viewRrhh',documento:'viewDocumento'};
+    const viewIds={inicio:'viewInicio',dashboard:'viewDashboard',editor:'viewEditor',historial:'viewHistorial',encabezados:'viewEncabezados',ventas:'viewVentas',clientes:'viewClientes',clientesventas:'viewClientesVentas',tareas:'viewTareas',reportePagos:'viewReportePagos',configuracion:'viewConfiguracion',rrhh:'viewRrhh',documento:'viewDocumento'};
     document.getElementById(viewIds[view]).classList.add('active');
     if(view==='dashboard')renderDashboard();
     if(view==='historial')renderHistorial();
@@ -2488,6 +2511,7 @@ function nav(view){
     if(view==='ventas')renderVentas();
     if(view==='clientes')renderClientes();
     if(view==='clientesventas')renderClientesVentas();
+    if(view==='tareas')renderTareas();
     if(view==='reportePagos')renderReportePagos();
     if(view==='configuracion')renderConfiguracion();
     if(view==='rrhh')renderRrhh();
@@ -2504,6 +2528,8 @@ function updateBadges(){
     const clientesCount=c.filter(x=>idsConVenta.has(x.id)).length;
     const bh=document.getElementById('badgeHistorial'),bv=document.getElementById('badgeVentas'),bc=document.getElementById('badgeClientes'),bcv=document.getElementById('badgeClientesVentas');
     bh.textContent=h.length||'';bv.textContent=v.length||'';bc.textContent=contactosCount||'';if(bcv)bcv.textContent=clientesCount||'';
+    const bt=document.getElementById('badgeTareas');
+    if(bt){try{bt.textContent=_tareasPendientesCount()||'';}catch(e){bt.textContent='';}}
 }
 
 // ===== FORM PANEL RESIZE (splitter) =====
@@ -4659,14 +4685,18 @@ function openNotifPanel(){
             </div>
             ${n.detalle?`<div style="font-size:0.8rem;color:var(--text);margin:3px 0;">${esc(n.detalle)}</div>`:''}
             <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;gap:8px;">
-                <span style="font-size:0.7rem;color:var(--text-light);">${_notifFecha(n.creadaTs)}</span>${btn}
+                <span style="font-size:0.7rem;color:var(--text-light);">${_notifFecha(n.creadaTs)}</span>
+                <span style="display:flex;gap:6px;align-items:center;">${n.origen==='tarea'&&n.refId?`<button class="btn btn-sm btn-outline" style="padding:3px 10px;font-size:0.72rem;" onclick="notifAbrirTarea('${n.id}','${n.refId}')">Ver tarea</button>`:''}${btn}</span>
             </div>
         </div>`;
     };
     overlay.innerHTML=`<div class="modal" style="max-width:520px;">
         <div class="modal-header"><h3>&#128276; Notificaciones</h3><button class="modal-close" onclick="closeModal('modalNotif')">&times;</button></div>
         <div class="modal-body">
-            <div style="margin-bottom:10px;"><button class="btn btn-sm btn-accent" onclick="openNotifNueva()">+ Nueva tarea / aviso</button></div>
+            <div style="margin-bottom:10px;display:flex;gap:6px;flex-wrap:wrap;">
+                <button class="btn btn-sm btn-accent" onclick="openNotifNueva()">+ Nuevo aviso</button>
+                <button class="btn btn-sm btn-outline" onclick="closeModal('modalNotif');nav('tareas');">&#9989; Ir a Tareas</button>
+            </div>
             ${lista.length?lista.map(item).join(''):`<p style="font-size:0.84rem;color:var(--text-light);font-style:italic;text-align:center;padding:16px;">No tenés notificaciones.</p>`}
         </div>
         <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modalNotif')">Cerrar</button></div>
@@ -4679,6 +4709,16 @@ function notifResolver(id){
     n.estado=(n.tipo==='tarea')?'hecha':'leida';n.resueltaPor=_notifEmailActual();n.resueltaTs=Date.now();
     saveNotificaciones(arr);renderNotifBell();openNotifPanel();
 }
+// Desde la campana: marca el aviso como leído y abre la tarea en la sección Tareas.
+function notifAbrirTarea(notifId,tareaId){
+    const arr=getNotificaciones().map(x=>Object.assign({},x));
+    const n=arr.find(x=>x.id===notifId);
+    if(n&&n.estado==='pendiente'){n.estado='leida';n.resueltaPor=_notifEmailActual();n.resueltaTs=Date.now();saveNotificaciones(arr);}
+    closeModal('modalNotif');
+    renderNotifBell();
+    nav('tareas');
+    setTimeout(()=>{try{openTareaDetalle(tareaId);}catch(e){console.error('[tarea]',e);}},0);
+}
 function notifEliminar(id){
     saveNotificaciones(getNotificaciones().filter(x=>x.id!==id));renderNotifBell();openNotifPanel();
 }
@@ -4687,12 +4727,14 @@ function openNotifNueva(){
     const opts=emp.map(e=>`<option value="${esc(_normEmail(e.email))}">${esc(e.nombre)} (${esc(e.email)})</option>`).join('');
     const overlay=document.getElementById('modalNotifNueva');
     overlay.innerHTML=`<div class="modal" style="max-width:460px;">
-        <div class="modal-header"><h3>Nueva tarea / aviso</h3><button class="modal-close" onclick="closeModal('modalNotifNueva')">&times;</button></div>
+        <div class="modal-header"><h3>Nuevo aviso</h3><button class="modal-close" onclick="closeModal('modalNotifNueva')">&times;</button></div>
         <div class="modal-body">
-            <div class="form-group"><label>Tipo</label><select id="ntTipo">
-                <option value="tarea">📋 Tarea pendiente (se marca hecho)</option>
-                <option value="info">ℹ️ Aviso informativo (se marca leído)</option>
-            </select></div>
+            <div style="background:var(--bg);border-radius:6px;padding:8px 10px;font-size:0.76rem;color:var(--text-light);margin-bottom:10px;">
+                ℹ️ Un <strong>aviso</strong> solo informa (la persona lo marca como leído y desaparece).
+                Si necesitás que alguien <strong>haga algo</strong> y darle seguimiento, creá una <strong>tarea</strong> en la sección
+                <button class="btn btn-sm btn-outline" style="padding:2px 8px;font-size:0.7rem;" onclick="closeModal('modalNotifNueva');closeModal('modalNotif');nav('tareas');">Tareas</button>.
+            </div>
+            <input type="hidden" id="ntTipo" value="info">
             <div class="form-group"><label>Para *</label><select id="ntPara"><option value="">-- Elegir persona --</option>${opts}</select>
                 <div style="font-size:0.72rem;color:var(--text-light);margin-top:3px;">Solo aparecen personas con correo cargado en su ficha de empleado (Planilla → Empleados).</div></div>
             <div class="form-group"><label>Título *</label><input type="text" id="ntTitulo" placeholder="Ej: Llamar al hotel Crown Paradise"></div>
@@ -4712,27 +4754,29 @@ function guardarNotifNueva(){
     alert('Enviado. Le va a aparecer a esa persona la próxima vez que entre o recargue el sistema.');
 }
 // Anuncio de novedades: se muestra una sola vez por navegador (clave dvAnuncioVisto, no se migra ni se borra con la caché).
-const _ANUNCIO_ID='notif-v1';
+const _ANUNCIO_ID='tareas-v1';
 function mostrarAnuncioNotif(){
     try{if(localStorage.getItem('dvAnuncioVisto')===_ANUNCIO_ID)return;}catch(e){}
     const overlay=document.getElementById('modalAnuncio');
     if(!overlay)return;
     overlay.innerHTML=`<div class="modal" style="max-width:500px;">
-        <div class="modal-header"><h3>&#128276; ¡Novedad! Notificaciones</h3></div>
+        <div class="modal-header"><h3>&#9989; ¡Novedad! Sección Tareas</h3></div>
         <div class="modal-body" style="font-size:0.9rem;line-height:1.5;">
-            <p>Agregamos una <strong>campanita 🔔</strong> arriba a la derecha para avisarte cosas importantes. El <strong>número rojo</strong> te dice cuántas cosas pendientes tenés; tocala para verlas.</p>
-            <p style="margin:12px 0 4px;font-weight:700;">Hay dos tipos:</p>
+            <p>Ahora en el menú de la izquierda tenés una sección nueva: <strong>✅ Tareas</strong>. Ahí queda anotado todo lo que hay que hacer, con responsable y fecha, hasta que se resuelve. El <strong>número naranja</strong> al lado te dice cuántas tenés sin terminar.</p>
+            <p style="margin:12px 0 4px;font-weight:700;">¿En qué se diferencia de la campanita 🔔?</p>
             <div style="background:var(--bg);border-radius:8px;padding:10px 12px;margin-bottom:10px;">
-                <div style="margin-bottom:6px;">📋 <strong>Tareas pendientes</strong> — algo que tenés que hacer (ej: aprobar una solicitud). Cuando lo resolvés, tocás <strong>“Marcar hecho”</strong>.</div>
-                <div>ℹ️ <strong>Avisos</strong> — información (ej: tu colilla de pago está lista, tu solicitud fue aprobada). Tocás <strong>“Marcar leído”</strong>.</div>
+                <div style="margin-bottom:6px;">🔔 <strong>Campanita</strong> — avisos que solo informan (tu colilla está lista, te aprobaron las vacaciones). Los marcás como leídos y listo.</div>
+                <div>✅ <strong>Tareas</strong> — cosas que hay que <strong>hacer</strong>. No desaparecen hasta que las completás o las anulás.</div>
             </div>
-            <p style="margin:0 0 4px;font-weight:700;">Vas a recibir avisos cuando:</p>
+            <p style="margin:0 0 4px;font-weight:700;">En Tareas podés:</p>
             <ul style="margin:0 0 10px 18px;padding:0;">
-                <li>tu <strong>colilla de pago</strong> esté lista;</li>
-                <li>aprueben o rechacen tus <strong>vacaciones</strong> u <strong>horas extra</strong>;</li>
-                <li>se acerque un <strong>viaje</strong> tuyo (7 días antes).</li>
+                <li>ver <strong>Mis tareas</strong> y <strong>Las que asigné</strong> a otras personas;</li>
+                <li>ponerle <strong>fecha de vencimiento</strong> y <strong>prioridad</strong> (las vencidas se marcan en rojo);</li>
+                <li>marcarlas <strong>Empezar</strong> → <strong>Completar</strong>;</li>
+                <li><strong>comentar</strong> dentro de cada tarea para coordinar;</li>
+                <li><strong>anular</strong> una tarea que ya no aplica (queda el registro, no se borra).</li>
             </ul>
-            <p style="font-size:0.82rem;color:var(--text-light);">También podés crear una tarea y asignársela a alguien del equipo con el botón <strong>“+ Nueva tarea / aviso”</strong> dentro de la campanita.</p>
+            <p style="font-size:0.82rem;color:var(--text-light);">Cuando alguien te asigna una tarea, te llega un aviso en la campanita con un botón <strong>“Ver tarea”</strong>.</p>
         </div>
         <div class="modal-footer"><button class="btn btn-success" onclick="cerrarAnuncioNotif()">Entendido</button></div>
     </div>`;
@@ -4770,6 +4814,349 @@ function generarNotificacionesViajesProximos(){
     });
     if(creadas>0)saveNotificaciones(arr);
     return creadas;
+}
+// =====================================================================================
+
+// ============================================================================
+// TAREAS (Fase A) — pendientes con responsable, vencimiento, prioridad y comentarios.
+// Colección sincronizada dv_tareas. Una tarea NO se borra: se anula (soft delete).
+// El campo 'subtipo' queda listo para las Aprobaciones de la Fase B.
+// ============================================================================
+function getTareas(){return getLS('dv_tareas');}
+function saveTareas(arr){return setLS('dv_tareas',Array.isArray(arr)?arr:[]);}
+function _tareaEmailActual(){return _normEmail(window.currentUser&&window.currentUser.email);}
+const TAREA_ESTADOS=[
+    {id:'pendiente',   label:'Pendiente',   color:'#d4830f'},
+    {id:'en_progreso', label:'En progreso', color:'#0a7e8c'},
+    {id:'completada',  label:'Completada',  color:'#2e9e5b'},
+    {id:'anulada',     label:'Anulada',     color:'#9aa0a6'}
+];
+const TAREA_PRIORIDADES=[
+    {id:'baja',    label:'Baja',    color:'#9aa0a6'},
+    {id:'normal',  label:'Normal',  color:'#0a7e8c'},
+    {id:'alta',    label:'Alta',    color:'#d4830f'},
+    {id:'urgente', label:'Urgente', color:'#c0392b'}
+];
+const _TAREA_PRIO_ORDEN={urgente:0,alta:1,normal:2,baja:3};
+function _tareaEstadoLabel(id){const e=TAREA_ESTADOS.find(x=>x.id===id);return e?e.label:(id||'');}
+function _tareaEstadoColor(id){const e=TAREA_ESTADOS.find(x=>x.id===id);return e?e.color:'#9aa0a6';}
+function _tareaPrioLabel(id){const p=TAREA_PRIORIDADES.find(x=>x.id===id);return p?p.label:'Normal';}
+function _tareaPrioColor(id){const p=TAREA_PRIORIDADES.find(x=>x.id===id);return p?p.color:'#0a7e8c';}
+function _tareaAbierta(t){return t&&t.estado!=='completada'&&t.estado!=='anulada';}
+function _tareaHoyISO(){const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
+function _tareaVencida(t){return !!(t&&_tareaAbierta(t)&&t.vence&&t.vence<_tareaHoyISO());}
+function _tareaVenceHoy(t){return !!(t&&_tareaAbierta(t)&&t.vence&&t.vence===_tareaHoyISO());}
+
+// Personas a las que se les puede asignar una tarea: fichas de empleado con correo
+// + los encargados que tengan correo cargado en Configuración.
+function _tareaPersonas(){
+    const map={};
+    getRrhhEmpleados().forEach(e=>{const em=_normEmail(e.email);if(em)map[em]=e.nombre||em;});
+    const encEmails=getEncargadosEmails();
+    Object.keys(encEmails).forEach(nom=>{const em=_normEmail(encEmails[nom]);if(em&&!map[em])map[em]=nom;});
+    const yo=_tareaEmailActual();
+    if(yo&&!map[yo])map[yo]=_nombreDeEmail(yo)||yo;
+    return Object.keys(map).sort((a,b)=>map[a].localeCompare(map[b])).map(em=>({email:em,nombre:map[em]}));
+}
+function _nombreDeEmail(email){
+    const em=_normEmail(email);
+    if(!em)return '';
+    if(EMAIL_ENCARGADO_OVERRIDES[em])return EMAIL_ENCARGADO_OVERRIDES[em];
+    const emp=getRrhhEmpleados().find(e=>_normEmail(e.email)===em);
+    if(emp&&emp.nombre)return emp.nombre;
+    const encEmails=getEncargadosEmails();
+    const nom=Object.keys(encEmails).find(n=>_normEmail(encEmails[n])===em);
+    return nom||em;
+}
+function _tareaEsMia(t){return !!(t&&_normEmail(t.responsableEmail)===_tareaEmailActual());}
+function _tareaLaAsigneYo(t){return !!(t&&_normEmail(t.creadorEmail)===_tareaEmailActual()&&!_tareaEsMia(t));}
+function _puedoVerTodasLasTareas(){return soyMaestro()||tienePermiso('tareas.ver_todas');}
+function _puedoAsignarTareas(){return soyMaestro()||tienePermiso('tareas.asignar');}
+function _tareasPendientesCount(){return getTareas().filter(t=>_tareaEsMia(t)&&_tareaAbierta(t)).length;}
+
+// Orden: vencidas primero, luego por vencimiento, luego por prioridad, luego más nueva.
+function _tareasOrdenar(lista){
+    return lista.slice().sort((a,b)=>{
+        const aa=_tareaAbierta(a)?0:1,bb=_tareaAbierta(b)?0:1;
+        if(aa!==bb)return aa-bb;
+        const va=_tareaVencida(a)?0:1,vb=_tareaVencida(b)?0:1;
+        if(va!==vb)return va-vb;
+        const fa=a.vence||'9999-12-31',fb=b.vence||'9999-12-31';
+        if(fa!==fb)return fa<fb?-1:1;
+        const pa=_TAREA_PRIO_ORDEN[a.prioridad]!==undefined?_TAREA_PRIO_ORDEN[a.prioridad]:2;
+        const pb=_TAREA_PRIO_ORDEN[b.prioridad]!==undefined?_TAREA_PRIO_ORDEN[b.prioridad]:2;
+        if(pa!==pb)return pa-pb;
+        return num(b.creadaTs)-num(a.creadaTs);
+    });
+}
+
+// Crea una tarea. opts:{titulo,descripcion,responsableEmail,vence,prioridad,origen,subtipo,moduloOrigen,refTipo,refId,avisar}
+function crearTarea(opts){
+    opts=opts||{};
+    if(!opts.titulo)return null;
+    const yo=_tareaEmailActual();
+    const resp=_normEmail(opts.responsableEmail||yo);
+    const t={
+        id:newRrhhId(),
+        titulo:opts.titulo,descripcion:opts.descripcion||'',
+        responsableEmail:resp,responsableNombre:_nombreDeEmail(resp),
+        creadorEmail:opts.origen==='auto'?'':yo,creadorNombre:opts.origen==='auto'?'Sistema':(_nombreDeEmail(yo)||yo),
+        origen:opts.origen==='auto'?'auto':'manual',
+        subtipo:opts.subtipo==='aprobacion'?'aprobacion':'tarea',
+        estado:'pendiente',prioridad:opts.prioridad||'normal',
+        vence:opts.vence||'',
+        moduloOrigen:opts.moduloOrigen||'',refTipo:opts.refTipo||'',refId:opts.refId||'',
+        comentarios:[],historial:[{ts:Date.now(),por:(_nombreDeEmail(yo)||'Sistema'),texto:'Creó la tarea'}],
+        creadaTs:Date.now(),actualizadaTs:Date.now(),completadaTs:0,motivo:''
+    };
+    const arr=getTareas().map(x=>Object.assign({},x));
+    arr.push(t);
+    saveTareas(arr);
+    // Aviso en la campana si se la asigné a otra persona.
+    if(opts.avisar!==false&&resp&&resp!==yo){
+        crearNotificacion({tipo:'info',titulo:'Nueva tarea asignada',
+            detalle:t.titulo+(t.vence?' — vence el '+fmtFechaCorta(t.vence):'')+'. Miralá en la sección Tareas.',
+            paraEmail:resp,origen:'tarea',refId:t.id});
+    }
+    return t;
+}
+function _tareaLog(t,texto){
+    if(!Array.isArray(t.historial))t.historial=[];
+    t.historial.push({ts:Date.now(),por:(_nombreDeEmail(_tareaEmailActual())||'Sistema'),texto:texto});
+    t.actualizadaTs=Date.now();
+}
+
+// ---- Vista ----
+let _tareaVista='mias',_tareaFiltroEstado='abiertas',_tareaFiltroPrio='';
+function switchTareaVista(v){_tareaVista=v;renderTareas();}
+function _tareaAplicarFiltros(){
+    _tareaFiltroEstado=(document.getElementById('tqEstado')||{}).value||'abiertas';
+    _tareaFiltroPrio=(document.getElementById('tqPrio')||{}).value||'';
+    renderTareas();
+}
+function _tareasDeLaVista(){
+    const todas=getTareas();
+    let lista;
+    if(_tareaVista==='mias')lista=todas.filter(_tareaEsMia);
+    else if(_tareaVista==='asignadas')lista=todas.filter(_tareaLaAsigneYo);
+    else lista=_puedoVerTodasLasTareas()?todas.slice():todas.filter(t=>_tareaEsMia(t)||_tareaLaAsigneYo(t));
+    if(_tareaFiltroEstado==='abiertas')lista=lista.filter(_tareaAbierta);
+    else if(_tareaFiltroEstado==='vencidas')lista=lista.filter(_tareaVencida);
+    else if(_tareaFiltroEstado)lista=lista.filter(t=>t.estado===_tareaFiltroEstado);
+    if(_tareaFiltroPrio)lista=lista.filter(t=>t.prioridad===_tareaFiltroPrio);
+    return _tareasOrdenar(lista);
+}
+function renderTareas(){
+    const cont=document.getElementById('viewTareas');
+    if(!cont)return;
+    const todas=getTareas();
+    const nMias=todas.filter(t=>_tareaEsMia(t)&&_tareaAbierta(t)).length;
+    const nAsig=todas.filter(t=>_tareaLaAsigneYo(t)&&_tareaAbierta(t)).length;
+    const nVenc=todas.filter(t=>_tareaEsMia(t)&&_tareaVencida(t)).length;
+    const lista=_tareasDeLaVista();
+    const tab=(id,label,n)=>`<button class="btn btn-sm ${_tareaVista===id?'btn-primary':'btn-ghost'}" style="padding:5px 12px;" onclick="switchTareaVista('${id}')">${label}${n?` <span style="background:var(--accent);color:#fff;border-radius:8px;padding:1px 6px;font-size:0.65rem;margin-left:4px;">${n}</span>`:''}</button>`;
+    const optEstado=[['abiertas','Sin terminar'],['vencidas','Vencidas'],['','Todos los estados']].concat(TAREA_ESTADOS.map(e=>[e.id,e.label]));
+    cont.innerHTML=`
+    <div class="card" style="margin-bottom:14px;">
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">
+            ${tab('mias','Mis tareas',nMias)}
+            ${tab('asignadas','Las que asigné',nAsig)}
+            ${_puedoVerTodasLasTareas()?tab('todas','Todas',0):''}
+        </div>
+        ${nVenc?`<div style="background:rgba(192,57,43,0.08);border-left:4px solid #c0392b;border-radius:6px;padding:8px 12px;margin-bottom:10px;font-size:0.84rem;color:#c0392b;font-weight:600;">&#9888; Tenés ${nVenc} tarea(s) vencida(s).</div>`:''}
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+            <div class="form-group" style="margin:0;min-width:170px;"><label>Estado</label>
+                <select id="tqEstado" onchange="_tareaAplicarFiltros()">${optEstado.map(o=>`<option value="${o[0]}"${_tareaFiltroEstado===o[0]?' selected':''}>${o[1]}</option>`).join('')}</select></div>
+            <div class="form-group" style="margin:0;min-width:150px;"><label>Prioridad</label>
+                <select id="tqPrio" onchange="_tareaAplicarFiltros()"><option value="">Todas</option>${TAREA_PRIORIDADES.map(p=>`<option value="${p.id}"${_tareaFiltroPrio===p.id?' selected':''}>${p.label}</option>`).join('')}</select></div>
+            <button class="btn btn-sm btn-accent" onclick="openTareaModal()">+ Nueva tarea</button>
+        </div>
+    </div>
+    <div>${lista.length?lista.map(_tareaCard).join(''):`<div class="card" style="text-align:center;padding:30px;color:var(--text-light);font-style:italic;">No hay tareas con estos filtros.</div>`}</div>`;
+    updateBadges();
+}
+function _tareaCard(t){
+    const abierta=_tareaAbierta(t);
+    const vencida=_tareaVencida(t),hoy=_tareaVenceHoy(t);
+    const borde=vencida?'#c0392b':_tareaEstadoColor(t.estado);
+    const nCom=(t.comentarios||[]).length;
+    const venceTxt=t.vence?(vencida?'&#9888; Venció el '+fmtFechaCorta(t.vence):(hoy?'&#128337; Vence HOY':'Vence '+fmtFechaCorta(t.vence))):'Sin fecha';
+    return `<div class="card" style="border-left:4px solid ${borde};margin-bottom:10px;padding:12px 14px;${abierta?'':'opacity:0.6;'}cursor:pointer;" onclick="openTareaDetalle('${t.id}')">
+        <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap;">
+            <div style="flex:1;min-width:220px;">
+                <div style="font-weight:700;font-size:0.92rem;${t.estado==='completada'?'text-decoration:line-through;':''}">${esc(t.titulo||'')}</div>
+                ${t.descripcion?`<div style="font-size:0.8rem;color:var(--text-light);margin-top:3px;">${esc(String(t.descripcion).slice(0,140))}${String(t.descripcion).length>140?'…':''}</div>`:''}
+                <div style="font-size:0.72rem;color:var(--text-light);margin-top:6px;">
+                    &#128100; ${esc(t.responsableNombre||_nombreDeEmail(t.responsableEmail))}
+                    &nbsp;·&nbsp; <span style="color:${vencida?'#c0392b':'inherit'};font-weight:${vencida||hoy?'700':'400'};">${venceTxt}</span>
+                    ${nCom?`&nbsp;·&nbsp; &#128172; ${nCom}`:''}
+                    ${t.origen==='auto'?'&nbsp;·&nbsp; <span style="background:rgba(10,126,140,0.15);color:var(--primary-dark);padding:1px 6px;border-radius:8px;font-weight:700;">AUTO</span>':''}
+                </div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;">
+                <span style="background:${_tareaPrioColor(t.prioridad)};color:#fff;font-size:0.62rem;font-weight:700;padding:2px 8px;border-radius:8px;text-transform:uppercase;">${_tareaPrioLabel(t.prioridad)}</span>
+                <span style="background:${_tareaEstadoColor(t.estado)};color:#fff;font-size:0.62rem;font-weight:700;padding:2px 8px;border-radius:8px;">${_tareaEstadoLabel(t.estado)}</span>
+            </div>
+        </div>
+        ${abierta?`<div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap;" onclick="event.stopPropagation();">
+            ${t.estado==='pendiente'?`<button class="btn btn-sm btn-ghost" style="padding:3px 10px;font-size:0.72rem;" onclick="tareaCambiarEstado('${t.id}','en_progreso')">&#9654; Empezar</button>`:''}
+            <button class="btn btn-sm btn-success" style="padding:3px 10px;font-size:0.72rem;" onclick="tareaCambiarEstado('${t.id}','completada')">&#10003; Completar</button>
+            <button class="btn btn-sm btn-ghost" style="padding:3px 10px;font-size:0.72rem;" onclick="openTareaDetalle('${t.id}')">Ver detalle</button>
+        </div>`:''}
+    </div>`;
+}
+
+// ---- Crear / editar ----
+function openTareaModal(id){
+    const t=id?getTareas().find(x=>x.id===id):null;
+    const yo=_tareaEmailActual();
+    const puedeAsignar=_puedoAsignarTareas();
+    const personas=_tareaPersonas();
+    const respSel=t?_normEmail(t.responsableEmail):yo;
+    const selPersonas=puedeAsignar
+        ? `<select id="tfResp">${personas.map(p=>`<option value="${esc(p.email)}"${respSel===p.email?' selected':''}>${esc(p.nombre)}${p.email===yo?' (yo)':''}</option>`).join('')}</select>`
+        : `<select id="tfResp"><option value="${esc(yo)}">${esc(_nombreDeEmail(yo)||yo)} (yo)</option></select>
+           <div style="font-size:0.72rem;color:var(--text-light);margin-top:3px;">Solo podés crear tareas para vos. Pedí el permiso "Asignar tareas" para asignárselas a otras personas.</div>`;
+    const overlay=document.getElementById('modalTarea');
+    overlay.innerHTML=`<div class="modal" style="max-width:520px;">
+        <div class="modal-header"><h3>${t?'Editar tarea':'Nueva tarea'}</h3><button class="modal-close" onclick="closeModal('modalTarea')">&times;</button></div>
+        <div class="modal-body">
+            <input type="hidden" id="tfId" value="${t?esc(t.id):''}">
+            <div class="form-group"><label>Título *</label><input type="text" id="tfTitulo" value="${t?esc(t.titulo||''):''}" placeholder="Ej: Confirmar bloqueo aéreo de Perú"></div>
+            <div class="form-group"><label>Descripción</label><textarea id="tfDesc" rows="3" placeholder="Opcional">${t?esc(t.descripcion||''):''}</textarea></div>
+            <div class="form-group"><label>Responsable</label>${selPersonas}</div>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;">
+                <div class="form-group" style="flex:1;min-width:150px;"><label>Vence</label><input type="date" id="tfVence" value="${t?esc(t.vence||''):''}"></div>
+                <div class="form-group" style="flex:1;min-width:150px;"><label>Prioridad</label><select id="tfPrio">${TAREA_PRIORIDADES.map(p=>`<option value="${p.id}"${(t?t.prioridad:'normal')===p.id?' selected':''}>${p.label}</option>`).join('')}</select></div>
+            </div>
+        </div>
+        <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modalTarea')">Cancelar</button><button class="btn btn-success" onclick="guardarTarea()">Guardar</button></div>
+    </div>`;
+    overlay.classList.add('open');
+}
+function guardarTarea(){
+    const id=(document.getElementById('tfId').value||'').trim();
+    const titulo=(document.getElementById('tfTitulo').value||'').trim();
+    if(!titulo){alert('Escribí un título para la tarea.');return;}
+    const desc=(document.getElementById('tfDesc').value||'').trim();
+    const resp=_normEmail(document.getElementById('tfResp').value||_tareaEmailActual());
+    const vence=document.getElementById('tfVence').value||'';
+    const prio=document.getElementById('tfPrio').value||'normal';
+    if(!id){
+        crearTarea({titulo:titulo,descripcion:desc,responsableEmail:resp,vence:vence,prioridad:prio});
+    }else{
+        const arr=getTareas().map(x=>Object.assign({},x));
+        const t=arr.find(x=>x.id===id);if(!t){alert('No se encontró la tarea.');return;}
+        const respAnterior=_normEmail(t.responsableEmail);
+        t.titulo=titulo;t.descripcion=desc;t.vence=vence;t.prioridad=prio;
+        if(resp!==respAnterior){
+            t.responsableEmail=resp;t.responsableNombre=_nombreDeEmail(resp);
+            _tareaLog(t,'Reasignó la tarea a '+t.responsableNombre);
+            if(resp&&resp!==_tareaEmailActual()){
+                crearNotificacion({tipo:'info',titulo:'Te reasignaron una tarea',
+                    detalle:t.titulo+(t.vence?' — vence el '+fmtFechaCorta(t.vence):'')+'. Miralá en la sección Tareas.',
+                    paraEmail:resp,origen:'tarea',refId:t.id});
+            }
+        }else{_tareaLog(t,'Editó la tarea');}
+        saveTareas(arr);
+    }
+    closeModal('modalTarea');closeModal('modalTareaDetalle');
+    if(document.getElementById('viewTareas').classList.contains('active'))renderTareas();else updateBadges();
+}
+function tareaCambiarEstado(id,nuevo){
+    const arr=getTareas().map(x=>Object.assign({},x));
+    const t=arr.find(x=>x.id===id);if(!t)return;
+    if(nuevo==='anulada'){
+        const motivo=prompt('¿Por qué anulás esta tarea? (queda registrado)');
+        if(motivo===null)return;
+        t.motivo=(motivo||'').trim();
+    }
+    const antes=t.estado;
+    t.estado=nuevo;
+    if(nuevo==='completada'){t.completadaTs=Date.now();}
+    _tareaLog(t,'Cambió el estado de "'+_tareaEstadoLabel(antes)+'" a "'+_tareaEstadoLabel(nuevo)+'"'+(t.motivo&&nuevo==='anulada'?' — '+t.motivo:''));
+    saveTareas(arr);
+    // Avisar a quien la asignó cuando se completa (si no es la misma persona).
+    const yo=_tareaEmailActual();
+    if(nuevo==='completada'&&t.creadorEmail&&_normEmail(t.creadorEmail)!==yo){
+        crearNotificacion({tipo:'info',titulo:'Tarea completada',
+            detalle:(_nombreDeEmail(yo)||'Alguien')+' completó la tarea "'+t.titulo+'".',
+            paraEmail:t.creadorEmail,origen:'tarea',refId:t.id});
+    }
+    if(document.getElementById('modalTareaDetalle').classList.contains('open'))openTareaDetalle(id);
+    if(document.getElementById('viewTareas').classList.contains('active'))renderTareas();else updateBadges();
+}
+// ---- Detalle + comentarios ----
+function openTareaDetalle(id){
+    const t=getTareas().find(x=>x.id===id);if(!t)return;
+    const abierta=_tareaAbierta(t);
+    const coms=(t.comentarios||[]).slice().sort((a,b)=>num(a.ts)-num(b.ts));
+    const hist=(t.historial||[]).slice().sort((a,b)=>num(a.ts)-num(b.ts));
+    const fecha=ts=>{try{const d=new Date(num(ts));return fmtFechaCorta(d.toISOString().slice(0,10))+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');}catch(e){return '';}};
+    const overlay=document.getElementById('modalTareaDetalle');
+    overlay.innerHTML=`<div class="modal" style="max-width:560px;">
+        <div class="modal-header"><h3>${esc(t.titulo||'Tarea')}</h3><button class="modal-close" onclick="closeModal('modalTareaDetalle')">&times;</button></div>
+        <div class="modal-body">
+            <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">
+                <span style="background:${_tareaEstadoColor(t.estado)};color:#fff;font-size:0.66rem;font-weight:700;padding:3px 10px;border-radius:8px;">${_tareaEstadoLabel(t.estado)}</span>
+                <span style="background:${_tareaPrioColor(t.prioridad)};color:#fff;font-size:0.66rem;font-weight:700;padding:3px 10px;border-radius:8px;text-transform:uppercase;">${_tareaPrioLabel(t.prioridad)}</span>
+                ${_tareaVencida(t)?'<span style="background:#c0392b;color:#fff;font-size:0.66rem;font-weight:700;padding:3px 10px;border-radius:8px;">VENCIDA</span>':''}
+            </div>
+            ${t.descripcion?`<div style="font-size:0.86rem;white-space:pre-wrap;margin-bottom:10px;">${esc(t.descripcion)}</div>`:''}
+            <div style="background:var(--bg);border-radius:8px;padding:10px 12px;font-size:0.8rem;line-height:1.7;margin-bottom:12px;">
+                <div><strong>Responsable:</strong> ${esc(t.responsableNombre||_nombreDeEmail(t.responsableEmail))}</div>
+                <div><strong>Creada por:</strong> ${esc(t.creadorNombre||'Sistema')} · ${fecha(t.creadaTs)}</div>
+                <div><strong>Vence:</strong> ${t.vence?fmtFechaCorta(t.vence):'sin fecha'}</div>
+                ${t.motivo?`<div><strong>Motivo de anulación:</strong> ${esc(t.motivo)}</div>`:''}
+            </div>
+            ${abierta?`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;">
+                ${t.estado==='pendiente'?`<button class="btn btn-sm btn-ghost" onclick="tareaCambiarEstado('${t.id}','en_progreso')">&#9654; Empezar</button>`:''}
+                ${t.estado==='en_progreso'?`<button class="btn btn-sm btn-ghost" onclick="tareaCambiarEstado('${t.id}','pendiente')">&#8617; Volver a pendiente</button>`:''}
+                <button class="btn btn-sm btn-success" onclick="tareaCambiarEstado('${t.id}','completada')">&#10003; Completar</button>
+                <button class="btn btn-sm btn-outline" onclick="openTareaModal('${t.id}')">&#9998; Editar</button>
+                <button class="btn btn-sm btn-danger" onclick="tareaCambiarEstado('${t.id}','anulada')">Anular</button>
+            </div>`:`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;">
+                <button class="btn btn-sm btn-ghost" onclick="tareaCambiarEstado('${t.id}','pendiente')">&#8617; Reabrir</button>
+            </div>`}
+            <div style="border-top:1px solid var(--border);padding-top:10px;">
+                <div style="font-weight:700;font-size:0.85rem;margin-bottom:8px;">&#128172; Comentarios</div>
+                ${coms.length?coms.map(c=>`<div style="background:var(--bg);border-radius:6px;padding:8px 10px;margin-bottom:6px;">
+                    <div style="font-size:0.72rem;color:var(--text-light);">${esc(c.nombre||'')} · ${fecha(c.ts)}</div>
+                    <div style="font-size:0.83rem;white-space:pre-wrap;">${esc(c.texto||'')}</div></div>`).join('')
+                :'<div style="font-size:0.8rem;color:var(--text-light);font-style:italic;margin-bottom:6px;">Todavía no hay comentarios.</div>'}
+                <div style="display:flex;gap:6px;margin-top:8px;">
+                    <input type="text" id="tdComentario" placeholder="Escribí un comentario…" style="flex:1;padding:6px 10px;font-size:0.83rem;border:1px solid var(--border);border-radius:6px;" onkeydown="if(event.key==='Enter')tareaComentar('${t.id}')">
+                    <button class="btn btn-sm btn-primary" onclick="tareaComentar('${t.id}')">Enviar</button>
+                </div>
+            </div>
+            <details style="margin-top:12px;">
+                <summary style="cursor:pointer;font-size:0.8rem;color:var(--text-light);font-weight:600;">Historial de la tarea (${hist.length})</summary>
+                <div style="margin-top:6px;">${hist.map(h2=>`<div style="font-size:0.76rem;color:var(--text-light);padding:3px 0;">${fecha(h2.ts)} — <strong>${esc(h2.por||'')}</strong>: ${esc(h2.texto||'')}</div>`).join('')}</div>
+            </details>
+        </div>
+        <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modalTareaDetalle')">Cerrar</button></div>
+    </div>`;
+    overlay.classList.add('open');
+}
+function tareaComentar(id){
+    const inp=document.getElementById('tdComentario');
+    const texto=(inp&&inp.value||'').trim();
+    if(!texto)return;
+    const arr=getTareas().map(x=>Object.assign({},x));
+    const t=arr.find(x=>x.id===id);if(!t)return;
+    if(!Array.isArray(t.comentarios))t.comentarios=[];
+    const yo=_tareaEmailActual();
+    t.comentarios.push({id:newRrhhId(),email:yo,nombre:_nombreDeEmail(yo)||yo,texto:texto,ts:Date.now()});
+    t.actualizadaTs=Date.now();
+    saveTareas(arr);
+    // Avisar a la otra parte (responsable o creador) que hay un comentario nuevo.
+    const otros=[_normEmail(t.responsableEmail),_normEmail(t.creadorEmail)].filter(e=>e&&e!==yo);
+    Array.from(new Set(otros)).forEach(em=>{
+        crearNotificacion({tipo:'info',titulo:'Comentario en una tarea',
+            detalle:(_nombreDeEmail(yo)||'Alguien')+' comentó en "'+t.titulo+'": '+texto.slice(0,90),
+            paraEmail:em,origen:'tarea',refId:t.id});
+    });
+    openTareaDetalle(id);
 }
 // =====================================================================================
 
