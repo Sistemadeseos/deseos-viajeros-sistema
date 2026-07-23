@@ -1587,7 +1587,7 @@ const CONTACTO_URGENCIAS=[
 let _fsEnabled=false; // true después de loadAllFromFirestore()
 let _fsSyncInProgress=false; // evita loops cuando la carga inicial escribe al cache
 // Número de versión visible: para confirmar que TODAS las usuarias corren el código actualizado.
-const APP_VERSION='v29-0723';
+const APP_VERSION='v30-0723';
 
 // ============================================================================
 // CACHE PERSISTENTE: IndexedDB (capacidad amplia) + espejo en memoria (_cache).
@@ -5182,6 +5182,20 @@ function tareaCambiarEstado(id,nuevo){
     if(document.getElementById('viewTareas').classList.contains('active'))renderTareas();else updateBadges();
 }
 // ---- Detalle + comentarios ----
+// Arma el link de "plantilla de evento" de Google Calendar (no usa API ni OAuth: abre el
+// calendario del usuario con el evento pre-cargado). Evento de día completo: usa la fecha de
+// vencimiento si hay, si no el día de hoy. En Google la fecha fin es exclusiva → se suma 1 día.
+function _tareaGoogleCalUrl(t){
+    if(!t)return '#';
+    const iniISO=(t.vence&&/^\d{4}-\d{2}-\d{2}/.test(t.vence))?t.vence.slice(0,10):_tareaHoyISO();
+    const ini=iniISO.replace(/-/g,'');
+    const finD=new Date(iniISO+'T12:00:00');finD.setDate(finD.getDate()+1);
+    const fin=finD.getFullYear()+String(finD.getMonth()+1).padStart(2,'0')+String(finD.getDate()).padStart(2,'0');
+    const resp=t.responsableNombre||_nombreDeEmail(t.responsableEmail)||'';
+    const det=[(t.descripcion||''),resp?('Responsable: '+resp):'','','(Creado desde el sistema Deseos Viajeros)'].filter(x=>x!=='').join('\n');
+    const p=new URLSearchParams({action:'TEMPLATE',text:t.titulo||'Tarea',dates:ini+'/'+fin,details:det});
+    return 'https://calendar.google.com/calendar/render?'+p.toString();
+}
 function openTareaDetalle(id){
     const t=getTareas().find(x=>x.id===id);if(!t)return;
     const abierta=_tareaAbierta(t);
@@ -5203,6 +5217,10 @@ function openTareaDetalle(id){
                 <div><strong>Creada por:</strong> ${esc(t.creadorNombre||'Sistema')} · ${fecha(t.creadaTs)}</div>
                 <div><strong>Vence:</strong> ${t.vence?fmtFechaCorta(t.vence):'sin fecha'}</div>
                 ${t.motivo?`<div><strong>Motivo de anulación:</strong> ${esc(t.motivo)}</div>`:''}
+            </div>
+            <div style="margin-bottom:12px;">
+                <a class="btn btn-sm btn-outline" href="${_tareaGoogleCalUrl(t)}" target="_blank" rel="noopener" style="text-decoration:none;">&#128197; Agregar a Google Calendar</a>
+                ${!t.vence?`<div style="font-size:0.72rem;color:var(--text-light);margin-top:4px;">Sin fecha de vencimiento: se agenda para hoy. Poné una fecha en la tarea para que vaya a ese día.</div>`:''}
             </div>
             ${_tareaEsAprobacion(t)
                 ?(abierta
