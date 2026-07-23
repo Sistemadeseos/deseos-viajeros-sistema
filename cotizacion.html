@@ -1576,7 +1576,7 @@ const CONTACTO_URGENCIAS=[
 let _fsEnabled=false; // true después de loadAllFromFirestore()
 let _fsSyncInProgress=false; // evita loops cuando la carga inicial escribe al cache
 // Número de versión visible: para confirmar que TODAS las usuarias corren el código actualizado.
-const APP_VERSION='v24-0723';
+const APP_VERSION='v25-0723';
 
 // ============================================================================
 // CACHE PERSISTENTE: IndexedDB (capacidad amplia) + espejo en memoria (_cache).
@@ -2347,6 +2347,18 @@ function normalizarParaMatch(s){
 // Overrides explícitos: cada email se asigna a un encargado específico.
 // Se aplica ANTES de la lógica de match por nombre, así un cambio en la lista
 // de Configuración no rompe la asignación.
+// Únicas dos cuentas habilitadas para aprobar o rechazar solicitudes (vacaciones y horas extra).
+// Decisión del usuario: la aprobación NO depende de permisos configurables, es esta lista fija.
+const APROBADORES_RRHH=['operaciones@deseosviajeros.com','reservas@deseosviajeros.com'];
+function esAprobadorRRHH(email){
+    const em=(email||(window.currentUser&&window.currentUser.email)||'').toLowerCase().trim();
+    return APROBADORES_RRHH.indexOf(em)>=0;
+}
+function exigirAprobadorRRHH(){
+    if(esAprobadorRRHH())return true;
+    alert('Solo Xavier Castro (operaciones@deseosviajeros.com) y María José Pérez (reservas@deseosviajeros.com) pueden aprobar o rechazar solicitudes.');
+    return false;
+}
 const EMAIL_ENCARGADO_OVERRIDES={
     'operaciones@deseosviajeros.com':'Xavier Castro',
     'reservas@deseosviajeros.com':'María José Pérez',
@@ -4127,7 +4139,7 @@ function _vacResumenEmpleado(empId){
 
 function _renderRrhhVacaciones(){
     const puedeGestionar=tienePermiso('rrhh.vacaciones.gestionar');
-    const puedeAprobar=tienePermiso('rrhh.vacaciones.aprobar');
+    const puedeAprobar=esAprobadorRRHH();
     const emp=getRrhhEmpleados();
     let html=`<p class="config-hint">Cada empleado <strong>devenga</strong> vacaciones según su antigüedad (a razón de ${_vacDiasPorMes()} día(s) por mes, configurable en Parámetros de nómina). Registrá las solicitudes y, al aprobarlas, se descuentan del saldo.</p>`;
     if(!emp.length){
@@ -4284,9 +4296,12 @@ function guardarRrhhVacacion(){
         arr.push(datos);
     }
     saveRrhhVacaciones(arr);
-    // Solicitud nueva pendiente → avisar a quienes aprueban vacaciones.
-    if(!id&&estado==='solicitada'){
-        crearNotificacion({tipo:'tarea',titulo:'Solicitud de vacaciones por aprobar',detalle:(datos.empleadoNombre||'')+' solicitó vacaciones del '+fmtFechaCorta(desde)+' al '+fmtFechaCorta(hasta)+' ('+dias+' día(s)). Aprobá o rechazá en Planilla → Vacaciones.',paraPermiso:'rrhh.vacaciones.aprobar',origen:'vacaciones',refId:datos.id});
+    // Solicitud pendiente → aviso a los aprobadores + aprobación en la sección Tareas.
+    if(estado==='solicitada'){
+        _crearAprobacionRRHH('vacaciones',(id||datos.id),
+            'Vacaciones de '+(datos.empleadoNombre||'')+' por aprobar',
+            (datos.empleadoNombre||'')+' solicitó vacaciones del '+fmtFechaCorta(desde)+' al '+fmtFechaCorta(hasta)+' ('+dias+' día(s)).'+(datos.motivo?' Motivo: '+datos.motivo:''),
+            _emailDeEmpleado(empId));
     }
     const cfg=getConfig();
     _appendBitacoraRrhh(cfg,(id?'Editó':'Registró')+' solicitud de vacaciones de "'+(datos.empleadoNombre||'')+'" ('+fmtFechaCorta(desde)+' a '+fmtFechaCorta(hasta)+', '+dias+' días, '+(_RRHH_VAC_ESTADO_LABEL[estado]||estado)+')');
@@ -4295,11 +4310,24 @@ function guardarRrhhVacacion(){
     renderRrhh();
 }
 
-function aprobarRrhhVacacion(id,decision){
-    if(!exigirPermiso('rrhh.vacaciones.aprobar','aprobar o rechazar vacaciones'))return;
+function aprobarRrhhVacacion(id,decision,motivo){
+    if(!exigirAprobadorRRHH())return;
     const arr=getRrhhVacaciones().map(x=>Object.assign({},x));
     const s=arr.find(x=>x.id===id);
     if(!s)return;
+    // Anti-autoaprobación: nadie resuelve su propia solicitud.
+    const _miFicha=_rrhhMiFichaEmpleado();
+    if(_miFicha&&s.empleadoId===_miFicha.id){alert('No podés aprobar ni rechazar tus propias vacaciones. Debe hacerlo la otra persona autorizada.');return;}
+    // Rechazar exige motivo (queda registrado y viaja en el aviso de vuelta).
+    if(decision==='rechazada'){
+        if(motivo===undefined||motivo===null){
+            motivo=prompt('¿Por qué rechazás esta solicitud de vacaciones? (obligatorio)');
+            if(motivo===null)return;
+        }
+        motivo=String(motivo||'').trim();
+        if(!motivo){alert('Para rechazar hay que escribir un motivo.');return;}
+        s.motivoResolucion=motivo;
+    }
     if(decision==='aprobada'){
         const r=_vacResumenEmpleado(s.empleadoId);
         if(r.saldo-num(s.diasHabiles)<0&&!confirm('Esta aprobación deja el saldo en negativo ('+(r.saldo-num(s.diasHabiles)).toFixed(1)+' días). ¿Aprobar de todas formas?'))return;
@@ -4308,9 +4336,11 @@ function aprobarRrhhVacacion(id,decision){
     s.aprobadaPor=(window.currentUser&&window.currentUser.email)||'';
     s.aprobadaTs=Date.now();
     saveRrhhVacaciones(arr);
+    // Cierra la aprobación pendiente en la sección Tareas (si la solicitud se resolvió desde Planilla).
+    _cerrarTareaAprobacion('vacaciones',s.id,decision==='rechazada'?'rechazada':'aprobada',s.motivoResolucion||'');
     // Avisar a la empleada el resultado.
     const _emV=_emailDeEmpleado(s.empleadoId);
-    if(_emV)crearNotificacion({tipo:'info',titulo:'Tus vacaciones: '+(_RRHH_VAC_ESTADO_LABEL[decision]||decision),detalle:'Tu solicitud del '+fmtFechaCorta(s.fechaDesde)+' al '+fmtFechaCorta(s.fechaHasta)+' quedó: '+(_RRHH_VAC_ESTADO_LABEL[decision]||decision)+'.',paraEmail:_emV,origen:'vacaciones',refId:s.id});
+    if(_emV)crearNotificacion({tipo:'info',titulo:'Tus vacaciones: '+(_RRHH_VAC_ESTADO_LABEL[decision]||decision),detalle:'Tu solicitud del '+fmtFechaCorta(s.fechaDesde)+' al '+fmtFechaCorta(s.fechaHasta)+' quedó: '+(_RRHH_VAC_ESTADO_LABEL[decision]||decision)+'.'+(decision==='rechazada'&&s.motivoResolucion?' Motivo: '+s.motivoResolucion:''),paraEmail:_emV,origen:'vacaciones',refId:s.id});
     const cfg=getConfig();
     _appendBitacoraRrhh(cfg,(_RRHH_VAC_ESTADO_LABEL[decision]||decision)+' la solicitud de vacaciones de "'+(s.empleadoNombre||'')+'" ('+fmtFechaCorta(s.fechaDesde)+' a '+fmtFechaCorta(s.fechaHasta)+')');
     saveConfig(cfg);
@@ -4323,6 +4353,7 @@ function eliminarRrhhVacacion(id){
     if(!s)return;
     if(!confirm('¿Eliminar la solicitud de vacaciones de "'+(s.empleadoNombre||'')+'" ('+fmtFechaCorta(s.fechaDesde)+' a '+fmtFechaCorta(s.fechaHasta)+')?'))return;
     saveRrhhVacaciones(getRrhhVacaciones().filter(x=>x.id!==id));
+    _anularTareaAprobacion('vacaciones',id,'Se eliminó la solicitud de vacaciones');
     const cfg=getConfig();
     _appendBitacoraRrhh(cfg,'Eliminó la solicitud de vacaciones de "'+(s.empleadoNombre||'')+'" ('+fmtFechaCorta(s.fechaDesde)+' a '+fmtFechaCorta(s.fechaHasta)+')');
     saveConfig(cfg);
@@ -4367,7 +4398,7 @@ function _heSetFiltro(campo,val){if(campo==='colab')_heFiltroColab=val;else if(c
 
 function _renderRrhhHorasExtra(){
     const puedeGestionar=tienePermiso('rrhh.horasextra.gestionar');
-    const puedeAprobar=tienePermiso('rrhh.horasextra.aprobar');
+    const puedeAprobar=esAprobadorRRHH();
     const emp=getRrhhEmpleados();
     let html=`<p class="config-hint">Control de horas extra y permisos. Las <strong>horas extra suman</strong> y los <strong>permisos restan</strong> al saldo. Cada movimiento queda <strong>pendiente</strong> hasta que un administrador lo apruebe; los pendientes y rechazados no afectan el saldo.</p>`;
     if(!emp.length){
@@ -4514,9 +4545,13 @@ function guardarRrhhHoraExtra(){
         arr.push({id:newRrhhId(),colaboradorId:empId,colaboradorNombre:emp?emp.nombre:'',tipo:tipo,fecha:fecha,horaInicio:inicio,horaFin:fin,minutos:minutos,nota:nota,estado:'PENDIENTE',aprobadoPor:'',aprobadoPorEmail:'',aprobadoTs:null,creadoPor:(window.currentUser&&window.currentUser.email)||'',creadaTs:Date.now()});
     }
     saveRrhhHorasExtra(arr);
-    // Movimiento nuevo → avisar a quienes aprueban horas extra.
-    if(!id){
-        crearNotificacion({tipo:'tarea',titulo:'Horas extra por aprobar',detalle:(emp?emp.nombre:'')+' registró '+(_RRHH_HE_TIPO_LABEL[tipo]||tipo)+' del '+fmtFechaCorta(fecha)+' ('+_heFmtHM(minutos)+'). Revisá y aprobá en Planilla → Horas extra.',paraPermiso:'rrhh.horasextra.aprobar',origen:'horasextra'});
+    // Movimiento pendiente (nuevo, o editado — la edición lo vuelve a PENDIENTE) → aviso + aprobación.
+    {
+        const _refHe=id||arr[arr.length-1].id;
+        _crearAprobacionRRHH('horasextra',_refHe,
+            (_RRHH_HE_TIPO_LABEL[tipo]||tipo)+' de '+(emp?emp.nombre:'')+' por aprobar',
+            (emp?emp.nombre:'')+' registró '+(_RRHH_HE_TIPO_LABEL[tipo]||tipo)+' del '+fmtFechaCorta(fecha)+' ('+_heFmtHM(minutos)+').'+(nota?' Nota: '+nota:''),
+            _emailDeEmpleado(empId));
     }
     const cfg=getConfig();
     _appendBitacoraRrhh(cfg,(id?'Editó':'Registró')+' '+(_RRHH_HE_TIPO_LABEL[tipo]||tipo)+' de "'+(emp?emp.nombre:'')+'" ('+fmtFechaCorta(fecha)+', '+_heFmtHM(minutos)+')');
@@ -4525,19 +4560,31 @@ function guardarRrhhHoraExtra(){
     renderRrhh();
 }
 
-function aprobarRrhhHoraExtra(id,decision){
-    if(!exigirPermiso('rrhh.horasextra.aprobar','aprobar o rechazar horas extra'))return;
+function aprobarRrhhHoraExtra(id,decision,motivo){
+    if(!exigirAprobadorRRHH())return;
     const arr=getRrhhHorasExtra().map(x=>Object.assign({},x));
     const m=arr.find(x=>x.id===id);
     if(!m)return;
-    if(_heEsMio(m)){alert('No podés aprobar ni rechazar tus propios movimientos. Debe hacerlo otra persona administradora.');return;}
+    if(_heEsMio(m)){alert('No podés aprobar ni rechazar tus propios movimientos. Debe hacerlo la otra persona autorizada.');return;}
+    // Rechazar exige motivo (queda registrado y viaja en el aviso de vuelta).
+    if(decision!=='APROBADO'){
+        if(motivo===undefined||motivo===null){
+            motivo=prompt('¿Por qué rechazás este movimiento? (obligatorio)');
+            if(motivo===null)return;
+        }
+        motivo=String(motivo||'').trim();
+        if(!motivo){alert('Para rechazar hay que escribir un motivo.');return;}
+        m.motivoResolucion=motivo;
+    }
     m.estado=(decision==='APROBADO')?'APROBADO':'RECHAZADO';
     const email=(window.currentUser&&window.currentUser.email)||'';
     m.aprobadoPor=_rrhhNombreDeEmail(email);m.aprobadoPorEmail=email;m.aprobadoTs=Date.now();
     saveRrhhHorasExtra(arr);
+    // Cierra la aprobación pendiente en la sección Tareas (si se resolvió desde Planilla).
+    _cerrarTareaAprobacion('horasextra',m.id,decision==='APROBADO'?'aprobada':'rechazada',m.motivoResolucion||'');
     // Avisar a la colaboradora el resultado.
     const _emH=_emailDeEmpleado(m.colaboradorId);
-    if(_emH)crearNotificacion({tipo:'info',titulo:'Tus horas extra: '+(decision==='APROBADO'?'aprobadas':'rechazadas'),detalle:(_RRHH_HE_TIPO_LABEL[m.tipo]||m.tipo)+' del '+fmtFechaCorta(m.fecha)+' ('+_heFmtHM(num(m.minutos))+') quedó: '+(decision==='APROBADO'?'aprobado':'rechazado')+'.',paraEmail:_emH,origen:'horasextra',refId:m.id});
+    if(_emH)crearNotificacion({tipo:'info',titulo:'Tus horas extra: '+(decision==='APROBADO'?'aprobadas':'rechazadas'),detalle:(_RRHH_HE_TIPO_LABEL[m.tipo]||m.tipo)+' del '+fmtFechaCorta(m.fecha)+' ('+_heFmtHM(num(m.minutos))+') quedó: '+(decision==='APROBADO'?'aprobado':'rechazado')+'.'+(decision!=='APROBADO'&&m.motivoResolucion?' Motivo: '+m.motivoResolucion:''),paraEmail:_emH,origen:'horasextra',refId:m.id});
     const cfg=getConfig();
     _appendBitacoraRrhh(cfg,(decision==='APROBADO'?'Aprobó':'Rechazó')+' '+(_RRHH_HE_TIPO_LABEL[m.tipo]||m.tipo)+' de "'+(m.colaboradorNombre||'')+'" ('+fmtFechaCorta(m.fecha)+', '+_heFmtHM(num(m.minutos))+')');
     saveConfig(cfg);
@@ -4552,6 +4599,7 @@ function eliminarRrhhHoraExtra(id){
     else if(!exigirPermiso('rrhh.horasextra.gestionar','eliminar horas extra'))return;
     if(!confirm('¿Eliminar este movimiento de "'+(m.colaboradorNombre||'')+'" del '+fmtFechaCorta(m.fecha)+'?'))return;
     saveRrhhHorasExtra(getRrhhHorasExtra().filter(x=>x.id!==id));
+    _anularTareaAprobacion('horasextra',id,'Se eliminó el movimiento de horas extra');
     const cfg=getConfig();
     _appendBitacoraRrhh(cfg,'Eliminó '+(_RRHH_HE_TIPO_LABEL[m.tipo]||m.tipo)+' de "'+(m.colaboradorNombre||'')+'" ('+fmtFechaCorta(m.fecha)+')');
     saveConfig(cfg);
@@ -4776,6 +4824,8 @@ function mostrarAnuncioNotif(){
                 <li><strong>comentar</strong> dentro de cada tarea para coordinar;</li>
                 <li><strong>anular</strong> una tarea que ya no aplica (queda el registro, no se borra).</li>
             </ul>
+            <p style="margin:0 0 4px;font-weight:700;">Vacaciones y horas extra</p>
+            <p style="margin:0 0 10px;">Cuando pedís <strong>vacaciones</strong> o registrás <strong>horas extra</strong>, la solicitud le llega como una <strong>aprobación</strong> a Xavier Castro y María José Pérez — que son las únicas dos personas que pueden aprobar o rechazar. Si te la rechazan, tienen que escribir un <strong>motivo</strong>, y ese motivo te llega a vos en la campanita.</p>
             <p style="font-size:0.82rem;color:var(--text-light);">Cuando alguien te asigna una tarea, te llega un aviso en la campanita con un botón <strong>“Ver tarea”</strong>.</p>
         </div>
         <div class="modal-footer"><button class="btn btn-success" onclick="cerrarAnuncioNotif()">Entendido</button></div>
@@ -4868,7 +4918,21 @@ function _nombreDeEmail(email){
     const nom=Object.keys(encEmails).find(n=>_normEmail(encEmails[n])===em);
     return nom||em;
 }
-function _tareaEsMia(t){return !!(t&&_normEmail(t.responsableEmail)===_tareaEmailActual());}
+function _tareaEsAprobacion(t){return !!(t&&t.subtipo==='aprobacion');}
+// Una aprobación le "toca" a cualquiera de los aprobadores habilitados, no solo al responsable nominal.
+function _tareaEsMia(t){
+    if(!t)return false;
+    const yo=_tareaEmailActual();
+    if(_normEmail(t.responsableEmail)===yo)return true;
+    if(_tareaEsAprobacion(t)&&Array.isArray(t.aprobadores)&&t.aprobadores.map(_normEmail).indexOf(yo)>=0)return true;
+    return false;
+}
+// Nadie resuelve su propia solicitud.
+function _puedoResolverAprobacion(t){
+    if(!_tareaEsAprobacion(t)||!_tareaAbierta(t))return false;
+    if(!esAprobadorRRHH())return false;
+    return _normEmail(t.solicitanteEmail)!==_tareaEmailActual();
+}
 function _tareaLaAsigneYo(t){return !!(t&&_normEmail(t.creadorEmail)===_tareaEmailActual()&&!_tareaEsMia(t));}
 function _puedoVerTodasLasTareas(){return soyMaestro()||tienePermiso('tareas.ver_todas');}
 function _puedoAsignarTareas(){return soyMaestro()||tienePermiso('tareas.asignar');}
@@ -4906,6 +4970,8 @@ function crearTarea(opts){
         estado:'pendiente',prioridad:opts.prioridad||'normal',
         vence:opts.vence||'',
         moduloOrigen:opts.moduloOrigen||'',refTipo:opts.refTipo||'',refId:opts.refId||'',
+        aprobadores:Array.isArray(opts.aprobadores)?opts.aprobadores.map(_normEmail):[],
+        solicitanteEmail:_normEmail(opts.solicitanteEmail||''),resultadoAprobacion:'',
         comentarios:[],historial:[{ts:Date.now(),por:(_nombreDeEmail(yo)||'Sistema'),texto:'Creó la tarea'}],
         creadaTs:Date.now(),actualizadaTs:Date.now(),completadaTs:0,motivo:''
     };
@@ -4938,6 +5004,7 @@ function _tareasDeLaVista(){
     const todas=getTareas();
     let lista;
     if(_tareaVista==='mias')lista=todas.filter(_tareaEsMia);
+    else if(_tareaVista==='aprobaciones')lista=todas.filter(t=>_tareaEsAprobacion(t)&&(_tareaEsMia(t)||esAprobadorRRHH()));
     else if(_tareaVista==='asignadas')lista=todas.filter(_tareaLaAsigneYo);
     else lista=_puedoVerTodasLasTareas()?todas.slice():todas.filter(t=>_tareaEsMia(t)||_tareaLaAsigneYo(t));
     if(_tareaFiltroEstado==='abiertas')lista=lista.filter(_tareaAbierta);
@@ -4953,6 +5020,7 @@ function renderTareas(){
     const nMias=todas.filter(t=>_tareaEsMia(t)&&_tareaAbierta(t)).length;
     const nAsig=todas.filter(t=>_tareaLaAsigneYo(t)&&_tareaAbierta(t)).length;
     const nVenc=todas.filter(t=>_tareaEsMia(t)&&_tareaVencida(t)).length;
+    const nAprob=todas.filter(t=>_tareaEsAprobacion(t)&&_tareaAbierta(t)&&_puedoResolverAprobacion(t)).length;
     const lista=_tareasDeLaVista();
     const tab=(id,label,n)=>`<button class="btn btn-sm ${_tareaVista===id?'btn-primary':'btn-ghost'}" style="padding:5px 12px;" onclick="switchTareaVista('${id}')">${label}${n?` <span style="background:var(--accent);color:#fff;border-radius:8px;padding:1px 6px;font-size:0.65rem;margin-left:4px;">${n}</span>`:''}</button>`;
     const optEstado=[['abiertas','Sin terminar'],['vencidas','Vencidas'],['','Todos los estados']].concat(TAREA_ESTADOS.map(e=>[e.id,e.label]));
@@ -4960,6 +5028,7 @@ function renderTareas(){
     <div class="card" style="margin-bottom:14px;">
         <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">
             ${tab('mias','Mis tareas',nMias)}
+            ${esAprobadorRRHH()?tab('aprobaciones','Aprobaciones',nAprob):''}
             ${tab('asignadas','Las que asigné',nAsig)}
             ${_puedoVerTodasLasTareas()?tab('todas','Todas',0):''}
         </div>
@@ -4990,7 +5059,7 @@ function _tareaCard(t){
                     &#128100; ${esc(t.responsableNombre||_nombreDeEmail(t.responsableEmail))}
                     &nbsp;·&nbsp; <span style="color:${vencida?'#c0392b':'inherit'};font-weight:${vencida||hoy?'700':'400'};">${venceTxt}</span>
                     ${nCom?`&nbsp;·&nbsp; &#128172; ${nCom}`:''}
-                    ${t.origen==='auto'?'&nbsp;·&nbsp; <span style="background:rgba(10,126,140,0.15);color:var(--primary-dark);padding:1px 6px;border-radius:8px;font-weight:700;">AUTO</span>':''}
+                    ${_tareaEsAprobacion(t)?'&nbsp;·&nbsp; <span style="background:rgba(212,131,15,0.18);color:#a8650b;padding:1px 6px;border-radius:8px;font-weight:700;">APROBACIÓN</span>':(t.origen==='auto'?'&nbsp;·&nbsp; <span style="background:rgba(10,126,140,0.15);color:var(--primary-dark);padding:1px 6px;border-radius:8px;font-weight:700;">AUTO</span>':'')}
                 </div>
             </div>
             <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;">
@@ -4999,8 +5068,13 @@ function _tareaCard(t){
             </div>
         </div>
         ${abierta?`<div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap;" onclick="event.stopPropagation();">
-            ${t.estado==='pendiente'?`<button class="btn btn-sm btn-ghost" style="padding:3px 10px;font-size:0.72rem;" onclick="tareaCambiarEstado('${t.id}','en_progreso')">&#9654; Empezar</button>`:''}
-            <button class="btn btn-sm btn-success" style="padding:3px 10px;font-size:0.72rem;" onclick="tareaCambiarEstado('${t.id}','completada')">&#10003; Completar</button>
+            ${_tareaEsAprobacion(t)
+                ?(_puedoResolverAprobacion(t)
+                    ?`<button class="btn btn-sm btn-success" style="padding:3px 10px;font-size:0.72rem;" onclick="tareaResolverAprobacion('${t.id}','aprobada')">&#10003; Aprobar</button>
+                      <button class="btn btn-sm btn-danger" style="padding:3px 10px;font-size:0.72rem;" onclick="tareaResolverAprobacion('${t.id}','rechazada')">&times; Rechazar</button>`
+                    :`<span style="font-size:0.72rem;color:var(--text-light);font-style:italic;">${_normEmail(t.solicitanteEmail)===_tareaEmailActual()?'Esperando resolución (no podés resolver tu propia solicitud).':'Solo la pueden resolver Xavier o María José.'}</span>`)
+                :`${t.estado==='pendiente'?`<button class="btn btn-sm btn-ghost" style="padding:3px 10px;font-size:0.72rem;" onclick="tareaCambiarEstado('${t.id}','en_progreso')">&#9654; Empezar</button>`:''}
+                  <button class="btn btn-sm btn-success" style="padding:3px 10px;font-size:0.72rem;" onclick="tareaCambiarEstado('${t.id}','completada')">&#10003; Completar</button>`}
             <button class="btn btn-sm btn-ghost" style="padding:3px 10px;font-size:0.72rem;" onclick="openTareaDetalle('${t.id}')">Ver detalle</button>
         </div>`:''}
     </div>`;
@@ -5009,6 +5083,7 @@ function _tareaCard(t){
 // ---- Crear / editar ----
 function openTareaModal(id){
     const t=id?getTareas().find(x=>x.id===id):null;
+    if(t&&_tareaEsAprobacion(t)){alert('Una aprobación no se edita: se resuelve con Aprobar o Rechazar. Los datos vienen de la solicitud original en Planilla.');return;}
     const yo=_tareaEmailActual();
     const puedeAsignar=_puedoAsignarTareas();
     const personas=_tareaPersonas();
@@ -5066,6 +5141,9 @@ function guardarTarea(){
 function tareaCambiarEstado(id,nuevo){
     const arr=getTareas().map(x=>Object.assign({},x));
     const t=arr.find(x=>x.id===id);if(!t)return;
+    // Las aprobaciones no se completan a mano: se resuelven con Aprobar / Rechazar.
+    if(_tareaEsAprobacion(t)&&nuevo!=='anulada'){alert('Esta es una aprobación: usá los botones Aprobar o Rechazar.');return;}
+    if(_tareaEsAprobacion(t)&&!esAprobadorRRHH()){exigirAprobadorRRHH();return;}
     if(nuevo==='anulada'){
         const motivo=prompt('¿Por qué anulás esta tarea? (queda registrado)');
         if(motivo===null)return;
@@ -5109,7 +5187,19 @@ function openTareaDetalle(id){
                 <div><strong>Vence:</strong> ${t.vence?fmtFechaCorta(t.vence):'sin fecha'}</div>
                 ${t.motivo?`<div><strong>Motivo de anulación:</strong> ${esc(t.motivo)}</div>`:''}
             </div>
-            ${abierta?`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;">
+            ${_tareaEsAprobacion(t)
+                ?(abierta
+                    ?`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;align-items:center;">
+                        ${_puedoResolverAprobacion(t)
+                            ?`<button class="btn btn-sm btn-success" onclick="tareaResolverAprobacion('${t.id}','aprobada')">&#10003; Aprobar</button>
+                              <button class="btn btn-sm btn-danger" onclick="tareaResolverAprobacion('${t.id}','rechazada')">&times; Rechazar</button>
+                              <span style="font-size:0.74rem;color:var(--text-light);">Al rechazar hay que escribir un motivo.</span>`
+                            :`<span style="font-size:0.8rem;color:var(--text-light);font-style:italic;">${_normEmail(t.solicitanteEmail)===_tareaEmailActual()?'No podés resolver tu propia solicitud.':'Solo Xavier Castro y María José Pérez pueden resolverla.'}</span>`}
+                      </div>`
+                    :`<div style="background:${t.resultadoAprobacion==='rechazada'?'rgba(192,57,43,0.08)':'rgba(46,158,91,0.08)'};border-radius:8px;padding:8px 12px;font-size:0.84rem;margin-bottom:14px;">
+                        <strong>${t.resultadoAprobacion==='rechazada'?'Rechazada':(t.resultadoAprobacion==='aprobada'?'Aprobada':_tareaEstadoLabel(t.estado))}</strong>${t.motivo?' — '+esc(t.motivo):''}
+                      </div>`)
+                :(abierta?`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;">
                 ${t.estado==='pendiente'?`<button class="btn btn-sm btn-ghost" onclick="tareaCambiarEstado('${t.id}','en_progreso')">&#9654; Empezar</button>`:''}
                 ${t.estado==='en_progreso'?`<button class="btn btn-sm btn-ghost" onclick="tareaCambiarEstado('${t.id}','pendiente')">&#8617; Volver a pendiente</button>`:''}
                 <button class="btn btn-sm btn-success" onclick="tareaCambiarEstado('${t.id}','completada')">&#10003; Completar</button>
@@ -5117,7 +5207,7 @@ function openTareaDetalle(id){
                 <button class="btn btn-sm btn-danger" onclick="tareaCambiarEstado('${t.id}','anulada')">Anular</button>
             </div>`:`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;">
                 <button class="btn btn-sm btn-ghost" onclick="tareaCambiarEstado('${t.id}','pendiente')">&#8617; Reabrir</button>
-            </div>`}
+            </div>`)}
             <div style="border-top:1px solid var(--border);padding-top:10px;">
                 <div style="font-weight:700;font-size:0.85rem;margin-bottom:8px;">&#128172; Comentarios</div>
                 ${coms.length?coms.map(c=>`<div style="background:var(--bg);border-radius:6px;padding:8px 10px;margin-bottom:6px;">
@@ -5137,6 +5227,92 @@ function openTareaDetalle(id){
         <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modalTareaDetalle')">Cerrar</button></div>
     </div>`;
     overlay.classList.add('open');
+}
+// ---- Aprobaciones (Fase B) ----
+// Puente evento → aviso + aprobación. Lo llama Planilla al registrarse una solicitud pendiente.
+function _crearAprobacionRRHH(refTipo,refId,titulo,detalle,solicitanteEmail){
+    if(!refId)return null;
+    // No duplicar: si ya hay una aprobación abierta para esta misma solicitud, no se crea otra.
+    const ya=getTareas().some(t=>_tareaEsAprobacion(t)&&t.refTipo===refTipo&&String(t.refId)===String(refId)&&_tareaAbierta(t));
+    if(ya)return null;
+    const t=crearTarea({
+        titulo:titulo,descripcion:detalle,
+        responsableEmail:APROBADORES_RRHH[0],
+        prioridad:'alta',origen:'auto',subtipo:'aprobacion',moduloOrigen:'Planilla',
+        refTipo:refTipo,refId:String(refId),
+        aprobadores:APROBADORES_RRHH.slice(),solicitanteEmail:solicitanteEmail||'',
+        avisar:false
+    });
+    if(!t)return null;
+    // Aviso en la campana a cada aprobador (menos a quien la generó, si fuese uno de ellos).
+    const yo=_tareaEmailActual();
+    APROBADORES_RRHH.forEach(em=>{
+        if(_normEmail(em)===yo||_normEmail(em)===_normEmail(solicitanteEmail))return;
+        crearNotificacion({tipo:'info',titulo:titulo,detalle:detalle+' Resolvela en la sección Tareas.',paraEmail:em,origen:'tarea',refId:t.id});
+    });
+    return t;
+}
+// Cierra la aprobación cuando la solicitud se resuelve (desde Tareas o desde Planilla).
+function _cerrarTareaAprobacion(refTipo,refId,resultado,motivo){
+    const arr=getTareas().map(x=>Object.assign({},x));
+    let cambio=false;
+    arr.forEach(t=>{
+        if(!_tareaEsAprobacion(t)||t.refTipo!==refTipo||String(t.refId)!==String(refId)||!_tareaAbierta(t))return;
+        t.estado='completada';t.completadaTs=Date.now();
+        t.resultadoAprobacion=(resultado==='rechazada')?'rechazada':'aprobada';
+        if(motivo)t.motivo=motivo;
+        _tareaLog(t,'Resolvió la aprobación: '+t.resultadoAprobacion+(motivo?' — '+motivo:''));
+        cambio=true;
+    });
+    if(cambio)saveTareas(arr);
+    return cambio;
+}
+// Anula la aprobación si la solicitud origen se elimina.
+function _anularTareaAprobacion(refTipo,refId,motivo){
+    const arr=getTareas().map(x=>Object.assign({},x));
+    let cambio=false;
+    arr.forEach(t=>{
+        if(!_tareaEsAprobacion(t)||t.refTipo!==refTipo||String(t.refId)!==String(refId)||!_tareaAbierta(t))return;
+        t.estado='anulada';t.motivo=motivo||'La solicitud origen ya no existe';
+        _tareaLog(t,'Anulada automáticamente: '+t.motivo);
+        cambio=true;
+    });
+    if(cambio)saveTareas(arr);
+    return cambio;
+}
+// Botón Aprobar / Rechazar desde la sección Tareas: delega en Planilla, que es la fuente de verdad.
+// Planilla cierra la tarea (via _cerrarTareaAprobacion) y avisa a la solicitante.
+function tareaResolverAprobacion(id,resultado){
+    const t=getTareas().find(x=>x.id===id);
+    if(!t)return;
+    if(!esAprobadorRRHH()){exigirAprobadorRRHH();return;}
+    if(_normEmail(t.solicitanteEmail)===_tareaEmailActual()){alert('No podés resolver tu propia solicitud. Debe hacerlo la otra persona autorizada.');return;}
+    let motivo;
+    if(resultado==='rechazada'){
+        motivo=prompt('¿Por qué rechazás esta solicitud? (obligatorio)');
+        if(motivo===null)return;
+        motivo=String(motivo||'').trim();
+        if(!motivo){alert('Para rechazar hay que escribir un motivo.');return;}
+    }
+    if(t.refTipo==='vacaciones'){
+        aprobarRrhhVacacion(t.refId,resultado==='rechazada'?'rechazada':'aprobada',motivo);
+    }else if(t.refTipo==='horasextra'){
+        aprobarRrhhHoraExtra(t.refId,resultado==='rechazada'?'RECHAZADO':'APROBADO',motivo);
+    }else{
+        _cerrarTareaAprobacion(t.refTipo,t.refId,resultado,motivo||'');
+    }
+    // Si la solicitud origen ya no existe, cerramos igual la tarea para que no quede colgada.
+    const sigueAbierta=getTareas().some(x=>x.id===id&&_tareaAbierta(x));
+    if(sigueAbierta&&!_solicitudRrhhExiste(t.refTipo,t.refId)){
+        _anularTareaAprobacion(t.refTipo,t.refId,'La solicitud origen ya no existe');
+    }
+    closeModal('modalTareaDetalle');
+    if(document.getElementById('viewTareas').classList.contains('active'))renderTareas();else updateBadges();
+}
+function _solicitudRrhhExiste(refTipo,refId){
+    if(refTipo==='vacaciones')return getRrhhVacaciones().some(x=>String(x.id)===String(refId));
+    if(refTipo==='horasextra')return getRrhhHorasExtra().some(x=>String(x.id)===String(refId));
+    return true;
 }
 function tareaComentar(id){
     const inp=document.getElementById('tdComentario');
