@@ -1576,7 +1576,7 @@ const CONTACTO_URGENCIAS=[
 let _fsEnabled=false; // true después de loadAllFromFirestore()
 let _fsSyncInProgress=false; // evita loops cuando la carga inicial escribe al cache
 // Número de versión visible: para confirmar que TODAS las usuarias corren el código actualizado.
-const APP_VERSION='v25-0723';
+const APP_VERSION='v26-0723';
 
 // ============================================================================
 // CACHE PERSISTENTE: IndexedDB (capacidad amplia) + espejo en memoria (_cache).
@@ -3395,6 +3395,9 @@ function openRrhhEmpleadoModal(id){
             </div>
             <div class="form-row">
                 <div class="form-group"><label>Fecha de ingreso</label><input type="date" id="reIngreso" value="${esc(v('fechaIngreso'))}"></div>
+                <div class="form-group"><label>Fecha de nacimiento</label><input type="date" id="reNacimiento" value="${esc(v('fechaNacimiento'))}"></div>
+            </div>
+            <div class="form-row">
                 <div class="form-group"><label>Salario bruto mensual (₡)</label><input type="number" id="reSalario" min="0" step="1" value="${esc(v('salarioBruto'))}" placeholder="Ej: 600000"></div>
             </div>
             <div class="form-row">
@@ -3426,6 +3429,7 @@ function guardarRrhhEmpleado(){
         puesto:(document.getElementById('rePuesto').value||'').trim(),
         email:(document.getElementById('reEmail').value||'').trim(),
         fechaIngreso:document.getElementById('reIngreso').value||'',
+        fechaNacimiento:(document.getElementById('reNacimiento')||{}).value||'',
         salarioBruto:num(document.getElementById('reSalario').value),
         tipoJornada:document.getElementById('reJornada').value||'mensual',
         estado:document.getElementById('reEstado').value||'activo',
@@ -4826,6 +4830,8 @@ function mostrarAnuncioNotif(){
             </ul>
             <p style="margin:0 0 4px;font-weight:700;">Vacaciones y horas extra</p>
             <p style="margin:0 0 10px;">Cuando pedís <strong>vacaciones</strong> o registrás <strong>horas extra</strong>, la solicitud le llega como una <strong>aprobación</strong> a Xavier Castro y María José Pérez — que son las únicas dos personas que pueden aprobar o rechazar. Si te la rechazan, tienen que escribir un <strong>motivo</strong>, y ese motivo te llega a vos en la campanita.</p>
+            <p style="margin:0 0 4px;font-weight:700;">Tareas que se crean solas</p>
+            <p style="margin:0 0 10px;">El sistema también te va a crear tareas sin que nadie las escriba: una <strong>cotización que lleva días sin respuesta</strong>, una venta con <strong>saldo pendiente y el viaje cerca</strong>, o el <strong>corte de planilla</strong>. Se marcan con la etiqueta <strong>AUTO</strong>.</p>
             <p style="font-size:0.82rem;color:var(--text-light);">Cuando alguien te asigna una tarea, te llega un aviso en la campanita con un botón <strong>“Ver tarea”</strong>.</p>
         </div>
         <div class="modal-footer"><button class="btn btn-success" onclick="cerrarAnuncioNotif()">Entendido</button></div>
@@ -5016,6 +5022,7 @@ function _tareasDeLaVista(){
 function renderTareas(){
     const cont=document.getElementById('viewTareas');
     if(!cont)return;
+    try{generarTareasAutomaticas();}catch(e){console.error('[tareas auto]',e);}
     const todas=getTareas();
     const nMias=todas.filter(t=>_tareaEsMia(t)&&_tareaAbierta(t)).length;
     const nAsig=todas.filter(t=>_tareaLaAsigneYo(t)&&_tareaAbierta(t)).length;
@@ -5041,7 +5048,8 @@ function renderTareas(){
             <button class="btn btn-sm btn-accent" onclick="openTareaModal()">+ Nueva tarea</button>
         </div>
     </div>
-    <div>${lista.length?lista.map(_tareaCard).join(''):`<div class="card" style="text-align:center;padding:30px;color:var(--text-light);font-style:italic;">No hay tareas con estos filtros.</div>`}</div>`;
+    <div>${lista.length?lista.map(_tareaCard).join(''):`<div class="card" style="text-align:center;padding:30px;color:var(--text-light);font-style:italic;">No hay tareas con estos filtros.</div>`}</div>
+    ${esAprobadorRRHH()?_tareasAutoPanel():''}`;
     updateBadges();
 }
 function _tareaCard(t){
@@ -5333,6 +5341,203 @@ function tareaComentar(id){
             paraEmail:em,origen:'tarea',refId:t.id});
     });
     openTareaDetalle(id);
+}
+// ---- Eventos automáticos (Fase C) ----
+// No hay servidor: todo esto se calcula cuando alguien abre o refresca el sistema.
+// Cada evento se genera UNA sola vez por su clave (refTipo+refId), aunque después se complete.
+const TAREAS_AUTO_DEF=[
+    {id:'cot_seguimiento',nombre:'Cotización sin respuesta',       ayuda:'Crea una tarea al encargado cuando una cotización lleva X días sin aceptarse.',                  dias:7,  etiquetaDias:'Días sin respuesta'},
+    {id:'venta_saldo',    nombre:'Saldo pendiente con viaje cerca',ayuda:'Crea una tarea al encargado cuando falta cobrar y el viaje sale dentro de X días.',              dias:15, etiquetaDias:'Días antes del viaje'},
+    {id:'cumple',         nombre:'Cumpleaños de colaboradora',     ayuda:'Avisa en la campana X días antes. Requiere la fecha de nacimiento en la ficha de empleado.',     dias:3,  etiquetaDias:'Días de anticipación'},
+    {id:'aniversario',    nombre:'Aniversario laboral',            ayuda:'Avisa en la campana X días antes del aniversario de ingreso.',                                  dias:3,  etiquetaDias:'Días de anticipación'},
+    {id:'periodo_prueba', nombre:'Fin de período de prueba',       ayuda:'Crea una tarea cuando una colaboradora está por cumplir 3 meses desde su ingreso.',              dias:7,  etiquetaDias:'Días de anticipación'},
+    {id:'corte_planilla', nombre:'Corte de planilla',              ayuda:'Crea una tarea antes de cada quincena (día 15 y fin de mes) para preparar las colillas.',        dias:2,  etiquetaDias:'Días antes del corte'}
+];
+function getTareasAutoCfg(){
+    const c=getConfig().tareasAuto||{};
+    const out={};
+    TAREAS_AUTO_DEF.forEach(d=>{
+        const g=c[d.id]||{};
+        out[d.id]={activo:g.activo!==false,dias:(g.dias!==undefined&&g.dias!==null&&g.dias!=='')?num(g.dias):d.dias};
+    });
+    return out;
+}
+function _tareaAutoYaExiste(refTipo,refId){
+    return getTareas().some(t=>t.refTipo===refTipo&&String(t.refId)===String(refId));
+}
+function _avisoAutoYaExiste(refId){
+    return getNotificaciones().some(n=>n.origen==='auto'&&String(n.refId)===String(refId));
+}
+function _emailDeEncargado(nombre){
+    if(!nombre)return '';
+    const m=getEncargadosEmails();
+    return _normEmail(m[nombre]||'');
+}
+function _diasEntreISO(desdeISO,hastaISO){
+    const a=new Date(desdeISO+'T12:00:00'),b=new Date(hastaISO+'T12:00:00');
+    if(isNaN(a)||isNaN(b))return null;
+    return Math.round((b-a)/86400000);
+}
+// Próxima ocurrencia (este año o el que viene) de un día/mes, en ISO.
+function _proximoAniversarioISO(fechaISO,hoyISO){
+    const m=String(fechaISO||'').match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if(!m)return null;
+    const anioHoy=parseInt(hoyISO.slice(0,4),10);
+    let cand=anioHoy+'-'+m[2]+'-'+m[3];
+    if(cand<hoyISO)cand=(anioHoy+1)+'-'+m[2]+'-'+m[3];
+    return cand;
+}
+function generarTareasAutomaticas(){
+    const cfg=getTareasAutoCfg();
+    const hoy=_tareaHoyISO();
+    const admin=APROBADORES_RRHH[0];
+    let creadas=0;
+    const nuevaTarea=(refTipo,refId,o)=>{
+        if(_tareaAutoYaExiste(refTipo,refId))return;
+        crearTarea(Object.assign({origen:'auto',refTipo:refTipo,refId:String(refId)},o));
+        creadas++;
+    };
+    const nuevoAviso=(refId,titulo,detalle,paraEmails)=>{
+        if(_avisoAutoYaExiste(refId))return;
+        (paraEmails||[]).forEach(em=>{if(em)crearNotificacion({tipo:'info',titulo:titulo,detalle:detalle,paraEmail:em,origen:'auto',refId:String(refId)});});
+        creadas++;
+    };
+
+    // 1) Cotizaciones sin respuesta.
+    if(cfg.cot_seguimiento.activo){
+        const dias=Math.max(1,cfg.cot_seguimiento.dias);
+        // Techo doble para no inundar la lista la primera vez: no mira cotizaciones muy viejas
+        // (VENTANA días) y no crea más de MAX tareas por corrida.
+        const VENTANA=60,MAX=10;
+        let hechas=0;
+        const conVenta=new Set(getVentas().map(v=>String(v.cotizacionId)).filter(Boolean));
+        getHistorial().forEach(h=>{
+            if(hechas>=MAX)return;
+            if(!h||h.aceptada||conVenta.has(String(h.id))||!h.fecha)return;
+            const creada=String(h.fecha).slice(0,10);
+            const d=_diasEntreISO(creada,hoy);
+            if(d===null||d<dias||d>VENTANA)return;
+            if(_tareaAutoYaExiste('cot_seguimiento',h.id))return;
+            hechas++;
+            const d2=h.data||{};
+            const em=_emailDeEncargado(d2.encargado)||admin;
+            nuevaTarea('cot_seguimiento',h.id,{
+                titulo:'Dar seguimiento: '+(d2.destino||'cotización'),
+                descripcion:'La cotización de '+((d2.tipoCliente==='empresa'?d2.empresaNombre:d2.clienteNombre)||'cliente sin nombre')+' para '+(d2.destino||'—')+' lleva '+d+' días sin aceptarse. Contactá al cliente para saber en qué quedó.',
+                responsableEmail:em,prioridad:'normal',moduloOrigen:'Cotizaciones',avisar:true
+            });
+        });
+    }
+    // 2) Saldo pendiente con el viaje cerca.
+    if(cfg.venta_saldo.activo){
+        const dias=Math.max(1,cfg.venta_saldo.dias);
+        getVentas().forEach(v=>{
+            if(!v||v.estado==='cancelada'||!v.fechaInicio)return;
+            const faltan=_diasEntreISO(hoy,String(v.fechaInicio).slice(0,10));
+            if(faltan===null||faltan<0||faltan>dias)return;
+            const c=calcCobranzaStatus(v);
+            if(!(c.montoTotal>0)||c.saldo<=0)return;
+            const em=_emailDeEncargado(v.encargado)||admin;
+            nuevaTarea('venta_saldo',v.id,{
+                titulo:'Cobrar saldo: '+(v.clienteNombre||v.destino||'venta'),
+                descripcion:'Quedan '+fmtMoney(c.saldo,c.moneda)+' por cobrar y el viaje a '+(v.destino||'—')+' sale en '+faltan+' día(s) ('+fmtFechaCorta(String(v.fechaInicio).slice(0,10))+').',
+                responsableEmail:em,prioridad:faltan<=3?'urgente':'alta',vence:String(v.fechaInicio).slice(0,10),
+                moduloOrigen:'Cobranza',avisar:true
+            });
+        });
+    }
+    // 3, 4, 5) Fechas de las colaboradoras.
+    const empleados=getRrhhEmpleados().filter(e=>e&&(e.estado||'activo')==='activo');
+    empleados.forEach(e=>{
+        // Cumpleaños (aviso informativo a los administradores).
+        if(cfg.cumple.activo&&e.fechaNacimiento){
+            const prox=_proximoAniversarioISO(e.fechaNacimiento,hoy);
+            const d=prox?_diasEntreISO(hoy,prox):null;
+            if(d!==null&&d>=0&&d<=Math.max(0,cfg.cumple.dias)){
+                nuevoAviso('cumple_'+e.id+'_'+prox.slice(0,4),'🎂 Cumpleaños de '+(e.nombre||''),
+                    (e.nombre||'')+' cumple años el '+fmtFechaCorta(prox)+(d===0?' (¡hoy!)':' (en '+d+' día(s))')+'.',APROBADORES_RRHH);
+            }
+        }
+        if(!e.fechaIngreso)return;
+        // Aniversario laboral (aviso informativo).
+        if(cfg.aniversario.activo){
+            const prox=_proximoAniversarioISO(e.fechaIngreso,hoy);
+            const d=prox?_diasEntreISO(hoy,prox):null;
+            const anios=prox?(parseInt(prox.slice(0,4),10)-parseInt(String(e.fechaIngreso).slice(0,4),10)):0;
+            if(d!==null&&d>=0&&d<=Math.max(0,cfg.aniversario.dias)&&anios>0){
+                nuevoAviso('aniv_'+e.id+'_'+prox.slice(0,4),'🎉 Aniversario laboral de '+(e.nombre||''),
+                    (e.nombre||'')+' cumple '+anios+' año(s) en la empresa el '+fmtFechaCorta(prox)+(d===0?' (¡hoy!)':' (en '+d+' día(s))')+'.',APROBADORES_RRHH);
+            }
+        }
+        // Fin del período de prueba (3 meses desde el ingreso).
+        if(cfg.periodo_prueba.activo){
+            const ing=new Date(String(e.fechaIngreso).slice(0,10)+'T12:00:00');
+            if(!isNaN(ing)){
+                const fin=new Date(ing);fin.setMonth(fin.getMonth()+3);
+                const finISO=fin.getFullYear()+'-'+String(fin.getMonth()+1).padStart(2,'0')+'-'+String(fin.getDate()).padStart(2,'0');
+                const d=_diasEntreISO(hoy,finISO);
+                if(d!==null&&d>=0&&d<=Math.max(0,cfg.periodo_prueba.dias)){
+                    nuevaTarea('periodo_prueba',e.id,{
+                        titulo:'Fin del período de prueba: '+(e.nombre||''),
+                        descripcion:(e.nombre||'')+' cumple 3 meses desde su ingreso el '+fmtFechaCorta(finISO)+'. Definí si continúa y dejalo conversado con ella.',
+                        responsableEmail:admin,prioridad:'alta',vence:finISO,moduloOrigen:'Planilla',avisar:true
+                    });
+                }
+            }
+        }
+    });
+    // 6) Corte de planilla (quincenal: día 15 y último día del mes).
+    if(cfg.corte_planilla.activo){
+        const anticipo=Math.max(0,cfg.corte_planilla.dias);
+        const y=parseInt(hoy.slice(0,4),10),mo=parseInt(hoy.slice(5,7),10);
+        const ultimo=new Date(y,mo,0).getDate();
+        [[15,'Primera quincena'],[ultimo,'Segunda quincena']].forEach(par=>{
+            const cortISO=y+'-'+String(mo).padStart(2,'0')+'-'+String(par[0]).padStart(2,'0');
+            const d=_diasEntreISO(hoy,cortISO);
+            if(d===null||d<0||d>anticipo)return;
+            nuevaTarea('corte_planilla',cortISO,{
+                titulo:'Preparar planilla — '+par[1],
+                descripcion:'El corte es el '+fmtFechaCorta(cortISO)+'. Revisá horas extra aprobadas, vacaciones del período y generá las colillas en Planilla.',
+                responsableEmail:admin,prioridad:'alta',vence:cortISO,moduloOrigen:'Planilla',avisar:true
+            });
+        });
+    }
+    return creadas;
+}
+// Panel de configuración de los avisos automáticos (dentro de la sección Tareas).
+function _tareasAutoPanel(){
+    const c=getTareasAutoCfg();
+    return `<details style="margin-top:14px;">
+        <summary style="cursor:pointer;font-weight:700;font-size:0.85rem;color:var(--primary-dark);">&#9881; Avisos automáticos</summary>
+        <div class="card" style="margin-top:8px;">
+            <p class="config-hint" style="margin-bottom:10px;">Elegí qué avisos genera el sistema solo. Se calculan cuando alguien abre o refresca el sistema, y cada uno se crea una sola vez.</p>
+            ${TAREAS_AUTO_DEF.map(d=>`<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;border-bottom:1px solid var(--border);padding:8px 0;">
+                <label style="display:flex;align-items:center;gap:8px;cursor:pointer;flex:1;min-width:230px;margin:0;">
+                    <input type="checkbox" id="ta_${d.id}_on" ${c[d.id].activo?'checked':''} style="width:auto;margin:0;">
+                    <span><strong style="font-size:0.84rem;">${d.nombre}</strong><br><span style="font-size:0.72rem;color:var(--text-light);">${d.ayuda}</span></span>
+                </label>
+                <div style="display:flex;align-items:center;gap:6px;">
+                    <span style="font-size:0.74rem;color:var(--text-light);">${d.etiquetaDias}</span>
+                    <input type="number" id="ta_${d.id}_dias" min="0" step="1" value="${c[d.id].dias}" style="width:70px;padding:4px 6px;font-size:0.82rem;border:1px solid var(--border);border-radius:4px;">
+                </div>
+            </div>`).join('')}
+            <div style="margin-top:10px;display:flex;gap:8px;">
+                <button class="btn btn-sm btn-success" onclick="guardarTareasAutoCfg()">Guardar</button>
+                <button class="btn btn-sm btn-outline" onclick="if(generarTareasAutomaticas()>0){alert('Listo, se generaron avisos nuevos.');}else{alert('No hay nada nuevo que generar por ahora.');}renderTareas();">Revisar ahora</button>
+            </div>
+        </div>
+    </details>`;
+}
+function guardarTareasAutoCfg(){
+    const cfg=getConfig();
+    cfg.tareasAuto=cfg.tareasAuto||{};
+    TAREAS_AUTO_DEF.forEach(d=>{
+        const on=document.getElementById('ta_'+d.id+'_on'),dd=document.getElementById('ta_'+d.id+'_dias');
+        cfg.tareasAuto[d.id]={activo:!!(on&&on.checked),dias:dd?Math.max(0,num(dd.value)):d.dias};
+    });
+    saveConfig(cfg);
+    alert('Guardado.');
+    renderTareas();
 }
 // =====================================================================================
 
@@ -9319,6 +9524,7 @@ window.onUserReady=async function(user){
         await loadAllFromFirestore();
         init();
         try{generarNotificacionesViajesProximos();}catch(e){console.error('[notif viajes]',e);}
+        try{generarTareasAutomaticas();}catch(e){console.error('[tareas auto]',e);}
     }
     // Activar control de inactividad (auto-logout)
     iniciarInactividad();
