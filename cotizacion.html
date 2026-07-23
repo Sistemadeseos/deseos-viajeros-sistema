@@ -349,7 +349,8 @@ body{font-family:'Open Sans',sans-serif;background:var(--bg);color:var(--text);m
 
 /* ===== PRINT ===== */
 /* ===== MOBILE ===== */
-.mobile-menu-btn{display:none;background:transparent;border:none;color:white;font-size:1.4rem;padding:4px 10px;cursor:pointer;margin-right:8px}
+.mobile-menu-btn{display:none;align-items:center;justify-content:center;background:transparent;border:none;color:white;font-size:1.5rem;line-height:1;padding:0;min-width:44px;min-height:44px;cursor:pointer;margin-right:4px;-webkit-tap-highlight-color:rgba(255,255,255,0.2);border-radius:8px}
+.mobile-menu-btn:active{background:rgba(255,255,255,0.18)}
 .sidebar-overlay{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:45}
 .sidebar-overlay.open{display:block}
 .mobile-tab-toggle{display:none;background:var(--bg);padding:6px;border-radius:8px;margin-bottom:10px;gap:4px}
@@ -615,8 +616,12 @@ body.sin-costos .btn-calc-toggle,body.sin-costos .calc-row{display:none!importan
     .mobile-menu-btn{display:inline-flex}
     .app-sidebar{position:fixed;top:0;left:0;bottom:0;width:230px;z-index:50;transform:translateX(-100%);transition:transform 0.25s ease-out;box-shadow:2px 0 12px rgba(0,0,0,0.15)}
     .app-sidebar.open{transform:translateX(0)}
-    .app-header{padding:10px 14px}
-    .app-header h1{font-size:1rem}
+    /* El header es lo primero del viewport: en iPhone queda debajo del reloj/notch.
+       El padding-top real lo define el bloque de SAFE AREAS al final de esta hoja. */
+    .app-header{padding:8px 12px;min-height:56px}
+    /* El titulo no debe empujar el header a dos lineas: se recorta con puntos suspensivos. */
+    .app-header h1{font-size:1rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .app-header > div:first-child{min-width:0;flex:1}
     .header-actions{gap:5px}
     .header-actions .btn{padding:6px 10px;font-size:0.72rem}
     .header-actions .btn span,.header-actions .btn svg{display:none}
@@ -873,11 +878,17 @@ body.sin-costos .btn-calc-toggle,body.sin-costos .calc-row{display:none!importan
 @media print{.fab-captura{display:none!important}}
 
 /* ===== SAFE AREAS (notch de iPhone / barra de estado iOS y Android) ===== */
+/* Se usa env(...,0px) con valor de reserva en vez de max(...) anidado: max() con calc()+env()
+   adentro falla en algunas versiones de Safari y ahi el header se metia debajo del reloj. */
+.app-header{padding-top:calc(env(safe-area-inset-top,0px) + 10px);padding-left:calc(env(safe-area-inset-left,0px) + 25px);padding-right:calc(env(safe-area-inset-right,0px) + 25px)}
+@media (max-width:768px){
+    /* En el celular el boton de menu vive en la esquina superior izquierda: necesita
+       el alto del notch/barra de estado MAS un respiro, o queda debajo de la hora. */
+    .app-header{padding-top:calc(env(safe-area-inset-top,0px) + 12px);padding-left:calc(env(safe-area-inset-left,0px) + 12px);padding-right:calc(env(safe-area-inset-right,0px) + 12px)}
+}
+/* Sidebar: en mobile queda fixed pegado arriba, su logo tambien necesita espacio */
+.app-sidebar .sidebar-logo{padding-top:calc(env(safe-area-inset-top,0px) + 18px)}
 @supports (padding:env(safe-area-inset-top)){
-    /* Header superior: empuja el contenido debajo del notch / status bar */
-    .app-header{padding-top:max(10px,calc(env(safe-area-inset-top) + 4px));padding-left:max(25px,env(safe-area-inset-left));padding-right:max(25px,env(safe-area-inset-right))}
-    /* Sidebar: en mobile queda fixed, su logo tambien necesita espacio */
-    .app-sidebar .sidebar-logo{padding-top:max(18px,calc(env(safe-area-inset-top) + 10px))}
     /* Boton flotante "Captura rapida": safe-area inferior y derecha */
     .fab-captura{bottom:max(24px,calc(env(safe-area-inset-bottom) + 12px));right:max(24px,calc(env(safe-area-inset-right) + 12px))}
     /* Pantalla de login: respetar safe-area vertical */
@@ -1576,7 +1587,7 @@ const CONTACTO_URGENCIAS=[
 let _fsEnabled=false; // true después de loadAllFromFirestore()
 let _fsSyncInProgress=false; // evita loops cuando la carga inicial escribe al cache
 // Número de versión visible: para confirmar que TODAS las usuarias corren el código actualizado.
-const APP_VERSION='v28-0723';
+const APP_VERSION='v29-0723';
 
 // ============================================================================
 // CACHE PERSISTENTE: IndexedDB (capacidad amplia) + espejo en memoria (_cache).
