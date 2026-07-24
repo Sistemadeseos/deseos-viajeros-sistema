@@ -1587,7 +1587,7 @@ const CONTACTO_URGENCIAS=[
 let _fsEnabled=false; // true después de loadAllFromFirestore()
 let _fsSyncInProgress=false; // evita loops cuando la carga inicial escribe al cache
 // Número de versión visible: para confirmar que TODAS las usuarias corren el código actualizado.
-const APP_VERSION='v33-0723';
+const APP_VERSION='v34-0723';
 
 // ============================================================================
 // CACHE PERSISTENTE: IndexedDB (capacidad amplia) + espejo en memoria (_cache).
@@ -5126,7 +5126,7 @@ function openTareaModal(id){
             </div>
         </div>
         <div class="modal-footer" style="justify-content:space-between;flex-wrap:wrap;gap:8px;">
-            <button class="btn btn-sm btn-outline" onclick="abrirTareaEnGoogleCal()" title="Abre Google Calendar con el evento pre-cargado">&#128197; Agregar a Google Calendar</button>
+            <button type="button" onclick="abrirTareaEnGoogleCal()" title="Abre Google Calendar con el evento pre-cargado" style="${_GCAL_BTN_STYLE}">${_GCAL_ICON}${_GCAL_LABEL}</button>
             <span style="display:flex;gap:8px;"><button class="btn btn-ghost" onclick="closeModal('modalTarea')">Cancelar</button><button class="btn btn-success" onclick="guardarTarea()">Guardar</button></span>
         </div>
     </div>`;
@@ -5191,6 +5191,10 @@ function tareaCambiarEstado(id,nuevo){
 // Arma el link de "plantilla de evento" de Google Calendar (no usa API ni OAuth: abre el
 // calendario del usuario con el evento pre-cargado). Evento de día completo: usa la fecha de
 // vencimiento si hay, si no el día de hoy. En Google la fecha fin es exclusiva → se suma 1 día.
+// Botón "Agregar tarea al calendario de Google" — estilo Google (blanco, borde suave, ícono a color).
+const _GCAL_BTN_STYLE="display:inline-flex;align-items:center;gap:8px;background:#fff;border:1px solid #dadce0;border-radius:8px;padding:8px 15px;font-size:0.82rem;font-weight:500;color:#3c4043;cursor:pointer;text-decoration:none;font-family:inherit;line-height:1.2;white-space:nowrap;";
+const _GCAL_ICON='<svg width="17" height="17" viewBox="0 0 24 24" style="flex-shrink:0;"><rect x="3" y="4" width="18" height="17" rx="2" fill="#fff" stroke="#4285F4" stroke-width="1.6"/><rect x="3" y="4" width="18" height="4.5" rx="2" fill="#4285F4"/><text x="12" y="17.5" font-size="8" font-weight="700" fill="#4285F4" text-anchor="middle" font-family="Arial">17</text></svg>';
+const _GCAL_LABEL='Agregar tarea al calendario de Google';
 function _tareaGoogleCalUrl(t){
     if(!t)return '#';
     const iniISO=(t.vence&&/^\d{4}-\d{2}-\d{2}/.test(t.vence))?t.vence.slice(0,10):_tareaHoyISO();
@@ -5237,7 +5241,7 @@ function openTareaDetalle(id){
                 ${t.motivo?`<div><strong>Motivo de anulación:</strong> ${esc(t.motivo)}</div>`:''}
             </div>
             <div style="margin-bottom:12px;">
-                <a class="btn btn-sm btn-outline" href="${_tareaGoogleCalUrl(t)}" target="_blank" rel="noopener" style="text-decoration:none;">&#128197; Agregar a Google Calendar</a>
+                <a href="${_tareaGoogleCalUrl(t)}" target="_blank" rel="noopener" style="${_GCAL_BTN_STYLE}">${_GCAL_ICON}${_GCAL_LABEL}</a>
                 ${!t.vence?`<div style="font-size:0.72rem;color:var(--text-light);margin-top:4px;">Sin fecha de vencimiento: se agenda para hoy. Poné una fecha en la tarea para que vaya a ese día.</div>`:''}
             </div>
             ${_tareaEsAprobacion(t)
