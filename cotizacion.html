@@ -1587,7 +1587,7 @@ const CONTACTO_URGENCIAS=[
 let _fsEnabled=false; // true después de loadAllFromFirestore()
 let _fsSyncInProgress=false; // evita loops cuando la carga inicial escribe al cache
 // Número de versión visible: para confirmar que TODAS las usuarias corren el código actualizado.
-const APP_VERSION='v31-0723';
+const APP_VERSION='v32-0723';
 
 // ============================================================================
 // CACHE PERSISTENTE: IndexedDB (capacidad amplia) + espejo en memoria (_cache).
@@ -5014,7 +5014,10 @@ function _tareaLog(t,texto){
 let _tareaVista='mias',_tareaFiltroEstado='abiertas',_tareaFiltroPrio='';
 function switchTareaVista(v){_tareaVista=v;renderTareas();}
 function _tareaAplicarFiltros(){
-    _tareaFiltroEstado=(document.getElementById('tqEstado')||{}).value||'abiertas';
+    // Ojo: la opción "Todos los estados" vale '' (cadena vacía). No usar `||'abiertas'`
+    // porque '' es falsy y se caería siempre en "Sin terminar" (no dejaba elegir "Todos").
+    const _elEstado=document.getElementById('tqEstado');
+    _tareaFiltroEstado=_elEstado?_elEstado.value:'abiertas';
     _tareaFiltroPrio=(document.getElementById('tqPrio')||{}).value||'';
     renderTareas();
 }
