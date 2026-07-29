@@ -1503,7 +1503,7 @@ onAuthStateChanged(fbAuth, (user) => {
         <div class="form-group"><label style="display:flex;align-items:center;gap:8px;">Plan de pago <button type="button" class="btn btn-sm btn-ghost" style="font-size:0.7rem;padding:3px 8px;" onclick="distribuirPlanPagoVe()" title="Divide el monto total en partes iguales">Distribuir total</button></label><p style="font-size:0.7rem;color:var(--text-light);margin-top:0;margin-bottom:6px;">Una fila por mes desde la fecha de la venta hasta la fecha de inicio del viaje.</p><div id="vePlanPagoBox"></div></div>
         <div class="form-group"><label>Notas</label><textarea id="veNotas" rows="2" placeholder="Notas adicionales..."></textarea></div>
     </div>
-    <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modalVentaInfoExtra')">Saltar</button><button class="btn btn-success" id="veBtnGuardar" onclick="guardarVentaInfoExtra()">Guardar info de venta</button></div>
+    <div class="modal-footer" style="justify-content:space-between;flex-wrap:wrap;gap:8px;"><button class="btn btn-outline" style="color:var(--primary-dark);border-color:var(--primary);" onclick="verCotizacionDeVenta()" title="Abrir la cotizaci&oacute;n en modo solo lectura">&#128065; Ver cotizaci&oacute;n</button><span style="display:flex;gap:8px;"><button class="btn btn-ghost" onclick="closeModal('modalVentaInfoExtra')">Saltar</button><button class="btn btn-success" id="veBtnGuardar" onclick="guardarVentaInfoExtra()">Guardar info de venta</button></span></div>
 </div></div>
 
 <!-- Modales RRHH (se llenan dinamicamente por JS) -->
@@ -1587,7 +1587,7 @@ const CONTACTO_URGENCIAS=[
 let _fsEnabled=false; // true después de loadAllFromFirestore()
 let _fsSyncInProgress=false; // evita loops cuando la carga inicial escribe al cache
 // Número de versión visible: para confirmar que TODAS las usuarias corren el código actualizado.
-const APP_VERSION='v36-0723';
+const APP_VERSION='v37-0723';
 
 // ============================================================================
 // CACHE PERSISTENTE: IndexedDB (capacidad amplia) + espejo en memoria (_cache).
@@ -7408,6 +7408,16 @@ function distribuirPlanPagoVe(){
     let restante=total;
     inputs.forEach((inp,i)=>{if(i===inputs.length-1){inp.value=restante.toFixed(2);}else{inp.value=cuota.toFixed(2);restante-=cuota;}});
     actualizarTotalPlanPagoVe();
+}
+// Abre la cotización de origen en modo SOLO LECTURA (acceso informativo desde la carátula de venta).
+function verCotizacionDeVenta(){
+    const id=document.getElementById('veVentaId').value;
+    const v=getVentas().find(x=>x.id===id);
+    if(!v){alert('Venta no encontrada.');return;}
+    if(!v.cotizacionId){alert('Esta venta no tiene una cotización vinculada.');return;}
+    if(!getHistorial().some(h=>h.id===v.cotizacionId)){alert('La cotización vinculada ya no existe.');return;}
+    closeModal('modalVentaInfoExtra');
+    cargarCotizacion(v.cotizacionId,true);
 }
 function guardarVentaInfoExtra(){
     const ventaId=document.getElementById('veVentaId').value;
