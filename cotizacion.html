@@ -1587,7 +1587,7 @@ const CONTACTO_URGENCIAS=[
 let _fsEnabled=false; // true después de loadAllFromFirestore()
 let _fsSyncInProgress=false; // evita loops cuando la carga inicial escribe al cache
 // Número de versión visible: para confirmar que TODAS las usuarias corren el código actualizado.
-const APP_VERSION='v34-0723';
+const APP_VERSION='v35-0723';
 
 // ============================================================================
 // CACHE PERSISTENTE: IndexedDB (capacidad amplia) + espejo en memoria (_cache).
@@ -7567,6 +7567,8 @@ function toggleGrupoSection(h){
     try{localStorage.setItem('dv_grupos_expanded',JSON.stringify(Array.from(setG)));}catch(e){}
 }
 function eliminarVentaGrupal(id){if(!exigirPermiso('ventas.eliminar','eliminar ventas'))return;if(!confirm('¿Eliminar esta venta grupal? El contacto vinculado se mantiene.'))return;saveVentas(getVentas().filter(v=>v.id!==id));renderVentas();updateBadges();}
+// Elimina una venta individual (personalizada). La cotización de origen NO se toca.
+function eliminarVenta(id){if(!exigirPermiso('ventas.eliminar','eliminar ventas'))return;const v=getVentas().find(x=>x.id===id);if(!v)return;if(!confirm('¿Eliminar esta venta de "'+(v.destino||v.clienteNombre||'')+'"?\n\nLa cotización de origen se mantiene; solo se quita la venta.'))return;saveVentas(getVentas().filter(x=>x.id!==id));renderVentas();updateBadges();}
 
 function agregarClienteAlGrupo(grupo){
     openModalVentaGrupal(grupo);
@@ -8104,7 +8106,7 @@ function renderVentas(){
         <td><span class="lt-badge" style="background:${estadoColors[v.estado]||'var(--primary)'};color:white;">${estadoLabels[v.estado]||v.estado}</span></td>
         <td>${cobBadge}</td>
         <td class="lt-progress-cell"><div class="venta-progress"><div class="venta-progress-bar" style="width:${pct}%"></div></div><div class="lr-progress-text">${done}/${total} (${pct}%)</div></td>
-        <td><div class="lt-actions"><button class="btn-checklist" onclick="openChecklist('${v.id}')" title="Checklist">&#9998;</button><button class="btn-checklist" style="background:#fff3e0;color:#d4830f;border:1px solid #e8941a;" onclick="openCobranza('${v.id}')" title="Estado de cuenta">&#128176;</button><button class="btn btn-sm btn-ghost" onclick="cargarCotizacion('${v.cotizacionId}')" title="Ver cotizaci\u00f3n">&#128065;</button></div></td>
+        <td><div class="lt-actions"><button class="btn btn-sm btn-primary" onclick="cargarCotizacion('${v.cotizacionId}')" title="Editar (abrir cotizaci\u00f3n)">&#9998;</button><button class="btn-checklist" onclick="openChecklist('${v.id}')" title="Checklist">&#9745;</button><button class="btn-checklist" style="background:#fff3e0;color:#d4830f;border:1px solid #e8941a;" onclick="openCobranza('${v.id}')" title="Estado de cuenta">&#128176;</button><button class="btn btn-sm btn-danger" onclick="eliminarVenta('${v.id}')" title="Eliminar">&times;</button></div></td>
         </tr>`;
     }).join('');
     grid.innerHTML=`<table class="list-table">
