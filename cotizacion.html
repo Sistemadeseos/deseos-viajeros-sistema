@@ -1587,7 +1587,7 @@ const CONTACTO_URGENCIAS=[
 let _fsEnabled=false; // true después de loadAllFromFirestore()
 let _fsSyncInProgress=false; // evita loops cuando la carga inicial escribe al cache
 // Número de versión visible: para confirmar que TODAS las usuarias corren el código actualizado.
-const APP_VERSION='v39-0723';
+const APP_VERSION='v40-0723';
 
 // ============================================================================
 // CACHE PERSISTENTE: IndexedDB (capacidad amplia) + espejo en memoria (_cache).
@@ -5622,7 +5622,22 @@ function guardarTareasAutoCfg(){
         cfg.tareasAuto[d.id]={activo:!!(on&&on.checked),dias:dd?Math.max(0,num(dd.value)):d.dias};
     });
     saveConfig(cfg);
-    alert('Guardado.');
+    // Desactivar un evento frena las NUEVAS, pero las ya creadas quedan. Si hay tareas viejas
+    // de eventos que quedaron apagados, ofrecemos borrarlas acá para que la lista quede limpia.
+    const apagadosConTareas=TAREAS_AUTO_DEF
+        .filter(d=>!cfg.tareasAuto[d.id].activo)
+        .map(d=>({d,ids:getTareas().filter(t=>t&&t.origen==='auto'&&(t.refTipo||'')===d.id).map(t=>t.id)}))
+        .filter(x=>x.ids.length>0);
+    if(apagadosConTareas.length){
+        const detalle=apagadosConTareas.map(x=>'• '+x.d.nombre+' ('+x.ids.length+')').join('\n');
+        const total=apagadosConTareas.reduce((s,x)=>s+x.ids.length,0);
+        if(confirm('Guardado.\n\nHay '+total+' tarea(s) ya creada(s) de eventos que dejaste desactivados:\n\n'+detalle+'\n\n¿Querés borrarlas ahora para limpiar la lista? (Las desactivadas ya no se van a volver a crear.)')){
+            const borrar=new Set(apagadosConTareas.flatMap(x=>x.ids));
+            saveTareas(getTareas().filter(t=>!borrar.has(t.id)));
+        }
+    }else{
+        alert('Guardado.');
+    }
     renderTareas();
 }
 // =====================================================================================
