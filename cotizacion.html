@@ -6223,7 +6223,7 @@ function addOpcion(data){
     const opId='op_'+Date.now()+'_'+Math.random().toString(36).slice(2,7);
     const fees=cfgGet().fees;
     // Al agregar una opción NUEVA (sin data) y si ya existe otra opción, heredar de la PRIMERA:
-    // Boleto aéreo, Fee, Transporte y Pax del grupo (para no re-tipear lo que se repite entre opciones).
+    // Boleto aéreo, Tours, Fee, Transporte y Pax del grupo (para no re-tipear lo que se repite entre opciones).
     let _her=null;
     if(!data){const primera=document.querySelector('#opcionesBody tr.opcion-row');if(primera)_her=_leerHerenciaCalc(primera.dataset.opcionId);}
     // Estado inicial del calc (pre-rellena fees desde config, o hereda de la primera opción)
@@ -6232,7 +6232,7 @@ function addOpcion(data){
         values:{
             boleto:_her?_her.boleto:{ad:'',n11:'',n3:''},
             hotel:{ad:'',n11:'',n3:''},
-            tours:{ad:'',n11:'',n3:''},
+            tours:_her?_her.tours:{ad:'',n11:'',n3:''},
             transp:_her?_her.transp:{ad:'',n11:'',n3:''},
             fee:_her?_her.fee:{ad:String(fees.fee_adulto||''),n11:String(fees.fee_nino||''),n3:String(fees.fee_bebe||'')},
             xgrupo:{ad:'',n11:'',n3:''},
@@ -6443,11 +6443,12 @@ function populateCalcInputs(opId,calc){
 }
 
 // Lee de una opción existente (por DOM) los valores que se heredan a una opción nueva:
-// Boleto aéreo, Fee, Transporte y Pax del grupo. Copia la fórmula si la celda tiene una.
+// Boleto aéreo, Tours, Fee, Transporte y Pax del grupo. Copia la fórmula si la celda tiene una.
 function _leerHerenciaCalc(opId){
     const cell=(fld,col)=>{const inp=document.querySelector(`input[data-op="${opId}"][data-fld="${fld}"][data-col="${col}"]`);return inp?(inp.dataset.formula||inp.value||''):'';};
     return {
         boleto:{ad:cell('boleto','ad'),n11:cell('boleto','n11'),n3:cell('boleto','n3')},
+        tours:{ad:cell('tours','ad'),n11:cell('tours','n11'),n3:cell('tours','n3')},
         transp:{ad:cell('transp','ad'),n11:cell('transp','n11'),n3:cell('transp','n3')},
         fee:{ad:cell('fee','ad'),n11:cell('fee','n11'),n3:cell('fee','n3')}
     };
