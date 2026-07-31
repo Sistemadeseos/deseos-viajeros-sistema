@@ -1409,6 +1409,24 @@ onAuthStateChanged(fbAuth, (user) => {
         <div class="cobranza-stat pending"><div class="cs-label">Saldo pendiente</div><div class="cs-value" id="cobSaldoDisp">$0.00</div></div>
     </div>
     <div class="cobranza-progress"><div class="cobranza-progress-bar" id="cobProgressBar" style="width:0%">0%</div></div>
+    <div id="cobDesglose" style="font-size:0.78rem;color:var(--text-light);text-align:center;margin:-4px 0 4px;"></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:16px;">
+        <h4 style="font-family:'Playfair Display',serif;color:var(--primary-dark);font-size:0.95rem;">Productos / servicios adicionales</h4>
+        <button class="btn btn-sm btn-primary" onclick="toggleAdicForm()">+ Agregar producto</button>
+    </div>
+    <div class="pago-form" id="adicForm">
+        <h4 id="adicFormTitle" style="font-family:'Playfair Display',serif;color:var(--primary-dark);font-size:0.95rem;margin-bottom:10px;">Agregar producto adicional</h4>
+        <div class="form-row">
+            <div class="form-group"><label>Fecha</label><input type="date" id="adicFecha"></div>
+            <div class="form-group"><label>Tipo</label><select id="adicTipo"></select></div>
+            <div class="form-group"><label>Monto</label><input type="number" id="adicMonto" step="0.01" placeholder="0.00"></div>
+        </div>
+        <div class="form-group"><label>Concepto / descripci&oacute;n</label><input type="text" id="adicConcepto" placeholder="Ej: Seguro de asistencia AXA"></div>
+        <div class="form-group"><label>Nota</label><input type="text" id="adicNota" placeholder="Opcional"></div>
+        <button class="btn btn-sm btn-success" id="adicFormSaveBtn" onclick="saveAdic()">Guardar producto</button>
+        <button class="btn btn-sm btn-ghost" onclick="cancelarEdicionAdic()">Cancelar</button>
+    </div>
+    <table class="pagos-table" id="adicTable"><thead><tr><th>Fecha</th><th>Tipo</th><th>Concepto</th><th>Nota</th><th style="text-align:right;">Monto</th><th></th></tr></thead><tbody id="adicTableBody"></tbody></table>
     <div style="display:flex;justify-content:space-between;align-items:center;margin-top:16px;">
         <h4 style="font-family:'Playfair Display',serif;color:var(--primary-dark);font-size:0.95rem;">Pagos registrados <span id="cobStatusBadge"></span></h4>
         <button class="btn btn-sm btn-primary" onclick="togglePagoForm()">+ Registrar pago</button>
@@ -1830,6 +1848,14 @@ async function syncArrayCollection(collName,newArray,hasImages){
                     if(!toWrite.cobranza)toWrite.cobranza={montoTotal:0,moneda:'USD',pagos:[]};
                     toWrite.cobranza.pagos=pagosFinal;
                     toWrite.cobranza.pagosEliminados=Array.from(tomb);
+                    // Mismo merge defensivo para productos adicionales (adicionales[] + tumbas).
+                    const tombA=new Set([].concat(localCob.adicionalesEliminados||[],remoteCob.adicionalesEliminados||[]).map(String));
+                    const remoteAdic=remoteCob.adicionales||[];
+                    const localAdic=localCob.adicionales||[];
+                    const localAIds=new Set(localAdic.map(a=>String(a.id)));
+                    const faltantesA=remoteAdic.filter(a=>!localAIds.has(String(a.id))&&!tombA.has(String(a.id)));
+                    toWrite.cobranza.adicionales=localAdic.filter(a=>!tombA.has(String(a.id))).concat(faltantesA);
+                    toWrite.cobranza.adicionalesEliminados=Array.from(tombA);
                 }
             }catch(e){console.warn('[FS] no se pudo merge-de-pagos previo a setDoc, escribiendo igual:',id,e);}
         }
@@ -1965,6 +1991,14 @@ async function loadAllFromFirestore(){
             localPagos.forEach(p=>{if(!serverPagoIds.has(String(p.id))&&!tomb.has(String(p.id))){v.cobranza.pagos.push(p);pagosRescatados++;}});
             if(tomb.size)v.cobranza.pagos=v.cobranza.pagos.filter(p=>!tomb.has(String(p.id)));
             v.cobranza.pagosEliminados=Array.from(tomb);
+            // Mismo rescate para productos adicionales: preservar los locales que el server no tiene y no fueron borrados.
+            if(!Array.isArray(v.cobranza.adicionales))v.cobranza.adicionales=[];
+            const tombA=new Set([].concat(v.cobranza.adicionalesEliminados||[],localCob.adicionalesEliminados||[]).map(String));
+            const localAdic=localCob.adicionales||[];
+            const serverAdicIds=new Set(v.cobranza.adicionales.map(a=>String(a.id)));
+            localAdic.forEach(a=>{if(!serverAdicIds.has(String(a.id))&&!tombA.has(String(a.id))){v.cobranza.adicionales.push(a);pagosRescatados++;}});
+            if(tombA.size)v.cobranza.adicionales=v.cobranza.adicionales.filter(a=>!tombA.has(String(a.id)));
+            v.cobranza.adicionalesEliminados=Array.from(tombA);
         });
         if(pagosRescatados>0){
             console.warn('[FS] ventas: '+pagosRescatados+' pagos recuperados desde local que no estaban en Firestore.');
@@ -5508,7 +5542,7 @@ function generarTareasAutomaticas(){
             const faltan=_diasEntreISO(hoy,String(v.fechaInicio).slice(0,10));
             if(faltan===null||faltan<0||faltan>dias)return;
             const c=calcCobranzaStatus(v);
-            if(!(c.montoTotal>0)||c.saldo<=0)return;
+            if(!(c.total>0)||c.saldo<=0)return;
             const em=_emailDeEncargado(v.encargado)||admin;
             nuevaTarea('venta_saldo',v.id,{
                 titulo:'Cobrar saldo: '+(v.clienteNombre||v.destino||'venta'),
@@ -7575,7 +7609,7 @@ function renderVentasGrupales(filtered,grid){
     try{const arr=JSON.parse(localStorage.getItem('dv_grupos_expanded')||'[]');if(Array.isArray(arr))expandedSet=new Set(arr);}catch(e){}
     grid.innerHTML=nombresOrden.map(g=>{
         const lista=grupos[g];
-        const totalMonto=lista.reduce((s,v)=>s+(v.cobranza&&Number(v.cobranza.montoTotal)||0),0);
+        const totalMonto=lista.reduce((s,v)=>s+calcCobranzaStatus(v).total,0);
         const monedas=Array.from(new Set(lista.map(v=>v.cobranza&&v.cobranza.moneda||'USD')));
         const monedaTxt=monedas.length===1?monedas[0]:monedas.join('/');
         const rows=lista.map(v=>{
@@ -7587,7 +7621,7 @@ function renderVentasGrupales(filtered,grid){
             const usaPlan=planSt.estado!=='sinplan';
             const colorBadge=usaPlan?planSt.color:cob.color;
             const titleBadge=usaPlan?`Plan: ${planSt.label} · esperado al mes actual ${fmtMoney(planSt.esperadoActual||0,cob.moneda)} · pagado ${fmtMoney(planSt.pagado||0,cob.moneda)}`:'';
-            const cobBadge=cob.montoTotal>0?`<span class="lt-badge" title="${esc(titleBadge)}" style="background:${colorBadge}22;color:${colorBadge};">${cob.estadoPagoLabel} ${cob.pagadoPct}%</span>`:'<span style="color:var(--text-light);font-size:0.72rem;">-</span>';
+            const cobBadge=cob.total>0?`<span class="lt-badge" title="${esc(titleBadge)}" style="background:${colorBadge}22;color:${colorBadge};">${cob.estadoPagoLabel} ${cob.pagadoPct}%</span>`:'<span style="color:var(--text-light);font-size:0.72rem;">-</span>';
             const fv=v.fechaVenta?formatFechaCorta(v.fechaVenta)||v.fechaVenta:'';
             return`<tr class="estado-${v.estado}">
             <td>${esc(v.clienteNombre||'-')}${fv?`<div class="lt-secondary">Vendida: ${esc(fv)}</div>`:''}</td>
@@ -7697,7 +7731,7 @@ function abrirFichaGrupo(grupo){
         const c=calcCobranzaStatus(v);
         const m=c.moneda||'USD';
         if(!totalesMoneda[m])totalesMoneda[m]={total:0,pagado:0,saldo:0,clientes:0};
-        totalesMoneda[m].total+=c.montoTotal;
+        totalesMoneda[m].total+=c.total;
         totalesMoneda[m].pagado+=c.pagado;
         totalesMoneda[m].saldo+=c.saldo;
         totalesMoneda[m].clientes++;
@@ -7716,7 +7750,8 @@ function abrirFichaGrupo(grupo){
         const personas=c.personas||(v.numAcompanantes!=null?(1+v.numAcompanantes):1);
         const ppp=c.precioPorPersona!=null?c.precioPorPersona:(personas>0?(c.montoTotal/personas):0);
         const acompTitle=acomp.length?'Acompañantes: '+acomp.join(', '):'';
-        return`<tr><td>${esc(v.clienteNombre||'-')}${acomp.length?`<div style="font-size:0.7rem;color:var(--text-light);" title="${esc(acompTitle)}">+ ${acomp.length} acomp.</div>`:''}</td><td style="text-align:center;">${personas}</td><td>${fmtMoney(ppp,c.moneda)}</td><td>${fmtMoney(c.montoTotal,c.moneda)}</td><td style="color:var(--success);">${fmtMoney(c.pagado,c.moneda)}</td><td style="color:${c.saldo>0?'var(--danger)':'var(--success)'};font-weight:600;">${fmtMoney(c.saldo,c.moneda)}</td><td><span class="lt-badge" style="background:${c.color}22;color:${c.color};">${c.estadoPagoLabel} ${c.pagadoPct}%</span></td></tr>`;
+        const totalTitle=c.adicionalesTotal>0?('Viaje '+fmtMoney(c.montoTotal,c.moneda)+' + adicionales '+fmtMoney(c.adicionalesTotal,c.moneda)):'';
+        return`<tr><td>${esc(v.clienteNombre||'-')}${acomp.length?`<div style="font-size:0.7rem;color:var(--text-light);" title="${esc(acompTitle)}">+ ${acomp.length} acomp.</div>`:''}</td><td style="text-align:center;">${personas}</td><td>${fmtMoney(ppp,c.moneda)}</td><td title="${esc(totalTitle)}">${fmtMoney(c.total,c.moneda)}${c.adicionalesTotal>0?' <span style="font-size:0.62rem;color:var(--text-light);">(+adic.)</span>':''}</td><td style="color:var(--success);">${fmtMoney(c.pagado,c.moneda)}</td><td style="color:${c.saldo>0?'var(--danger)':'var(--success)'};font-weight:600;">${fmtMoney(c.saldo,c.moneda)}</td><td><span class="lt-badge" style="background:${c.color}22;color:${c.color};">${c.estadoPagoLabel} ${c.pagadoPct}%</span></td></tr>`;
     }).join('')}</tbody></table></details>`;
     // Datos generales del grupo (almacenados en coleccion dv_grupos, editables aqui)
     const gInfo=getGrupoByNombre(grupo)||{};
@@ -8148,7 +8183,7 @@ function renderVentas(){
         const total=v.checklist.length;
         const pct=total?Math.round(done/total*100):0;
         const cob=calcCobranzaStatus(v);
-        const cobBadge=cob.montoTotal>0?`<span class="lt-badge" style="background:${cob.color}22;color:${cob.color};">${cob.estadoPagoLabel} ${cob.pagadoPct}%</span>`:'<span style="color:var(--text-light);font-size:0.72rem;">-</span>';
+        const cobBadge=cob.total>0?`<span class="lt-badge" style="background:${cob.color}22;color:${cob.color};">${cob.estadoPagoLabel} ${cob.pagadoPct}%</span>`:'<span style="color:var(--text-light);font-size:0.72rem;">-</span>';
         return`<tr class="estado-${v.estado}">
         <td><div class="lt-destino">${esc(v.destino||'-')}</div></td>
         <td>${esc(v.clienteNombre||'-')}</td>
@@ -8211,14 +8246,18 @@ function calcPlanPagoStatus(v){
 }
 function calcCobranzaStatus(v){
     const cob=v.cobranza||{montoTotal:0,moneda:'USD',pagos:[]};
-    const montoTotal=num(cob.montoTotal);
+    const montoTotal=num(cob.montoTotal); // viaje base (de la cotizacion). NO cambia de significado.
+    // Productos/servicios adicionales cargados despues de la venta (seguro, tour, etc.).
+    const adicionales=Array.isArray(cob.adicionales)?cob.adicionales:[];
+    const adicionalesTotal=adicionales.reduce((s,a)=>s+num(a.monto),0);
+    const total=montoTotal+adicionalesTotal; // total real a cobrar
     const pagado=(cob.pagos||[]).reduce((s,p)=>s+num(p.monto),0);
-    const saldo=Math.max(0,montoTotal-pagado);
-    const pagadoPct=montoTotal>0?Math.round((pagado/montoTotal)*100):0;
+    const saldo=Math.max(0,total-pagado);
+    const pagadoPct=total>0?Math.round((pagado/total)*100):0;
     let estadoPago='pendiente',estadoPagoLabel='Pendiente',color='#e74c3c';
-    if(montoTotal>0&&pagado>=montoTotal){estadoPago='pagado';estadoPagoLabel='Pagado';color='#27ae60';}
+    if(total>0&&pagado>=total){estadoPago='pagado';estadoPagoLabel='Pagado';color='#27ae60';}
     else if(pagado>0){estadoPago='parcial';estadoPagoLabel='Parcial';color='#d4830f';}
-    return{montoTotal,pagado,saldo,pagadoPct,estadoPago,estadoPagoLabel,color,moneda:cob.moneda||'USD',pagos:cob.pagos||[],precioPorPersona:cob.precioPorPersona!=null?num(cob.precioPorPersona):null,personas:cob.personas||null};
+    return{montoTotal,adicionalesTotal,total,pagado,saldo,pagadoPct,estadoPago,estadoPagoLabel,color,moneda:cob.moneda||'USD',pagos:cob.pagos||[],adicionales,precioPorPersona:cob.precioPorPersona!=null?num(cob.precioPorPersona):null,personas:cob.personas||null};
 }
 
 function currencySymbol(m){return m==='USD'?'$':m==='EUR'?'\u20ac':m==='CRC'?'\u20a1':'$';}
@@ -8235,7 +8274,9 @@ function openCobranza(ventaId){
     document.getElementById('cobMontoTotal').value=v.cobranza.montoTotal||'';
     document.getElementById('cobMoneda').value=v.cobranza.moneda||'USD';
     document.getElementById('pagoForm').classList.remove('open');
+    document.getElementById('adicForm').classList.remove('open');
     renderPagosTable();
+    renderAdicTable();
     recalcCobranza();
     document.getElementById('modalCobranza').classList.add('open');
 }
@@ -8260,15 +8301,18 @@ function recalcCobranza(){
         saveVentas(ventas);
     }
     const c=calcCobranzaStatus(v);
-    document.getElementById('cobTotalDisp').textContent=fmtMoney(c.montoTotal,c.moneda);
+    document.getElementById('cobTotalDisp').textContent=fmtMoney(c.total,c.moneda);
     document.getElementById('cobPagadoDisp').textContent=fmtMoney(c.pagado,c.moneda);
     document.getElementById('cobSaldoDisp').textContent=fmtMoney(c.saldo,c.moneda);
+    // Desglose viaje base + adicionales (solo si hay adicionales cargados)
+    const desg=document.getElementById('cobDesglose');
+    if(desg)desg.textContent=c.adicionalesTotal>0?('Viaje base: '+fmtMoney(c.montoTotal,c.moneda)+'  ·  Adicionales: '+fmtMoney(c.adicionalesTotal,c.moneda)):'';
     const bar=document.getElementById('cobProgressBar');
     bar.style.width=c.pagadoPct+'%';
     bar.textContent=c.pagadoPct>10?c.pagadoPct+'%':'';
     const badge=document.getElementById('cobStatusBadge');
     badge.className='cobranza-status-badge cob-status-'+c.estadoPago;
-    badge.textContent=c.montoTotal>0?c.estadoPagoLabel:'';
+    badge.textContent=c.total>0?c.estadoPagoLabel:'';
 }
 
 function renderPagosTable(){
@@ -8359,12 +8403,13 @@ function updatePagoFormUI(){
 }
 
 // Pide la clave configurada para modificar/eliminar pagos. Si no hay clave configurada, deja pasar.
-function requerirClavePago(accion){
+function requerirClavePago(accion,sustantivo){
     const clave=(getLSObj('dv_config').pagoLockClave||'').trim();
     if(!clave)return true; // sin proteccion
-    const intento=prompt('Ingrese la clave para '+accion+' este pago:');
+    const que=sustantivo||'pago';
+    const intento=prompt('Ingrese la clave para '+accion+' este '+que+':');
     if(intento===null)return false; // cancel
-    if(String(intento).trim()!==clave){alert('Clave incorrecta. No se puede '+accion+' el pago.');return false;}
+    if(String(intento).trim()!==clave){alert('Clave incorrecta. No se puede '+accion+' el '+que+'.');return false;}
     return true;
 }
 function editarPago(pagoId){
@@ -8447,6 +8492,138 @@ function removePago(pagoId){
     v._lastModifiedAt=Date.now();
     saveVentas(ventas);
     renderPagosTable();
+    recalcCobranza();
+    renderVentas();
+}
+
+// ===== PRODUCTOS / SERVICIOS ADICIONALES (cargos posteriores a la venta) =====
+// Viven en v.cobranza.adicionales[] y se suman al total en calcCobranzaStatus.
+// Mismo patron multiusuario que los pagos: merge por id + tumbas (adicionalesEliminados).
+const TIPOS_ADICIONAL=['Seguro','Tour','Transporte','Otro servicio'];
+let adicEditandoId=null;
+function _llenarTiposAdic(seleccionado){
+    const sel=document.getElementById('adicTipo');
+    if(!sel)return;
+    const quiero=seleccionado!==undefined?seleccionado:sel.value;
+    sel.innerHTML=TIPOS_ADICIONAL.map(t=>`<option value="${esc(t)}">${esc(t)}</option>`).join('');
+    if(quiero){
+        // Un adicional viejo podria tener un tipo que ya no esta en la lista: lo agregamos para no perderlo.
+        if(TIPOS_ADICIONAL.indexOf(quiero)<0){const o=document.createElement('option');o.value=quiero;o.textContent=quiero;sel.appendChild(o);}
+        sel.value=quiero;
+    }
+}
+function updateAdicFormUI(){
+    const titleEl=document.getElementById('adicFormTitle');
+    const btnSave=document.getElementById('adicFormSaveBtn');
+    if(adicEditandoId){
+        if(titleEl)titleEl.textContent='Editar producto adicional';
+        if(btnSave)btnSave.textContent='Actualizar producto';
+    }else{
+        if(titleEl)titleEl.textContent='Agregar producto adicional';
+        if(btnSave)btnSave.textContent='Guardar producto';
+    }
+}
+function toggleAdicForm(preservarEstado){
+    const f=document.getElementById('adicForm');
+    const wasOpen=f.classList.contains('open');
+    f.classList.toggle('open');
+    if(f.classList.contains('open')){
+        if(!preservarEstado){
+            adicEditandoId=null;
+            document.getElementById('adicFecha').value=new Date().toISOString().slice(0,10);
+            document.getElementById('adicMonto').value='';
+            document.getElementById('adicConcepto').value='';
+            document.getElementById('adicNota').value='';
+            _llenarTiposAdic('');
+        }else{
+            _llenarTiposAdic();
+        }
+        updateAdicFormUI();
+        setTimeout(()=>document.getElementById('adicMonto').focus(),100);
+    }else if(wasOpen){
+        adicEditandoId=null;
+    }
+}
+function renderAdicTable(){
+    const ventaId=document.getElementById('cobVentaId').value;
+    const ventas=getVentas();
+    const v=ventas.find(x=>x.id===ventaId);
+    const tbody=document.getElementById('adicTableBody');
+    if(!tbody)return;
+    if(!v||!v.cobranza||!Array.isArray(v.cobranza.adicionales)||!v.cobranza.adicionales.length){
+        tbody.innerHTML='<tr><td colspan="6" style="text-align:center;padding:16px;color:var(--text-light);font-style:italic;">Sin productos adicionales</td></tr>';
+        return;
+    }
+    const m=v.cobranza.moneda||'USD';
+    const sorted=[...v.cobranza.adicionales].sort((a,b)=>(a.fecha||'').localeCompare(b.fecha||''));
+    tbody.innerHTML=sorted.map(a=>`<tr><td>${esc(a.fecha||'')}</td><td>${esc(a.tipo||'')}</td><td>${esc(a.concepto||'')}</td><td>${esc(a.nota||'')}</td><td style="text-align:right;font-weight:700;">${fmtMoney(a.monto,m)}</td><td style="white-space:nowrap;"><div style="display:inline-flex;gap:4px;align-items:center;"><button class="btn btn-sm btn-primary" style="padding:4px 8px;font-size:0.7rem;" onclick="editarAdic('${a.id}')" title="Editar">&#9998;</button><button class="btn-icon remove" style="display:inline-flex;" onclick="removeAdic('${a.id}')" title="Eliminar">&times;</button></div></td></tr>`).join('');
+}
+function editarAdic(adicId){
+    if(!exigirPermiso('cobranza.registrar_pago','editar productos adicionales'))return;
+    if(!requerirClavePago('modificar','producto'))return;
+    const ventaId=document.getElementById('cobVentaId').value;
+    const v=getVentas().find(x=>x.id===ventaId);
+    if(!v||!v.cobranza||!v.cobranza.adicionales)return;
+    const a=v.cobranza.adicionales.find(x=>x.id===adicId);
+    if(!a){alert('Producto no encontrado.');return;}
+    adicEditandoId=adicId;
+    document.getElementById('adicFecha').value=a.fecha||'';
+    document.getElementById('adicMonto').value=a.monto||'';
+    _llenarTiposAdic(a.tipo||'');
+    document.getElementById('adicConcepto').value=a.concepto||'';
+    document.getElementById('adicNota').value=a.nota||'';
+    const f=document.getElementById('adicForm');
+    if(!f.classList.contains('open'))f.classList.add('open');
+    updateAdicFormUI();
+    setTimeout(()=>{document.getElementById('adicMonto').focus();f.scrollIntoView({behavior:'smooth',block:'nearest'});},50);
+}
+function saveAdic(){
+    if(!exigirPermiso('cobranza.registrar_pago','registrar o editar productos adicionales'))return;
+    const ventaId=document.getElementById('cobVentaId').value;
+    const fecha=document.getElementById('adicFecha').value;
+    const tipo=document.getElementById('adicTipo').value;
+    const monto=num(document.getElementById('adicMonto').value);
+    const concepto=document.getElementById('adicConcepto').value.trim();
+    const nota=document.getElementById('adicNota').value;
+    if(!fecha||monto<=0){alert('Debe ingresar una fecha y un monto mayor a 0.');return;}
+    const ventas=getVentas();
+    const v=ventas.find(x=>x.id===ventaId);
+    if(!v)return;
+    if(!v.cobranza)v.cobranza={montoTotal:0,moneda:'USD',pagos:[]};
+    if(!Array.isArray(v.cobranza.adicionales))v.cobranza.adicionales=[];
+    if(adicEditandoId){
+        const idx=v.cobranza.adicionales.findIndex(a=>a.id===adicEditandoId);
+        if(idx>=0)v.cobranza.adicionales[idx]={...v.cobranza.adicionales[idx],fecha,tipo,monto,concepto,nota};
+    }else{
+        v.cobranza.adicionales.push({id:'ad_'+Date.now(),fecha,tipo,monto,concepto,nota});
+    }
+    v._lastModifiedAt=Date.now();   // mi cambio es el mas reciente (para el merge multiusuario)
+    saveVentas(ventas);
+    adicEditandoId=null;
+    toggleAdicForm();
+    renderAdicTable();
+    recalcCobranza();
+    renderVentas();
+}
+function cancelarEdicionAdic(){
+    adicEditandoId=null;
+    toggleAdicForm();
+}
+function removeAdic(adicId){
+    if(!exigirPermiso('cobranza.registrar_pago','eliminar productos adicionales'))return;
+    if(!requerirClavePago('eliminar','producto'))return;
+    if(!confirm('¿Eliminar este producto adicional?'))return;
+    const ventaId=document.getElementById('cobVentaId').value;
+    const ventas=getVentas();
+    const v=ventas.find(x=>x.id===ventaId);
+    if(!v||!v.cobranza)return;
+    // TUMBA: registramos el id borrado para que ninguna sesion lo reviva (igual que los pagos).
+    if(!Array.isArray(v.cobranza.adicionalesEliminados))v.cobranza.adicionalesEliminados=[];
+    if(v.cobranza.adicionalesEliminados.indexOf(adicId)<0)v.cobranza.adicionalesEliminados.push(adicId);
+    v.cobranza.adicionales=(v.cobranza.adicionales||[]).filter(a=>a.id!==adicId);
+    v._lastModifiedAt=Date.now();
+    saveVentas(ventas);
+    renderAdicTable();
     recalcCobranza();
     renderVentas();
 }
@@ -8559,7 +8736,8 @@ function renderDocumento(tipo,ventaId,pagoId){
             ${pago.nota?`<p style="font-size:0.82rem;color:var(--text-light);margin:10px 0;"><strong>Nota:</strong> ${esc(pago.nota)}</p>`:''}
             <div class="recibo-totals">
                 <div class="recibo-totals-box">
-                    <div class="recibo-totals-row"><span>Monto total del viaje</span><span>${fmtMoney(c.montoTotal,c.moneda)}</span></div>
+                    ${c.adicionalesTotal>0?`<div class="recibo-totals-row"><span>Viaje</span><span>${fmtMoney(c.montoTotal,c.moneda)}</span></div><div class="recibo-totals-row"><span>Productos adicionales</span><span>${fmtMoney(c.adicionalesTotal,c.moneda)}</span></div>`:''}
+                    <div class="recibo-totals-row"><span>${c.adicionalesTotal>0?'Monto total':'Monto total del viaje'}</span><span>${fmtMoney(c.total,c.moneda)}</span></div>
                     <div class="recibo-totals-row"><span>Total pagado a la fecha</span><span>${fmtMoney(c.pagado,c.moneda)}</span></div>
                     <div class="recibo-totals-row saldo ${c.saldo<=0?'pagado':''}"><span>Saldo pendiente</span><span>${fmtMoney(c.saldo,c.moneda)}</span></div>
                 </div>
@@ -8573,6 +8751,19 @@ function renderDocumento(tipo,ventaId,pagoId){
         // Estado de cuenta
         const pagosSorted=[...(v.cobranza.pagos||[])].sort((a,b)=>(a.fecha||'').localeCompare(b.fecha||''));
         const pagosRows=pagosSorted.length?pagosSorted.map(p=>`<tr><td>${esc(p.fecha||'')}</td><td>${esc(p.metodo||'')}</td><td>${esc(p.referencia||'-')}</td><td>${esc(p.nota||'-')}</td><td style="text-align:right;font-weight:700;">${fmtMoney(p.monto,c.moneda)}</td></tr>`).join(''):'<tr><td colspan="5" style="text-align:center;color:var(--text-light);font-style:italic;padding:16px;">Sin pagos registrados a la fecha</td></tr>';
+        // Detalle de cargos (viaje base + adicionales). Solo se muestra si hay adicionales; si no, el
+        // documento queda identico a como era antes de esta funcionalidad.
+        const adicSorted=[...(v.cobranza.adicionales||[])].sort((a,b)=>(a.fecha||'').localeCompare(b.fecha||''));
+        const detalleCargosHtml=c.adicionalesTotal>0?`
+            <div class="recibo-section-title">Detalle de cargos</div>
+            <table class="recibo-table">
+                <thead><tr><th>Fecha</th><th>Concepto</th><th style="text-align:right;">Monto</th></tr></thead>
+                <tbody>
+                    <tr><td>${esc(v.fechaVenta||'-')}</td><td>Viaje${viajeDestino?' a <strong>'+esc(viajeDestino)+'</strong>':''}${viajeFechas?' ('+esc(viajeFechas)+')':''}</td><td style="text-align:right;font-weight:700;">${fmtMoney(c.montoTotal,c.moneda)}</td></tr>
+                    ${adicSorted.map(a=>`<tr><td>${esc(a.fecha||'')}</td><td>${esc(a.tipo||'')}${a.concepto?' &mdash; '+esc(a.concepto):''}${a.nota?'<div style="font-size:0.72rem;color:var(--text-light);">'+esc(a.nota)+'</div>':''}</td><td style="text-align:right;font-weight:700;">${fmtMoney(a.monto,c.moneda)}</td></tr>`).join('')}
+                    <tr><td colspan="2" style="text-align:right;font-weight:700;border-top:2px solid var(--primary);">Total a pagar</td><td style="text-align:right;font-weight:700;border-top:2px solid var(--primary);">${fmtMoney(c.total,c.moneda)}</td></tr>
+                </tbody>
+            </table>`:'';
         bodyHtml=`
         ${headerHtmlRecibo}
         <div class="recibo-doc-bar">
@@ -8584,6 +8775,7 @@ function renderDocumento(tipo,ventaId,pagoId){
                 <div class="meta-block"><div class="meta-label">Cliente</div><div class="meta-value">${esc(clienteNombre)}</div>${clienteDoc?'<div style="font-size:0.78rem;color:var(--text-light);">'+esc(clienteDoc)+'</div>':''}${clienteEmail?'<div style="font-size:0.78rem;color:var(--text-light);">'+esc(clienteEmail)+'</div>':''}${clienteTel?'<div style="font-size:0.78rem;color:var(--text-light);">Tel: '+esc(clienteTel)+'</div>':''}${acompanantesHtml}</div>
                 <div class="meta-block" style="text-align:right;"><div class="meta-label">Fecha de emisi\u00f3n</div><div class="meta-value">${fechaDoc}</div>${viajeDestino?`<div class="meta-label" style="margin-top:8px;">Viaje</div><div class="meta-value">${esc(viajeDestino)}</div>${viajeFechas?`<div style="font-size:0.78rem;color:var(--text-light);">${esc(viajeFechas)}</div>`:''}`:''}</div>
             </div>
+            ${detalleCargosHtml}
             <div class="recibo-section-title">Historial de pagos</div>
             <table class="recibo-table">
                 <thead><tr><th>Fecha</th><th>M\u00e9todo</th><th>Referencia</th><th>Nota</th><th style="text-align:right;">Monto</th></tr></thead>
@@ -8591,7 +8783,7 @@ function renderDocumento(tipo,ventaId,pagoId){
             </table>
             <div class="recibo-totals">
                 <div class="recibo-totals-box">
-                    <div class="recibo-totals-row"><span>Monto total del viaje</span><span>${fmtMoney(c.montoTotal,c.moneda)}</span></div>
+                    <div class="recibo-totals-row"><span>${c.adicionalesTotal>0?'Total a pagar (viaje + adicionales)':'Monto total del viaje'}</span><span>${fmtMoney(c.total,c.moneda)}</span></div>
                     <div class="recibo-totals-row"><span>Total pagado</span><span style="color:var(--success);font-weight:700;">${fmtMoney(c.pagado,c.moneda)}</span></div>
                     <div class="recibo-totals-row grand saldo ${c.saldo<=0?'pagado':''}"><span>SALDO PENDIENTE</span><span>${fmtMoney(c.saldo,c.moneda)}</span></div>
                 </div>
