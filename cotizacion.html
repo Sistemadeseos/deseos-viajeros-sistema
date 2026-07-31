@@ -1539,6 +1539,9 @@ const defaultServiciosCrucero=['Boletos a\u00e9reos ida y vuelta (incluye objeto
 const defaultNoIncluye=['Seguro de viaje con coberturas de COVID, se puede adquirir por un costo adicional.','Servicios no mencionados.','Equipaje documentado y de mano, se puede adquirir por un costo adicional.'];
 const defaultPoliticas=['Precios sujetos a disponibilidad y cambio sin previo aviso.','Esto es una cotizaci\u00f3n.','Todos los pasajeros deben verificar que la documentaci\u00f3n para el viaje se encuentre al d\u00eda (pasaporte, visa, pensiones alimenticias, permisos de salida de ni\u00f1os, seg\u00fan sea necesario). No nos hacemos responsables en caso de problemas migratorios.','El pasaporte debe tener vigencia de al menos 6 meses posteriores a la fecha de viaje.','Los hu\u00e9spedes deber\u00e1n presentar un documento de identificaci\u00f3n oficial en vigencia al momento del check-in y una tarjeta de cr\u00e9dito o dep\u00f3sito para gastos imprevistos durante su estancia, esto por pol\u00edtica de los hoteles.','Los boletos a\u00e9reos una vez emitidos no son reembolsables ni transferibles, no se aceptan cambios en nombre. Aplican cargos por cambio de fecha.','Asignaci\u00f3n de asientos: La asignaci\u00f3n de asientos se realiza de forma aleatoria por parte de la aerol\u00ednea y no depende de nuestra gesti\u00f3n.','Se recomienda el uso de caja de seguridad en el hotel, ya que no nos hacemos responsables por p\u00e9rdida o robo de objetos personales.','Dep\u00f3sito de garant\u00eda: Algunos hoteles solicitan tarjeta de cr\u00e9dito, como respaldo ante cualquier incidente.'];
 const defaultCuentas=[{tipo:'Bac d\u00f3lares',cuenta:'952890135',iban:'CR75010200009528901357',nota:''},{tipo:'Bac colones',cuenta:'952890143',iban:'CR17010200009528901431',nota:'Para pagos en colones tomar tipo de cambio de VENTA'},{tipo:'Sinpe m\u00f3vil',cuenta:'8631-2662',iban:'',nota:'Tomar tipo de cambio de venta'}];
+// Metodos de pago extra para los recibos (ademas de las cuentas bancarias). Editables en Configuracion > Recibo de pago.
+// Por defecto trae los que antes estaban fijos, para no perder opciones al migrar.
+const defaultMetodosPagoRecibo=['Efectivo','Tarjeta de cr\u00e9dito','Dep\u00f3sito','Otro'];
 const defaultNoIncluyeEuropa=['Equipaje documentado, se puede adquirir por un costo adicional.','City tax o fee resort pagadero en el hotel.','Servicios no mencionados.'];
 const defaultNoIncluyeCrucero=['Excursiones en Tierra.','Restaurantes de Especialidad.','Internet a bordo.'];
 const defaultPoliticasEuropa=['Precios sujetos a disponibilidad y cambio sin previo aviso.','Esto es una cotizaci\u00f3n.','Todos los pasajeros deben verificar que la documentaci\u00f3n para el viaje se encuentre al d\u00eda (pasaporte, visa, pensiones alimenticias, permisos de salida de ni\u00f1os, seg\u00fan sea necesario). No nos hacemos responsables en caso de problemas migratorios.','Los hu\u00e9spedes deber\u00e1n presentar un documento de identificaci\u00f3n oficial en vigencia al momento del check-in y una tarjeta de cr\u00e9dito o dep\u00f3sito para gastos imprevistos durante su estancia.','Pasaporte con vigencia de al menos 6 meses posteriores a la fecha de viaje.','Los boletos a\u00e9reos una vez emitidos no son reembolsables ni transferibles, no se aceptan cambios en nombre. Aplican cargos por cambio de fecha.','Se recomienda el uso de caja de seguridad en el hotel, ya que no nos hacemos responsables por p\u00e9rdida o robo de objetos personales.','Dep\u00f3sito de garant\u00eda: Algunos hoteles solicitan tarjeta de cr\u00e9dito, como respaldo ante cualquier incidente.'];
@@ -2195,6 +2198,7 @@ function cfgGet(){
             crucero: (c.politicas&&c.politicas.crucero) || defaultPoliticasCrucero
         },
         cuentas:   c.cuentas   || defaultCuentas,
+        metodosPagoRecibo: c.metodosPagoRecibo || defaultMetodosPagoRecibo,
         checklist: c.checklist || defaultChecklistItems,
         alertas:   c.alertas   || defaultAlertas,
         fees:      c.fees      || defaultFees,
@@ -2915,15 +2919,34 @@ function renderConfiguracion(){
 
 function renderConfigRecibo(){
     const rawCfg=getLSObj('dv_config');
+    const cfg=cfgGet();
     const img=rawCfg.reciboHeader||'';
     const pane=document.getElementById('cfgPane-recibo');
+    // Cuentas bancarias convertidas en metodos de pago (se gestionan en la pestaña Cuentas bancarias, aca solo se muestran).
+    const chipsCuentas=(cfg.cuentas||[]).map(c=>{
+        const tipo=String(c&&c.tipo||'').trim();
+        if(!tipo)return'';
+        const label=/^sinpe/i.test(tipo)?tipo:('Transferencia '+tipo);
+        return `<span style="background:rgba(10,126,140,0.08);border:1px solid rgba(10,126,140,0.2);border-radius:12px;padding:3px 10px;font-size:0.78rem;color:var(--primary-dark);">${esc(label)}</span>`;
+    }).filter(Boolean).join('');
     pane.innerHTML=`<p class="config-hint">Imagen fija que aparece como encabezado en los <strong>recibos de pago</strong> y <strong>estados de cuenta</strong>. Se ajusta al ancho del documento. Recomendado: imagen horizontal (proporción aprox. 5:1, mínimo 1200px de ancho).</p>
     <div class="form-group"><label>Imagen de encabezado</label><input type="file" id="reciboHeaderInput" accept="image/*" onchange="handleReciboHeaderUpload(event)"></div>
     <div id="reciboHeaderPreview" style="display:${img?'block':'none'};text-align:center;margin-top:10px;border:1px solid var(--border);border-radius:8px;padding:10px;background:#fafafa;">
         <p style="font-size:0.72rem;color:var(--text-light);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.6px;">Vista previa actual</p>
         <img id="reciboHeaderThumb" src="${img||''}" style="max-width:100%;max-height:180px;border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,0.1);" alt="">
         <div style="margin-top:8px;"><button class="btn btn-sm btn-danger" onclick="removeReciboHeader()">Quitar imagen</button></div>
+    </div>
+    <hr style="margin:24px 0;border:none;border-top:1px solid var(--border);">
+    <p class="config-hint">Métodos de pago que aparecen en el desplegable <strong>Método</strong> al registrar un pago o generar un recibo. Las <strong>cuentas bancarias</strong> se agregan solas como transferencia (o Sinpe); acá sumás los métodos extra (efectivo, tarjeta, etc.). El recibo ofrece <strong>únicamente</strong> lo que se ve en esta lista.</p>
+    <div class="form-group"><label>Desde Cuentas bancarias (automático)</label>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;">${chipsCuentas||'<span style="font-size:0.8rem;color:var(--text-light);">No hay cuentas bancarias cargadas.</span>'}</div>
+        <p style="font-size:0.72rem;color:var(--text-light);margin-top:5px;">Estos se editan en la pestaña <strong>Cuentas bancarias</strong>.</p>
+    </div>
+    <div class="form-group"><label>Métodos de pago extra (solo para recibos)</label>
+        <div id="cfgMetodosReciboList">${(cfg.metodosPagoRecibo||[]).map(s=>renderCfgListItem(s,false)).join('')}</div>
+        <button class="btn btn-sm btn-primary" onclick="document.getElementById('cfgMetodosReciboList').insertAdjacentHTML('beforeend',renderCfgListItem('',false));initDrag(document.getElementById('cfgMetodosReciboList'));" style="margin-top:8px;">+ Agregar método</button>
     </div>`;
+    initDrag(pane.querySelector('#cfgMetodosReciboList'));
 }
 
 function handleReciboHeaderUpload(e){
@@ -6026,6 +6049,8 @@ function saveConfigFromUI(silent){
             });
         }
     });
+    // Metodos de pago extra para recibos (pestaña Recibo de pago)
+    c.metodosPagoRecibo=collectConfigListFromDOM('cfgMetodosReciboList',false);
     // Checklist
     c.checklist=collectConfigListFromDOM('cfgChecklistList',false);
     // Alertas (textarea)
@@ -8288,17 +8313,21 @@ function togglePagoForm(preservarEstado){
 
 // Los métodos de pago salen de Configuración → Cuentas bancarias (así una cuenta nueva
 // aparece sola acá), más las formas de pago genéricas que no son una cuenta.
-const METODOS_PAGO_FIJOS=['Efectivo','Tarjeta de crédito','Depósito','Otro'];
 function _metodosPago(){
+    const cfg=cfgGet();
     const out=[];
-    (cfgGet().cuentas||[]).forEach(c=>{
+    (cfg.cuentas||[]).forEach(c=>{
         const tipo=String(c&&c.tipo||'').trim();
         if(!tipo)return;
         // "Sinpe móvil" no es una transferencia: se nombra tal cual.
         const label=/^sinpe/i.test(tipo)?tipo:('Transferencia '+tipo);
         if(out.indexOf(label)<0)out.push(label);
     });
-    METODOS_PAGO_FIJOS.forEach(m=>{if(out.indexOf(m)<0)out.push(m);});
+    // Métodos extra configurados en Configuración > Recibo de pago (efectivo, tarjeta, etc.).
+    (cfg.metodosPagoRecibo||[]).forEach(m=>{
+        const s=String(m||'').trim();
+        if(s&&out.indexOf(s)<0)out.push(s);
+    });
     return out;
 }
 // Llena el desplegable conservando el método ya elegido (o el de un pago que se está editando).
