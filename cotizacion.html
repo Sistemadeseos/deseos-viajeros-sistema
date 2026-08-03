@@ -5035,8 +5035,14 @@ function crearTarea(opts){
     if(!opts.titulo)return null;
     const yo=_tareaEmailActual();
     const resp=_normEmail(opts.responsableEmail||yo);
+    // Tareas AUTOMÁTICAS: id determinístico por (refTipo+refId). Así, si varias usuarias abren
+    // el sistema casi a la vez (la sync no es en vivo), la misma cotización/venta nunca genera
+    // más de una tarea: al compartir id terminan en el MISMO documento de Firestore y se colapsan
+    // en una sola (tanto en la nube como en el merge local por id). Las manuales siguen con id random.
+    const _safeId=s=>String(s).replace(/[^A-Za-z0-9_-]/g,'');
+    const _tareaId=(opts.origen==='auto'&&opts.refTipo&&opts.refId)?('auto_'+_safeId(opts.refTipo)+'_'+_safeId(opts.refId)):newRrhhId();
     const t={
-        id:newRrhhId(),
+        id:_tareaId,
         titulo:opts.titulo,descripcion:opts.descripcion||'',
         responsableEmail:resp,responsableNombre:_nombreDeEmail(resp),
         creadorEmail:opts.origen==='auto'?'':yo,creadorNombre:opts.origen==='auto'?'Sistema':(_nombreDeEmail(yo)||yo),
