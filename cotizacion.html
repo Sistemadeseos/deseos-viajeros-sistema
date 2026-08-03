@@ -1419,7 +1419,7 @@ onAuthStateChanged(fbAuth, (user) => {
         <div class="form-row">
             <div class="form-group"><label>Fecha</label><input type="date" id="adicFecha"></div>
             <div class="form-group"><label>Tipo</label><select id="adicTipo"></select></div>
-            <div class="form-group"><label>Monto</label><input type="number" id="adicMonto" step="0.01" placeholder="0.00"></div>
+            <div class="form-group"><label>Monto</label><input type="text" inputmode="text" id="adicMonto" placeholder="0.00" title="Acepta fórmulas tipo Excel: 20+10, 500*2, etc." onblur="evalMontoInput(this)" onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}"></div>
         </div>
         <div class="form-group"><label>Concepto / descripci&oacute;n</label><input type="text" id="adicConcepto" placeholder="Ej: Seguro de asistencia AXA"></div>
         <div class="form-group"><label>Nota</label><input type="text" id="adicNota" placeholder="Opcional"></div>
@@ -1435,7 +1435,7 @@ onAuthStateChanged(fbAuth, (user) => {
         <h4 id="pagoFormTitle" style="font-family:'Playfair Display',serif;color:var(--primary-dark);font-size:0.95rem;margin-bottom:10px;">Registrar nuevo pago</h4>
         <div class="form-row">
             <div class="form-group"><label>Fecha</label><input type="date" id="pagoFecha"></div>
-            <div class="form-group"><label>Monto</label><input type="number" id="pagoMonto" step="0.01" placeholder="0.00"></div>
+            <div class="form-group"><label>Monto</label><input type="text" inputmode="text" id="pagoMonto" placeholder="0.00" title="Acepta fórmulas tipo Excel: 20+10, 500*2, etc." onblur="evalMontoInput(this)" onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}"></div>
             <div class="form-group"><label>M&eacute;todo</label><select id="pagoMetodo"></select></div>
         </div>
         <div class="form-row">
@@ -2359,6 +2359,16 @@ function evalExpr(v){
         const r=Function('"use strict";return('+s+')')();
         return typeof r==='number'&&isFinite(r)?r:0;
     }catch(e){return num(s);}
+}
+
+// Evalúa una fórmula tipo Excel dentro de un campo de monto (+20+10 => 30, 500*2 => 1000) al salir
+// del campo. Un número simple queda igual. Redondea a 2 decimales para evitar ruido de coma flotante.
+function evalMontoInput(el){
+    if(!el)return;
+    const raw=el.value;
+    if(raw==null||!String(raw).trim())return; // vacío: no forzar 0, dejar el placeholder
+    const r=evalExpr(raw);
+    if(isFinite(r))el.value=Math.round(r*100)/100;
 }
 
 // Pobla el select de alertas pre-cargadas desde config
@@ -8447,7 +8457,8 @@ function savePago(){
     if(!exigirPermiso('cobranza.registrar_pago','registrar o editar pagos'))return;
     const ventaId=document.getElementById('cobVentaId').value;
     const fecha=document.getElementById('pagoFecha').value;
-    const monto=num(document.getElementById('pagoMonto').value);
+    // El monto acepta fórmulas tipo Excel (+20+10). evalExpr las resuelve; un número simple queda igual.
+    const monto=Math.round(evalExpr(document.getElementById('pagoMonto').value)*100)/100;
     const metodo=document.getElementById('pagoMetodo').value;
     const referencia=document.getElementById('pagoReferencia').value;
     const nota=document.getElementById('pagoNota').value;
@@ -8588,7 +8599,8 @@ function saveAdic(){
     const ventaId=document.getElementById('cobVentaId').value;
     const fecha=document.getElementById('adicFecha').value;
     const tipo=document.getElementById('adicTipo').value;
-    const monto=num(document.getElementById('adicMonto').value);
+    // El monto acepta fórmulas tipo Excel (+20+10). evalExpr las resuelve; un número simple queda igual.
+    const monto=Math.round(evalExpr(document.getElementById('adicMonto').value)*100)/100;
     const concepto=document.getElementById('adicConcepto').value.trim();
     const nota=document.getElementById('adicNota').value;
     if(!fecha||monto<=0){alert('Debe ingresar una fecha y un monto mayor a 0.');return;}
