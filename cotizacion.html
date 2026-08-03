@@ -4883,33 +4883,27 @@ function guardarNotifNueva(){
     alert('Enviado. Le va a aparecer a esa persona la próxima vez que entre o recargue el sistema.');
 }
 // Anuncio de novedades: se muestra una sola vez por navegador (clave dvAnuncioVisto, no se migra ni se borra con la caché).
-const _ANUNCIO_ID='tareas-v1';
+const _ANUNCIO_ID='estado-cuenta-ago2026';
 function mostrarAnuncioNotif(){
     try{if(localStorage.getItem('dvAnuncioVisto')===_ANUNCIO_ID)return;}catch(e){}
     const overlay=document.getElementById('modalAnuncio');
     if(!overlay)return;
-    overlay.innerHTML=`<div class="modal" style="max-width:500px;">
-        <div class="modal-header"><h3>&#9989; ¡Novedad! Sección Tareas</h3></div>
+    overlay.innerHTML=`<div class="modal" style="max-width:520px;">
+        <div class="modal-header"><h3>&#10024; ¡Novedades en el sistema!</h3></div>
         <div class="modal-body" style="font-size:0.9rem;line-height:1.5;">
-            <p>Ahora en el menú de la izquierda tenés una sección nueva: <strong>✅ Tareas</strong>. Ahí queda anotado todo lo que hay que hacer, con responsable y fecha, hasta que se resuelve. El <strong>número naranja</strong> al lado te dice cuántas tenés sin terminar.</p>
-            <p style="margin:12px 0 4px;font-weight:700;">¿En qué se diferencia de la campanita 🔔?</p>
-            <div style="background:var(--bg);border-radius:8px;padding:10px 12px;margin-bottom:10px;">
-                <div style="margin-bottom:6px;">🔔 <strong>Campanita</strong> — avisos que solo informan (tu colilla está lista, te aprobaron las vacaciones). Los marcás como leídos y listo.</div>
-                <div>✅ <strong>Tareas</strong> — cosas que hay que <strong>hacer</strong>. No desaparecen hasta que las completás o las anulás.</div>
+            <p style="margin:0 0 12px;">Mejoramos el <strong>Estado de cuenta</strong> de las ventas. Dos cosas nuevas:</p>
+
+            <p style="margin:0 0 4px;font-weight:700;">🧮 El campo <em>Monto</em> ahora hace cuentas (como en Excel)</p>
+            <p style="margin:0 0 8px;">Al <strong>Registrar un pago</strong> o <strong>Agregar un producto</strong>, en el campo <strong>Monto</strong> podés escribir una operación y el sistema la resuelve sola. Escribís <strong>20+10</strong> y, al salir del campo o apretando <strong>Enter</strong>, queda <strong>30</strong>. Ideal para sumar varios abonos.</p>
+            <div style="background:var(--bg);border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:0.84rem;">
+                Sirve con <strong>+ − × ÷</strong> (usá <strong>*</strong> para multiplicar y <strong>/</strong> para dividir).<br>
+                Ejemplos: <strong>2500+2500</strong> → 5000 &nbsp;·&nbsp; <strong>500*2</strong> → 1000 &nbsp;·&nbsp; <strong>1500*1.13</strong> → 1695
             </div>
-            <p style="margin:0 0 4px;font-weight:700;">En Tareas podés:</p>
-            <ul style="margin:0 0 10px 18px;padding:0;">
-                <li>ver <strong>Mis tareas</strong> y <strong>Las que asigné</strong> a otras personas;</li>
-                <li>ponerle <strong>fecha de vencimiento</strong> y <strong>prioridad</strong> (las vencidas se marcan en rojo);</li>
-                <li>marcarlas <strong>Empezar</strong> → <strong>Completar</strong>;</li>
-                <li><strong>comentar</strong> dentro de cada tarea para coordinar;</li>
-                <li><strong>anular</strong> una tarea que ya no aplica (queda el registro, no se borra).</li>
-            </ul>
-            <p style="margin:0 0 4px;font-weight:700;">Vacaciones y horas extra</p>
-            <p style="margin:0 0 10px;">Cuando pedís <strong>vacaciones</strong> o registrás <strong>horas extra</strong>, la solicitud le llega como una <strong>aprobación</strong> a Xavier Castro y María José Pérez — que son las únicas dos personas que pueden aprobar o rechazar. Si te la rechazan, tienen que escribir un <strong>motivo</strong>, y ese motivo te llega a vos en la campanita.</p>
-            <p style="margin:0 0 4px;font-weight:700;">Tareas que se crean solas</p>
-            <p style="margin:0 0 10px;">El sistema también te va a crear tareas sin que nadie las escriba: una <strong>cotización que lleva días sin respuesta</strong>, una venta con <strong>saldo pendiente y el viaje cerca</strong>, o el <strong>corte de planilla</strong>. Se marcan con la etiqueta <strong>AUTO</strong>.</p>
-            <p style="font-size:0.82rem;color:var(--text-light);">Cuando alguien te asigna una tarea, te llega un aviso en la campanita con un botón <strong>“Ver tarea”</strong>.</p>
+
+            <p style="margin:0 0 4px;font-weight:700;">🧾 Productos / servicios adicionales</p>
+            <p style="margin:0 0 10px;">Después de vender un viaje, podés agregarle al cliente <strong>seguros, tours, transportes u otros servicios</strong> desde el mismo Estado de cuenta (botón <strong>+ Agregar producto</strong>). Se suman al total, aparecen en el <strong>detalle de cargos</strong> del documento y ajustan el saldo —sin tocar el precio del viaje original.</p>
+
+            <p style="font-size:0.82rem;color:var(--text-light);margin:0;">Cualquier duda, consultá con Xavier o María José. 💜</p>
         </div>
         <div class="modal-footer"><button class="btn btn-success" onclick="cerrarAnuncioNotif()">Entendido</button></div>
     </div>`;
