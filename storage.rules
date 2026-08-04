@@ -1,11 +1,20 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
-    // Solo usuarios autenticados pueden leer/subir/borrar archivos
-    // Límite: 10 MB por archivo
+    // Lista blanca: SOLO estos correos del equipo de Deseos Viajeros pueden leer/subir/borrar archivos.
+    // Límite: 10 MB por archivo. Para agregar/quitar a alguien, editá la lista y volvé a Publicar.
+    function esAutorizado() {
+      return request.auth != null && request.auth.token.email in [
+        'brendagomez@deseosviajeros.com',
+        'operaciones@deseosviajeros.com',
+        'reservas@deseosviajeros.com',
+        'miladyzuniga@deseosviajeros.com',
+        'susanacastro@deseosviajeros.com'
+      ];
+    }
     match /{allPaths=**} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null
+      allow read: if esAutorizado();
+      allow write: if esAutorizado()
                    && request.resource.size < 10 * 1024 * 1024;
     }
   }

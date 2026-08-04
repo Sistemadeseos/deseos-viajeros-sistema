@@ -1,10 +1,20 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Solo usuarios autenticados pueden leer/escribir
-    // Todos los usuarios autenticados comparten la misma data (equipo de trabajo)
+    // Lista blanca: SOLO estos correos del equipo de Deseos Viajeros pueden leer/escribir.
+    // Aunque alguien logre crear una cuenta en Firebase, si su correo no está acá, no accede a nada.
+    // Para agregar/quitar a alguien: editá esta lista y volvé a Publicar en la consola de Firebase.
+    function esAutorizado() {
+      return request.auth != null && request.auth.token.email in [
+        'brendagomez@deseosviajeros.com',
+        'operaciones@deseosviajeros.com',
+        'reservas@deseosviajeros.com',
+        'miladyzuniga@deseosviajeros.com',
+        'susanacastro@deseosviajeros.com'
+      ];
+    }
     match /{document=**} {
-      allow read, write: if request.auth != null;
+      allow read, write: if esAutorizado();
     }
   }
 }
