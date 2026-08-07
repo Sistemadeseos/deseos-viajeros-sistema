@@ -1064,7 +1064,6 @@ onAuthStateChanged(fbAuth, (user) => {
     <div class="format-tabs">
         <button class="format-tab active" data-format="america" onclick="switchFormat('america')">Am&eacute;rica</button>
         <button class="format-tab" data-format="europa" onclick="switchFormat('europa')">Europa / Asia</button>
-        <button class="format-tab" data-format="crucero" onclick="switchFormat('crucero')">Cruceros</button>
     </div>
     <!-- Cliente -->
     <div class="form-section"><div class="form-section-header" onclick="toggleSection(this)">Datos del Cliente<span class="toggle">&#9660;</span></div><div class="form-section-body">
@@ -1187,6 +1186,7 @@ onAuthStateChanged(fbAuth, (user) => {
     <div class="ventas-tabs">
         <button class="ventas-tab active" data-vtab="personalizada" onclick="setVentasTab('personalizada')">Personalizadas <span class="vtab-count" id="vtabCountPers"></span></button>
         <button class="ventas-tab" data-vtab="grupal" onclick="setVentasTab('grupal')">Grupales <span class="vtab-count" id="vtabCountGrup"></span></button>
+        <button class="ventas-tab" data-vtab="crucero" onclick="setVentasTab('crucero')">Cruceros <span class="vtab-count" id="vtabCountCru"></span></button>
     </div>
     <div class="list-search"><input type="text" id="ventasSearch" placeholder="Buscar por destino, cliente, grupo, encargado..." oninput="renderVentas()"><select id="ventasFilterEstado" onchange="renderVentas()"><option value="">Todos los estados</option><option value="pendiente">Pendiente</option><option value="en_proceso">En proceso</option><option value="completada">Completada</option><option value="cancelada">Cancelada</option></select></div>
     <div class="list-view" id="ventasGrid"></div>
@@ -1248,6 +1248,7 @@ onAuthStateChanged(fbAuth, (user) => {
         <button class="config-tab" data-cfgtab="checklist" onclick="switchConfigTab('checklist')">Checklist ventas</button>
         <button class="config-tab" data-cfgtab="recibo" onclick="switchConfigTab('recibo')">Recibo de pago</button>
         <button class="config-tab" data-cfgtab="edc" onclick="switchConfigTab('edc')">Estado de cuenta</button>
+        <button class="config-tab" data-cfgtab="cruceros" onclick="switchConfigTab('cruceros')">Cruceros</button>
         <button class="config-tab" data-cfgtab="usuarios" data-perm-maestro="1" onclick="switchConfigTab('usuarios')" style="display:none;">Usuarios y permisos</button>
     </div>
     <div class="config-panes">
@@ -1277,6 +1278,7 @@ onAuthStateChanged(fbAuth, (user) => {
         <div class="config-pane" id="cfgPane-checklist"></div>
         <div class="config-pane" id="cfgPane-recibo"></div>
         <div class="config-pane" id="cfgPane-edc"></div>
+        <div class="config-pane" id="cfgPane-cruceros"></div>
         <div class="config-pane" id="cfgPane-usuarios"></div>
     </div>
 </div>
@@ -1502,6 +1504,33 @@ onAuthStateChanged(fbAuth, (user) => {
     <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modalVentaGrupal')">Cancelar</button><button class="btn btn-success" id="vgBtnGuardar" onclick="guardarVentaGrupal()">Guardar venta grupal</button></div>
 </div></div>
 
+<!-- MODAL: Nueva/Editar Venta de Crucero -->
+<div class="modal-overlay" id="modalVentaCrucero"><div class="modal" style="max-width:600px;">
+    <div class="modal-header"><h3 id="crModalTitulo">Nueva Venta de Crucero</h3><button class="modal-close" onclick="closeModal('modalVentaCrucero')">&times;</button></div>
+    <div class="modal-body">
+        <input type="hidden" id="crEditId">
+        <div class="form-group"><label>Cliente *</label><select id="crClienteId" onchange="crOnClienteChange()"><option value="">-- Seleccionar contacto existente --</option><option value="__nuevo">+ Crear nuevo contacto</option></select></div>
+        <div id="crNuevoClienteBox" style="display:none;border:1px dashed var(--border);padding:10px;border-radius:6px;margin-bottom:10px;">
+            <div class="form-row"><div class="form-group"><label>Nombre completo</label><input type="text" id="crNuevoNombre" placeholder="Nombre y apellido"></div><div class="form-group"><label>Tel&eacute;fono</label><input type="text" id="crNuevoTel"></div></div>
+            <div class="form-group"><label>Email</label><input type="email" id="crNuevoEmail"></div>
+        </div>
+        <div class="form-row"><div class="form-group"><label>Naviera</label><select id="crNaviera"></select></div><div class="form-group"><label>Barco</label><input type="text" id="crBarco" placeholder="Ej: Wonder of the Seas"></div></div>
+        <div class="form-row"><div class="form-group"><label>N&uacute;mero de reserva (naviera)</label><input type="text" id="crReserva" placeholder="Booking / confirmaci&oacute;n"></div><div class="form-group"><label>Itinerario / destino</label><input type="text" id="crDestino" placeholder="Ej: Caribe Occidental"></div></div>
+        <div class="form-row"><div class="form-group"><label>Encargada</label><select id="crEncargado"><option value="">--</option></select></div><div class="form-group"><label>Moneda</label><select id="crMoneda" onchange="crRecalcTotal()"><option value="USD">USD</option><option value="CRC">CRC</option><option value="EUR">EUR</option></select></div></div>
+        <div class="form-row"><div class="form-group"><label>Fecha de la venta</label><input type="date" id="crFechaVenta"></div><div class="form-group"></div></div>
+        <div class="form-row"><div class="form-group"><label>Fecha de embarque</label><input type="date" id="crFechaInicio"></div><div class="form-group"><label>Fecha de desembarque</label><input type="date" id="crFechaFin"></div></div>
+        <div class="form-group"><label style="display:flex;align-items:center;justify-content:space-between;">Cabinas <button type="button" class="btn btn-sm btn-ghost" style="font-size:0.7rem;padding:3px 8px;" onclick="crAddCabina()">+ Agregar cabina</button></label>
+            <p style="font-size:0.7rem;color:var(--text-light);margin:0 0 6px;">El total de la venta es la suma de las cabinas. Los montos aceptan f&oacute;rmulas (ej: 1200+300).</p>
+            <div id="crCabinasBox"></div>
+            <div style="text-align:right;font-weight:700;color:var(--primary-dark);margin-top:6px;">Total: <span id="crTotalCalc">$0.00</span></div>
+        </div>
+        <div class="form-row"><div class="form-group"><label>N&uacute;mero de acompa&ntilde;antes</label><input type="number" id="crAcompCount" min="0" step="1" value="0" oninput="crRenderAcompanantes()"><p style="font-size:0.7rem;color:var(--text-light);margin-top:3px;">Sin contar al titular.</p></div><div class="form-group"></div></div>
+        <div id="crAcompBox" style="display:none;margin-bottom:10px;"><label style="display:block;font-weight:600;font-size:0.78rem;color:var(--text-light);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.5px;">Nombres de acompa&ntilde;antes</label><div id="crAcompList" style="display:flex;flex-direction:column;gap:5px;"></div></div>
+        <div class="form-group"><label>Notas</label><textarea id="crNotas" rows="2" placeholder="Detalles del crucero..."></textarea></div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modalVentaCrucero')">Cancelar</button><button class="btn btn-success" onclick="guardarVentaCrucero()">Guardar venta de crucero</button></div>
+</div></div>
+
 <!-- Modal: Informacion extra de venta personalizada (despues de aceptar una cotizacion) -->
 <div class="modal-overlay" id="modalVentaInfoExtra"><div class="modal" style="max-width:560px;">
     <div class="modal-header"><h3>Informaci&oacute;n de la venta</h3><button class="modal-close" onclick="closeModal('modalVentaInfoExtra')">&times;</button></div>
@@ -1560,6 +1589,8 @@ const defaultCuentas=[{tipo:'Bac d\u00f3lares',cuenta:'952890135',iban:'CR750102
 // Metodos de pago extra para los recibos (ademas de las cuentas bancarias). Editables en Configuracion > Recibo de pago.
 // Por defecto trae los que antes estaban fijos, para no perder opciones al migrar.
 const defaultMetodosPagoRecibo=['Efectivo','Tarjeta de cr\u00e9dito','Dep\u00f3sito','Otro'];
+// Navieras para las ventas de crucero (editables en Configuraci\u00f3n > Cruceros).
+const defaultNavieras=['Royal Caribbean','MSC','Norwegian'];
 const defaultNoIncluyeEuropa=['Equipaje documentado, se puede adquirir por un costo adicional.','City tax o fee resort pagadero en el hotel.','Servicios no mencionados.'];
 const defaultNoIncluyeCrucero=['Excursiones en Tierra.','Restaurantes de Especialidad.','Internet a bordo.'];
 const defaultPoliticasEuropa=['Precios sujetos a disponibilidad y cambio sin previo aviso.','Esto es una cotizaci\u00f3n.','Todos los pasajeros deben verificar que la documentaci\u00f3n para el viaje se encuentre al d\u00eda (pasaporte, visa, pensiones alimenticias, permisos de salida de ni\u00f1os, seg\u00fan sea necesario). No nos hacemos responsables en caso de problemas migratorios.','Los hu\u00e9spedes deber\u00e1n presentar un documento de identificaci\u00f3n oficial en vigencia al momento del check-in y una tarjeta de cr\u00e9dito o dep\u00f3sito para gastos imprevistos durante su estancia.','Pasaporte con vigencia de al menos 6 meses posteriores a la fecha de viaje.','Los boletos a\u00e9reos una vez emitidos no son reembolsables ni transferibles, no se aceptan cambios en nombre. Aplican cargos por cambio de fecha.','Se recomienda el uso de caja de seguridad en el hotel, ya que no nos hacemos responsables por p\u00e9rdida o robo de objetos personales.','Dep\u00f3sito de garant\u00eda: Algunos hoteles solicitan tarjeta de cr\u00e9dito, como respaldo ante cualquier incidente.'];
@@ -2233,6 +2264,7 @@ function cfgGet(){
         },
         cuentas:   c.cuentas   || defaultCuentas,
         metodosPagoRecibo: c.metodosPagoRecibo || defaultMetodosPagoRecibo,
+        navieras: c.navieras || defaultNavieras,
         checklist: c.checklist || defaultChecklistItems,
         alertas:   c.alertas   || defaultAlertas,
         fees:      c.fees      || defaultFees,
@@ -2958,7 +2990,19 @@ function renderConfiguracion(){
     renderEncabezados();
     renderConfigRecibo();
     renderConfigEDC();
+    renderConfigCruceros();
     renderConfigUsuarios();
+}
+function renderConfigCruceros(){
+    const cfg=cfgGet();
+    const pane=document.getElementById('cfgPane-cruceros');
+    if(!pane)return;
+    pane.innerHTML=`<p class="config-hint">Navieras que aparecen en el desplegable al registrar una <strong>venta de crucero</strong> (Ventas &rarr; Cruceros).</p>
+    <div class="form-group"><label>Navieras</label>
+        <div id="cfgNavierasList">${(cfg.navieras||[]).map(s=>renderCfgListItem(s,false)).join('')}</div>
+        <button class="btn btn-sm btn-primary" onclick="document.getElementById('cfgNavierasList').insertAdjacentHTML('beforeend',renderCfgListItem('',false));initDrag(document.getElementById('cfgNavierasList'));" style="margin-top:8px;">+ Agregar naviera</button>
+    </div>`;
+    initDrag(pane.querySelector('#cfgNavierasList'));
 }
 
 function renderConfigRecibo(){
@@ -6109,6 +6153,8 @@ function saveConfigFromUI(silent){
     });
     // Metodos de pago extra para recibos (pestaña Recibo de pago)
     c.metodosPagoRecibo=collectConfigListFromDOM('cfgMetodosReciboList',false);
+    // Navieras para ventas de crucero (pestaña Cruceros)
+    c.navieras=collectConfigListFromDOM('cfgNavierasList',false);
     // Checklist
     c.checklist=collectConfigListFromDOM('cfgChecklistList',false);
     // Alertas (textarea)
@@ -8166,8 +8212,221 @@ function guardarVentaGrupal(){
 }
 
 function getVentasTab(){return localStorage.getItem('dv_ventas_tab')||'personalizada';}
+
+// ===== VENTAS DE CRUCERO =====
+// Venta manual (sin cotización interna). Un cliente + acompañantes, precio POR CABINA(S).
+// Reusa toda la cobranza (estado de cuenta, recibos, pagos, productos adicionales).
+let _editingVentaCruceroId=null;
+const CR_CABINA_CATS=['Interior','Exterior','Balcón','Suite'];
+function _crFillCabinaCat(sel,val){
+    sel.innerHTML=CR_CABINA_CATS.map(c=>`<option value="${esc(c)}">${c==='Exterior'?'Exterior (vista al mar)':esc(c)}</option>`).join('')+'<option value="__otra">Otra…</option>';
+    if(val&&CR_CABINA_CATS.indexOf(val)<0){sel.value='__otra';return true;} // categoría personalizada
+    if(val)sel.value=val;
+    return false;
+}
+function crOnCategoriaChange(sel){
+    const otra=sel.parentElement.querySelector('.cr-cab-catotra');
+    if(sel.value==='__otra'){otra.style.display='block';otra.focus();}
+    else{otra.style.display='none';otra.value='';}
+}
+function crAddCabina(data){
+    data=data||{};
+    const box=document.getElementById('crCabinasBox');
+    const row=document.createElement('div');
+    row.className='cr-cabina-row';
+    row.style.cssText='display:flex;gap:6px;align-items:flex-start;margin-bottom:6px;flex-wrap:wrap;';
+    row.innerHTML=`<div style="flex:1.3;min-width:130px;"><select class="cr-cab-cat" onchange="crOnCategoriaChange(this)"></select><input type="text" class="cr-cab-catotra" placeholder="Especificar categoría" style="display:none;margin-top:4px;"></div>`
+        +`<div style="flex:0.8;min-width:80px;"><input type="text" class="cr-cab-num" placeholder="N° cabina"></div>`
+        +`<div style="flex:0.55;min-width:56px;"><input type="number" class="cr-cab-ocup" min="0" step="1" placeholder="Ocup."></div>`
+        +`<div style="flex:0.9;min-width:90px;"><input type="text" inputmode="text" class="cr-cab-precio" placeholder="Precio" oninput="crRecalcTotal()" onblur="evalMontoInput(this);crRecalcTotal()" onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}"></div>`
+        +`<button type="button" class="btn-icon remove" title="Quitar cabina" onclick="this.closest('.cr-cabina-row').remove();crRecalcTotal();">&times;</button>`;
+    box.appendChild(row);
+    const sel=row.querySelector('.cr-cab-cat');
+    const esOtra=_crFillCabinaCat(sel,data.categoria||'');
+    if(esOtra){const otra=row.querySelector('.cr-cab-catotra');otra.style.display='block';otra.value=data.categoria||'';}
+    if(data.numero!=null)row.querySelector('.cr-cab-num').value=data.numero;
+    if(data.ocupantes!=null&&data.ocupantes!=='')row.querySelector('.cr-cab-ocup').value=data.ocupantes;
+    if(data.precio!=null&&data.precio!=='')row.querySelector('.cr-cab-precio').value=data.precio;
+    crRecalcTotal();
+}
+function crRecalcTotal(){
+    let sum=0;
+    document.querySelectorAll('#crCabinasBox .cr-cab-precio').forEach(inp=>{sum+=evalExpr(inp.value);});
+    sum=Math.round(sum*100)/100;
+    const m=(document.getElementById('crMoneda')||{}).value||'USD';
+    const el=document.getElementById('crTotalCalc');
+    if(el)el.textContent=fmtMoney(sum,m);
+    return sum;
+}
+function _crCabinaCategoria(row){
+    const sel=row.querySelector('.cr-cab-cat');
+    if(sel.value==='__otra')return (row.querySelector('.cr-cab-catotra').value||'').trim()||'Otra';
+    return sel.value;
+}
+function _crLeerCabinas(){
+    return Array.from(document.querySelectorAll('#crCabinasBox .cr-cabina-row')).map(row=>({
+        categoria:_crCabinaCategoria(row),
+        numero:(row.querySelector('.cr-cab-num').value||'').trim(),
+        ocupantes:(row.querySelector('.cr-cab-ocup').value||'').trim(),
+        precio:Math.round(evalExpr(row.querySelector('.cr-cab-precio').value)*100)/100
+    })).filter(c=>c.precio>0||c.numero);
+}
+function crRenderAcompanantes(){
+    const n=Math.max(0,parseInt(document.getElementById('crAcompCount').value||'0',10));
+    const list=document.getElementById('crAcompList');
+    const prev=Array.from(list.querySelectorAll('input.cr-acomp')).map(i=>i.value);
+    let html='';
+    for(let i=0;i<n;i++)html+=`<input type="text" class="cr-acomp" placeholder="Nombre del acompañante ${i+1}" value="${esc(prev[i]||'')}">`;
+    list.innerHTML=html;
+    document.getElementById('crAcompBox').style.display=n>0?'block':'none';
+}
+function crOnClienteChange(){
+    document.getElementById('crNuevoClienteBox').style.display=(document.getElementById('crClienteId').value==='__nuevo')?'block':'none';
+}
+function openModalVentaCrucero(){
+    _editingVentaCruceroId=null;
+    document.getElementById('crModalTitulo').textContent='Nueva Venta de Crucero';
+    document.getElementById('crEditId').value='';
+    const sel=document.getElementById('crClienteId');
+    const clientes=getClientes().slice().sort((a,b)=>(a.nombreCompleto||'').localeCompare(b.nombreCompleto||''));
+    sel.innerHTML='<option value="">-- Seleccionar --</option><option value="__nuevo">+ Crear nuevo contacto</option>'+clientes.map(c=>`<option value="${c.id}">${esc(c.nombreCompleto||'(sin nombre)')}${c.email?' · '+esc(c.email):''}</option>`).join('');
+    const nav=document.getElementById('crNaviera');
+    nav.innerHTML='<option value="">--</option>'+(cfgGet().navieras||[]).map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('');
+    const encSel=document.getElementById('crEncargado');
+    encSel.innerHTML='<option value="">--</option>'+(cfgGet().encargados||[]).filter(Boolean).map(e=>`<option value="${esc(e)}">${esc(e)}</option>`).join('');
+    ['crNuevoNombre','crNuevoTel','crNuevoEmail','crBarco','crReserva','crDestino','crFechaInicio','crFechaFin','crNotas'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+    document.getElementById('crMoneda').value='USD';
+    document.getElementById('crFechaVenta').value=new Date().toISOString().slice(0,10);
+    document.getElementById('crAcompCount').value='0';
+    document.getElementById('crAcompList').innerHTML='';
+    document.getElementById('crAcompBox').style.display='none';
+    document.getElementById('crNuevoClienteBox').style.display='none';
+    document.getElementById('crCabinasBox').innerHTML='';
+    crAddCabina();
+    crRecalcTotal();
+    document.getElementById('modalVentaCrucero').classList.add('open');
+}
+function editarVentaCrucero(id){
+    const v=getVentas().find(x=>x.id===id);
+    if(!v){alert('Venta no encontrada.');return;}
+    openModalVentaCrucero();
+    _editingVentaCruceroId=id;
+    document.getElementById('crEditId').value=id;
+    document.getElementById('crModalTitulo').textContent='Editar Venta de Crucero';
+    const sel=document.getElementById('crClienteId');
+    if(v.clienteId&&Array.from(sel.options).some(o=>o.value===v.clienteId)){sel.value=v.clienteId;}
+    else{const opt=document.createElement('option');opt.value='__keep__';opt.textContent=(v.clienteNombre||'(cliente actual)')+' (mantener)';opt.selected=true;sel.insertBefore(opt,sel.firstChild.nextSibling);}
+    document.getElementById('crNuevoClienteBox').style.display='none';
+    const nav=document.getElementById('crNaviera');
+    if(v.naviera){if(!Array.from(nav.options).some(o=>o.value===v.naviera)){const o=document.createElement('option');o.value=v.naviera;o.textContent=v.naviera;nav.appendChild(o);}nav.value=v.naviera;}
+    document.getElementById('crBarco').value=v.barco||'';
+    document.getElementById('crReserva').value=v.reserva||'';
+    document.getElementById('crDestino').value=v.destino||'';
+    document.getElementById('crEncargado').value=v.encargado||'';
+    const cob=v.cobranza||{};
+    document.getElementById('crMoneda').value=cob.moneda||'USD';
+    document.getElementById('crFechaVenta').value=v.fechaVenta||'';
+    document.getElementById('crFechaInicio').value=v.fechaInicio||'';
+    document.getElementById('crFechaFin').value=v.fechaFin||'';
+    document.getElementById('crNotas').value=v.notas||'';
+    document.getElementById('crCabinasBox').innerHTML='';
+    const cabinas=(Array.isArray(v.cabinas)&&v.cabinas.length)?v.cabinas:[{}];
+    cabinas.forEach(c=>crAddCabina(c));
+    crRecalcTotal();
+    document.getElementById('crAcompCount').value=String(v.numAcompanantes||0);
+    crRenderAcompanantes();
+    const inputs=document.querySelectorAll('#crAcompList input.cr-acomp');
+    (v.acompanantes||[]).forEach((a,i)=>{const nom=typeof a==='string'?a:(a&&a.nombre?a.nombre:'');if(inputs[i])inputs[i].value=nom;});
+}
+function guardarVentaCrucero(){
+    const editId=_editingVentaCruceroId;
+    const ventas=getVentas();
+    const ventaPrev=editId?ventas.find(v=>v.id===editId):null;
+    const selV=document.getElementById('crClienteId').value;
+    if(!selV){alert('Seleccione un contacto o cree uno nuevo.');return;}
+    const cabinas=_crLeerCabinas();
+    if(!cabinas.length){alert('Agregá al menos una cabina con su precio.');return;}
+    const ahora=new Date().toISOString();
+    let clienteId=null,clienteNombre='';
+    if(selV==='__keep__'&&ventaPrev){clienteId=ventaPrev.clienteId||null;clienteNombre=ventaPrev.clienteNombre||'';}
+    else if(selV==='__nuevo'){
+        const nombre=document.getElementById('crNuevoNombre').value.trim();
+        if(!nombre){alert('Ingrese el nombre del nuevo contacto.');return;}
+        const nuevo={id:Date.now().toString()+'_c',nombreCompleto:nombre,telefono:document.getElementById('crNuevoTel').value.trim(),email:document.getElementById('crNuevoEmail').value.trim(),estado:'cliente',origen:'',etiquetas:[],fechaCreacion:ahora,fechaActualizacion:ahora,fechaCaptura:ahora,bitacora:[makeBitacoraEntry('captura','Contacto creado desde Nueva Venta de Crucero',{automatico:true})]};
+        const cls=getClientes();cls.unshift(nuevo);saveClientes(cls);
+        clienteId=nuevo.id;clienteNombre=nuevo.nombreCompleto;
+    }else{
+        const c=getClientes().find(x=>x.id===selV);
+        if(!c){alert('Contacto no encontrado.');return;}
+        clienteId=c.id;clienteNombre=c.nombreCompleto||'';
+    }
+    const usuarioEmail=(window.currentUser&&window.currentUser.email)||'';
+    const montoTotal=Math.round(cabinas.reduce((s,c)=>s+num(c.precio),0)*100)/100;
+    const nAcomp=Math.max(0,parseInt(document.getElementById('crAcompCount').value||'0',10));
+    const acompanantes=Array.from(document.querySelectorAll('#crAcompList input.cr-acomp')).map(i=>({nombre:i.value.trim(),tipo:'adulto'})).filter(a=>a.nombre);
+    const campos={
+        naviera:document.getElementById('crNaviera').value||'',
+        barco:document.getElementById('crBarco').value.trim(),
+        reserva:document.getElementById('crReserva').value.trim(),
+        destino:document.getElementById('crDestino').value.trim(),
+        encargado:document.getElementById('crEncargado').value||usuarioEmail,
+        notas:document.getElementById('crNotas').value.trim(),
+        fechaInicio:document.getElementById('crFechaInicio').value,
+        fechaFin:document.getElementById('crFechaFin').value
+    };
+    const moneda=document.getElementById('crMoneda').value||'USD';
+    if(editId&&ventaPrev){
+        Object.assign(ventaPrev,{tipo:'crucero',clienteId,clienteNombre,cabinas,numAcompanantes:nAcomp,acompanantes,fechaVenta:document.getElementById('crFechaVenta').value||ventaPrev.fechaVenta||'',fechaActualizacion:ahora},campos);
+        ventaPrev.cobranza=ventaPrev.cobranza||{};
+        ventaPrev.cobranza.montoTotal=montoTotal;
+        ventaPrev.cobranza.moneda=moneda;
+        ventaPrev.cobranza.pagos=ventaPrev.cobranza.pagos||[];
+        ventaPrev._lastModifiedAt=Date.now();
+        saveVentas(ventas);
+    }else{
+        const venta=Object.assign({
+            id:Date.now().toString()+'_cr',
+            tipo:'crucero',
+            cotizacionId:null,
+            clienteId,clienteNombre,
+            fechaVenta:document.getElementById('crFechaVenta').value||new Date().toISOString().slice(0,10),
+            estado:'pendiente',
+            cabinas,numAcompanantes:nAcomp,acompanantes,
+            checklist:defaultChecklistItems.map((t,i)=>({id:Date.now()+'_'+i,texto:t,completado:false})),
+            cobranza:{montoTotal,moneda,pagos:[]},
+            fechaCreacion:ahora
+        },campos);
+        ventas.unshift(venta);saveVentas(ventas);
+    }
+    _editingVentaCruceroId=null;
+    closeModal('modalVentaCrucero');
+    setVentasTab('crucero');
+    updateBadges();
+}
+function renderVentasCruceros(filtered,grid){
+    const estadoLabels={pendiente:'Pendiente',en_proceso:'En proceso',completada:'Completada',cancelada:'Cancelada'};
+    const estadoColors={pendiente:'var(--accent)',en_proceso:'var(--primary)',completada:'var(--success)',cancelada:'var(--danger)'};
+    const rows=filtered.map(v=>{
+        const cob=calcCobranzaStatus(v);
+        const cobBadge=cob.total>0?`<span class="lt-badge" style="background:${cob.color}22;color:${cob.color};">${cob.estadoPagoLabel} ${cob.pagadoPct}%</span>`:'<span style="color:var(--text-light);font-size:0.72rem;">-</span>';
+        const navBarco=[v.naviera,v.barco].filter(Boolean).join(' · ')||'-';
+        return`<tr class="estado-${v.estado}">
+        <td>${esc(v.clienteNombre||'-')}</td>
+        <td>${esc(navBarco)}${v.destino?`<div class="lt-secondary">${esc(v.destino)}</div>`:''}</td>
+        <td>${esc(v.reserva||'-')}</td>
+        <td>${v.fechaInicio?`<div>${formatDateRange(v.fechaInicio,v.fechaFin)}</div>`:'<span style="color:var(--text-light);">-</span>'}</td>
+        <td><span class="lt-badge" style="background:${estadoColors[v.estado]||'var(--primary)'};color:white;">${estadoLabels[v.estado]||v.estado}</span></td>
+        <td>${cobBadge}</td>
+        <td><div class="lt-actions"><button class="btn btn-sm btn-primary" onclick="editarVentaCrucero('${v.id}')" title="Editar venta de crucero">&#9998;</button><button class="btn-checklist" onclick="openChecklist('${v.id}')" title="Checklist">&#128221;</button><button class="btn-checklist" style="background:#fff3e0;color:#d4830f;border:1px solid #e8941a;" onclick="openCobranza('${v.id}')" title="Estado de cuenta">&#128176;</button><button class="btn btn-sm btn-danger" onclick="eliminarVenta('${v.id}')" title="Eliminar">&times;</button></div></td>
+        </tr>`;
+    }).join('');
+    grid.innerHTML=`<table class="list-table">
+        <thead><tr><th>Cliente</th><th>Naviera / Barco</th><th>N&deg; reserva</th><th>Embarque</th><th>Estado</th><th>Cobranza</th><th>Acciones</th></tr></thead>
+        <tbody>${rows}</tbody>
+    </table>`;
+}
 function setVentasTab(t){
-    const tab=t==='grupal'?'grupal':'personalizada';
+    const tab=(t==='grupal'||t==='crucero')?t:'personalizada';
     localStorage.setItem('dv_ventas_tab',tab);
     document.querySelectorAll('.ventas-tab').forEach(b=>b.classList.toggle('active',b.dataset.vtab===tab));
     applyVentasHeaderActions();
@@ -8177,7 +8436,9 @@ function applyVentasHeaderActions(){
     const ha=document.getElementById('headerActions');
     if(!ha)return;
     const tab=getVentasTab();
-    ha.innerHTML=tab==='grupal'?'<button class="btn btn-accent" onclick="openModalVentaGrupal()">+ Nueva Venta Grupal</button>':'';
+    if(tab==='grupal')ha.innerHTML='<button class="btn btn-accent" onclick="openModalVentaGrupal()">+ Nueva Venta Grupal</button>';
+    else if(tab==='crucero')ha.innerHTML='<button class="btn btn-accent" onclick="openModalVentaCrucero()">+ Nueva Venta de Crucero</button>';
+    else ha.innerHTML='';
 }
 function renderVentas(){
     const ventas=getVentas();
@@ -8188,18 +8449,21 @@ function renderVentas(){
     // Sincronizar UI tabs (por si renderVentas se llama desde otro flujo)
     document.querySelectorAll('.ventas-tab').forEach(b=>b.classList.toggle('active',b.dataset.vtab===tab));
     // Compat hacia atras: ventas sin tipo se consideran personalizadas
-    const tipoOf=v=>v.tipo==='grupal'?'grupal':'personalizada';
+    const tipoOf=v=>v.tipo==='grupal'?'grupal':(v.tipo==='crucero'?'crucero':'personalizada');
     const cuentaPers=ventas.filter(v=>tipoOf(v)==='personalizada').length;
     const cuentaGrup=ventas.filter(v=>tipoOf(v)==='grupal').length;
+    const cuentaCru=ventas.filter(v=>tipoOf(v)==='crucero').length;
     const cP=document.getElementById('vtabCountPers');if(cP)cP.textContent=cuentaPers;
     const cG=document.getElementById('vtabCountGrup');if(cG)cG.textContent=cuentaGrup;
+    const cC=document.getElementById('vtabCountCru');if(cC)cC.textContent=cuentaCru;
     const baseTipo=ventas.filter(v=>tipoOf(v)===tab);
-    const filtered=baseTipo.filter(v=>{const text=[v.destino,v.clienteNombre,v.encargado,v.grupoNombre].join(' ').toLowerCase();return(!search||text.includes(search))&&(!filterE||v.estado===filterE);});
+    const filtered=baseTipo.filter(v=>{const text=[v.destino,v.clienteNombre,v.encargado,v.grupoNombre,v.naviera,v.barco,v.reserva].join(' ').toLowerCase();return(!search||text.includes(search))&&(!filterE||v.estado===filterE);});
     if(!filtered.length){
-        const subt=tab==='grupal'?'Las ventas grupales se crean manualmente con el bot&oacute;n + Nueva Venta Grupal.':'Las ventas personalizadas se crean al aceptar cotizaciones.';
+        const subt=tab==='grupal'?'Las ventas grupales se crean manualmente con el bot&oacute;n + Nueva Venta Grupal.':(tab==='crucero'?'Las ventas de crucero se crean con el bot&oacute;n + Nueva Venta de Crucero.':'Las ventas personalizadas se crean al aceptar cotizaciones.');
         grid.innerHTML=`<div class="grid-empty"><h3>${search||filterE?'Sin resultados':'Sin ventas'}</h3><p>${subt}</p></div>`;return;
     }
     if(tab==='grupal'){renderVentasGrupales(filtered,grid);return;}
+    if(tab==='crucero'){renderVentasCruceros(filtered,grid);return;}
     const estadoLabels={pendiente:'Pendiente',en_proceso:'En proceso',completada:'Completada',cancelada:'Cancelada'};
     const estadoColors={pendiente:'var(--accent)',en_proceso:'var(--primary)',completada:'var(--success)',cancelada:'var(--danger)'};
     const rows=filtered.map(v=>{
@@ -8728,6 +8992,10 @@ function renderDocumento(tipo,ventaId,pagoId){
     // Viaje (destino + fechas) que aparece en la esquina superior derecha del recibo y del EDC.
     // Toma datos de la venta (v) y como fallback de la cotizacion (cot.data) si v esta vacio.
     const viajeDestino=(v.destino&&v.destino.trim())||(cot&&cot.data&&(cot.data.destinoTexto||cot.data.destino))||'';
+    // Para ventas de crucero, el documento habla de "crucero" en vez de "viaje".
+    const esCrucero=v.tipo==='crucero';
+    const palabraViaje=esCrucero?'crucero':'viaje';
+    const conceptoBase=esCrucero?('Crucero'+(v.naviera?' '+esc(v.naviera):'')):'Viaje';
     const viajeFechas=v.fechaInicio?formatDateRange(v.fechaInicio,v.fechaFin):(cot&&cot.data&&cot.data.fechaInicio?formatDateRange(cot.data.fechaInicio,cot.data.fechaFin):'');
     const clienteEmail=cli?cli.email:'';
     const clienteTel=cli?cli.telefono:'';
@@ -8757,13 +9025,13 @@ function renderDocumento(tipo,ventaId,pagoId){
             <div class="recibo-section-title">Concepto del pago</div>
             <table class="recibo-table">
                 <thead><tr><th>Descripci\u00f3n</th><th>M\u00e9todo</th><th>Referencia</th><th style="text-align:right;">Monto</th></tr></thead>
-                <tbody><tr><td>${pago.descripcion?esc(pago.descripcion):'Abono al viaje <strong>'+esc(v.destino)+'</strong>'+(v.fechaInicio?' ('+formatDateRange(v.fechaInicio,v.fechaFin)+')':'')}</td><td>${esc(pago.metodo||'')}</td><td>${esc(pago.referencia||'-')}</td><td style="text-align:right;font-weight:700;">${fmtMoney(pago.monto,c.moneda)}</td></tr></tbody>
+                <tbody><tr><td>${pago.descripcion?esc(pago.descripcion):'Abono al '+palabraViaje+' <strong>'+esc(v.destino)+'</strong>'+(v.fechaInicio?' ('+formatDateRange(v.fechaInicio,v.fechaFin)+')':'')}</td><td>${esc(pago.metodo||'')}</td><td>${esc(pago.referencia||'-')}</td><td style="text-align:right;font-weight:700;">${fmtMoney(pago.monto,c.moneda)}</td></tr></tbody>
             </table>
             ${pago.nota?`<p style="font-size:0.82rem;color:var(--text-light);margin:10px 0;"><strong>Nota:</strong> ${esc(pago.nota)}</p>`:''}
             <div class="recibo-totals">
                 <div class="recibo-totals-box">
-                    ${c.adicionalesTotal>0?`<div class="recibo-totals-row"><span>Viaje</span><span>${fmtMoney(c.montoTotal,c.moneda)}</span></div><div class="recibo-totals-row"><span>Productos adicionales</span><span>${fmtMoney(c.adicionalesTotal,c.moneda)}</span></div>`:''}
-                    <div class="recibo-totals-row"><span>${c.adicionalesTotal>0?'Monto total':'Monto total del viaje'}</span><span>${fmtMoney(c.total,c.moneda)}</span></div>
+                    ${c.adicionalesTotal>0?`<div class="recibo-totals-row"><span>${esCrucero?'Crucero':'Viaje'}</span><span>${fmtMoney(c.montoTotal,c.moneda)}</span></div><div class="recibo-totals-row"><span>Productos adicionales</span><span>${fmtMoney(c.adicionalesTotal,c.moneda)}</span></div>`:''}
+                    <div class="recibo-totals-row"><span>${c.adicionalesTotal>0?'Monto total':'Monto total del '+palabraViaje}</span><span>${fmtMoney(c.total,c.moneda)}</span></div>
                     <div class="recibo-totals-row"><span>Total pagado a la fecha</span><span>${fmtMoney(c.pagado,c.moneda)}</span></div>
                     <div class="recibo-totals-row saldo ${c.saldo<=0?'pagado':''}"><span>Saldo pendiente</span><span>${fmtMoney(c.saldo,c.moneda)}</span></div>
                 </div>
@@ -8785,7 +9053,7 @@ function renderDocumento(tipo,ventaId,pagoId){
             <table class="recibo-table">
                 <thead><tr><th>Fecha</th><th>Concepto</th><th style="text-align:right;">Monto</th></tr></thead>
                 <tbody>
-                    <tr><td>${esc(v.fechaVenta||'-')}</td><td>Viaje${viajeDestino?' a <strong>'+esc(viajeDestino)+'</strong>':''}${viajeFechas?' ('+esc(viajeFechas)+')':''}</td><td style="text-align:right;font-weight:700;">${fmtMoney(c.montoTotal,c.moneda)}</td></tr>
+                    <tr><td>${esc(v.fechaVenta||'-')}</td><td>${conceptoBase}${viajeDestino?' a <strong>'+esc(viajeDestino)+'</strong>':''}${viajeFechas?' ('+esc(viajeFechas)+')':''}</td><td style="text-align:right;font-weight:700;">${fmtMoney(c.montoTotal,c.moneda)}</td></tr>
                     ${adicSorted.map(a=>`<tr><td>${esc(a.fecha||'')}</td><td>${esc(a.tipo||'')}${a.concepto?' &mdash; '+esc(a.concepto):''}${a.nota?'<div style="font-size:0.72rem;color:var(--text-light);">'+esc(a.nota)+'</div>':''}</td><td style="text-align:right;font-weight:700;">${fmtMoney(a.monto,c.moneda)}</td></tr>`).join('')}
                     <tr><td colspan="2" style="text-align:right;font-weight:700;border-top:2px solid var(--primary);">Total a pagar</td><td style="text-align:right;font-weight:700;border-top:2px solid var(--primary);">${fmtMoney(c.total,c.moneda)}</td></tr>
                 </tbody>
@@ -8809,7 +9077,7 @@ function renderDocumento(tipo,ventaId,pagoId){
             </table>
             <div class="recibo-totals">
                 <div class="recibo-totals-box">
-                    <div class="recibo-totals-row"><span>${c.adicionalesTotal>0?'Total a pagar (viaje + adicionales)':'Monto total del viaje'}</span><span>${fmtMoney(c.total,c.moneda)}</span></div>
+                    <div class="recibo-totals-row"><span>${c.adicionalesTotal>0?('Total a pagar ('+palabraViaje+' + adicionales)'):'Monto total del '+palabraViaje}</span><span>${fmtMoney(c.total,c.moneda)}</span></div>
                     <div class="recibo-totals-row"><span>Total pagado</span><span style="color:var(--success);font-weight:700;">${fmtMoney(c.pagado,c.moneda)}</span></div>
                     <div class="recibo-totals-row grand saldo ${c.saldo<=0?'pagado':''}"><span>SALDO PENDIENTE</span><span>${fmtMoney(c.saldo,c.moneda)}</span></div>
                 </div>
@@ -8980,7 +9248,7 @@ function collectAllPagos(){
         const moneda=(v.cobranza&&v.cobranza.moneda)||'USD';
         const cli=v.clienteId?cliById[v.clienteId]:null;
         const nombreCliente=(cli&&cli.nombreCompleto)||v.clienteNombre||'(sin nombre)';
-        const tipo=v.tipo==='grupal'?'grupal':'personalizada';
+        const tipo=v.tipo==='grupal'?'grupal':(v.tipo==='crucero'?'crucero':'personalizada');
         pagos.forEach(p=>{
             rows.push({
                 pagoId:p.id,
@@ -8988,6 +9256,7 @@ function collectAllPagos(){
                 fecha:p.fecha||'',
                 cliente:nombreCliente,
                 destino:v.destino||'',
+                naviera:v.naviera||'',
                 grupo:v.grupoNombre||'',
                 encargado:v.encargado||'',
                 metodo:p.metodo||'',
@@ -9056,8 +9325,8 @@ function renderReportePagos(){
     });
     const rows=sorted.map(r=>{
         const fechaTxt=r.fecha?(formatFechaCorta(r.fecha)||r.fecha):'';
-        const ventaTxt=r.tipo==='grupal'?(r.grupo?`${esc(r.grupo)}`:'(grupo)'):(r.destino||'');
-        const tipoLabel=r.tipo==='grupal'?'<span class="lt-badge" style="background:var(--accent-light);color:#d4830f;font-size:0.66rem;">GRUPAL</span>':'<span class="lt-badge" style="background:var(--primary-light);color:var(--primary-dark);font-size:0.66rem;">PERSONAL</span>';
+        const ventaTxt=r.tipo==='grupal'?(r.grupo?`${esc(r.grupo)}`:'(grupo)'):(r.tipo==='crucero'?[r.naviera,r.destino].filter(Boolean).map(esc).join(' · '):(r.destino||''));
+        const tipoLabel=r.tipo==='grupal'?'<span class="lt-badge" style="background:var(--accent-light);color:#d4830f;font-size:0.66rem;">GRUPAL</span>':(r.tipo==='crucero'?'<span class="lt-badge" style="background:#e3f2fd;color:#1565c0;font-size:0.66rem;">CRUCERO</span>':'<span class="lt-badge" style="background:var(--primary-light);color:var(--primary-dark);font-size:0.66rem;">PERSONAL</span>');
         return`<tr>
             <td>${esc(fechaTxt)}</td>
             <td>${esc(r.cliente)}<div class="lt-secondary">${tipoLabel}</div></td>
@@ -9132,7 +9401,7 @@ function exportarReportePagosExcel(){
     const rows=filtered.map(r=>({
         Fecha:r.fecha,
         Cliente:r.cliente,
-        Tipo:r.tipo==='grupal'?'Grupal':'Personalizada',
+        Tipo:r.tipo==='grupal'?'Grupal':(r.tipo==='crucero'?'Crucero':'Personalizada'),
         Destino:r.destino,
         Grupo:r.grupo,
         Encargada:r.encargado,
