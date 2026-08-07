@@ -1556,6 +1556,19 @@ onAuthStateChanged(fbAuth, (user) => {
     <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modalVentaServicio')">Cancelar</button><button class="btn btn-success" onclick="guardarVentaServicio()">Guardar venta</button></div>
 </div></div>
 
+<!-- MODAL: Documentos de la venta (cotizaciones PDF, etc.) -->
+<div class="modal-overlay" id="modalDocumentos"><div class="modal" style="max-width:560px;">
+    <div class="modal-header"><h3 id="docModalTitulo">Documentos</h3><button class="modal-close" onclick="closeModal('modalDocumentos')">&times;</button></div>
+    <div class="modal-body">
+        <input type="hidden" id="docVentaId">
+        <p class="config-hint">Guard&aacute; ac&aacute; la <strong>cotizaci&oacute;n de la naviera</strong> (PDF) y otros documentos de esta venta. M&aacute;ximo 10&nbsp;MB por archivo.</p>
+        <div class="form-group"><label>Agregar documento</label><input type="file" id="docFileInput" accept="application/pdf,.pdf,image/*" onchange="handleDocumentoUpload(event)"></div>
+        <div id="docUploadStatus" style="font-size:0.8rem;color:var(--text-light);margin:-4px 0 8px;"></div>
+        <div id="docList"></div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modalDocumentos')">Cerrar</button></div>
+</div></div>
+
 <!-- Modal: Informacion extra de venta personalizada (despues de aceptar una cotizacion) -->
 <div class="modal-overlay" id="modalVentaInfoExtra"><div class="modal" style="max-width:560px;">
     <div class="modal-header"><h3>Informaci&oacute;n de la venta</h3><button class="modal-close" onclick="closeModal('modalVentaInfoExtra')">&times;</button></div>
@@ -8511,7 +8524,7 @@ function renderVentasCruceros(filtered,grid){
         <td>${v.fechaInicio?`<div>${formatDateRange(v.fechaInicio,v.fechaFin)}</div>`:'<span style="color:var(--text-light);">-</span>'}</td>
         <td><span class="lt-badge" style="background:${estadoColors[v.estado]||'var(--primary)'};color:white;">${estadoLabels[v.estado]||v.estado}</span></td>
         <td>${cobBadge}</td>
-        <td><div class="lt-actions"><button class="btn btn-sm btn-primary" onclick="editarVentaCrucero('${v.id}')" title="Editar venta de crucero">&#9998;</button><button class="btn-checklist" onclick="openChecklist('${v.id}')" title="Checklist">&#128221;</button><button class="btn-checklist" style="background:#fff3e0;color:#d4830f;border:1px solid #e8941a;" onclick="openCobranza('${v.id}')" title="Estado de cuenta">&#128176;</button><button class="btn btn-sm btn-danger" onclick="eliminarVenta('${v.id}')" title="Eliminar">&times;</button></div></td>
+        <td><div class="lt-actions"><button class="btn btn-sm btn-primary" onclick="editarVentaCrucero('${v.id}')" title="Editar venta de crucero">&#9998;</button><button class="btn-checklist" onclick="openChecklist('${v.id}')" title="Checklist">&#128221;</button><button class="btn-checklist" style="background:#fff3e0;color:#d4830f;border:1px solid #e8941a;" onclick="openCobranza('${v.id}')" title="Estado de cuenta">&#128176;</button><button class="btn-checklist" style="background:#eef2ff;color:#3b5bdb;border:1px solid #b8c2f0;" onclick="openDocumentos('${v.id}')" title="Documentos (cotización PDF)">&#128206;${(v.documentos&&v.documentos.length)?' '+v.documentos.length:''}</button><button class="btn btn-sm btn-danger" onclick="eliminarVenta('${v.id}')" title="Eliminar">&times;</button></div></td>
         </tr>`;
     }).join('');
     grid.innerHTML=`<table class="list-table">
@@ -8660,6 +8673,88 @@ function renderVentasServicios(filtered,grid,sc){
         <thead><tr><th>Cliente</th><th>Descripci&oacute;n</th><th>Cotizador</th><th>Fecha del servicio</th><th>Estado</th><th>Cobranza</th><th>Acciones</th></tr></thead>
         <tbody>${rows}</tbody>
     </table>`;
+}
+
+// ===== REPOSITORIO DE DOCUMENTOS DE LA VENTA (PDF de la cotizacion, etc.) =====
+// Los archivos se suben a Firebase Storage al seleccionarlos; en la venta se guarda solo
+// {url,path,...} (liviano) para no exceder el limite de 1MB por documento de Firestore.
+function _fmtBytes(n){n=Number(n)||0;if(n<1024)return n+' B';if(n<1048576)return (n/1024).toFixed(0)+' KB';return (n/1048576).toFixed(1)+' MB';}
+function _docIcono(tipo){return /pdf/i.test(tipo||'')?'📄':(/image/i.test(tipo||'')?'🖼️':'📎');}
+function openDocumentos(ventaId){
+    const v=getVentas().find(x=>x.id===ventaId);
+    if(!v){alert('Venta no encontrada.');return;}
+    document.getElementById('docVentaId').value=ventaId;
+    const quien=[v.clienteNombre,v.naviera].filter(Boolean).join(' · ');
+    document.getElementById('docModalTitulo').textContent='Documentos'+(quien?' — '+quien:'');
+    document.getElementById('docFileInput').value='';
+    document.getElementById('docUploadStatus').textContent='';
+    renderDocumentosList();
+    document.getElementById('modalDocumentos').classList.add('open');
+}
+function renderDocumentosList(){
+    const ventaId=document.getElementById('docVentaId').value;
+    const v=getVentas().find(x=>x.id===ventaId);
+    const box=document.getElementById('docList');
+    if(!box)return;
+    const docs=(v&&Array.isArray(v.documentos))?v.documentos:[];
+    if(!docs.length){box.innerHTML='<p style="font-size:0.82rem;color:var(--text-light);font-style:italic;">Todav&iacute;a no hay documentos cargados.</p>';return;}
+    const sorted=[...docs].sort((a,b)=>String(b.fecha||'').localeCompare(String(a.fecha||'')));
+    box.innerHTML=sorted.map(d=>`<div style="display:flex;align-items:center;gap:10px;border:1px solid var(--border);border-radius:6px;padding:8px 10px;margin-bottom:6px;">
+        <span style="font-size:1.2rem;">${_docIcono(d.tipo)}</span>
+        <div style="flex:1;min-width:0;"><div style="font-weight:600;font-size:0.84rem;word-break:break-word;">${esc(d.nombre||'documento')}</div><div style="font-size:0.7rem;color:var(--text-light);">${_fmtBytes(d.tamano)}${d.fecha?' · '+esc(String(d.fecha).slice(0,10)):''}${d.subidoPor?' · '+esc(d.subidoPor):''}</div></div>
+        <a class="btn btn-sm btn-outline" style="color:var(--primary-dark);border-color:var(--primary);text-decoration:none;" href="${esc(d.url)}" target="_blank" rel="noopener">Ver</a>
+        <button class="btn-icon remove" title="Eliminar" onclick="eliminarDocumento('${d.id}')">&times;</button>
+    </div>`).join('');
+}
+async function _subirDocumentoStorage(dataUrl,ventaId,nombre){
+    const h=window.fbHelpers;
+    const safe=String(nombre||'doc').replace(/[^A-Za-z0-9._-]/g,'_').slice(-60);
+    const path=`ventas_docs/${ventaId}/${Date.now()}_${Math.random().toString(36).slice(2,7)}_${safe}`;
+    const sref=h.storageRef(window.fbStorage,path);
+    await h.uploadString(sref,dataUrl,'data_url');
+    const url=await h.getDownloadURL(sref);
+    return {url,path};
+}
+async function handleDocumentoUpload(ev){
+    const f=ev.target.files&&ev.target.files[0];
+    if(!f)return;
+    const status=document.getElementById('docUploadStatus');
+    if(f.size>10*1024*1024){alert('El archivo supera los 10 MB. Subí uno más liviano.');ev.target.value='';return;}
+    if(!window.fbStorage||!window.fbHelpers){alert('Necesitás conexión para subir documentos. Probá de nuevo en un momento.');ev.target.value='';return;}
+    const ventaId=document.getElementById('docVentaId').value;
+    if(status)status.textContent='Subiendo "'+f.name+'"…';
+    try{
+        const dataUrl=await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result);r.onerror=()=>rej(new Error('No se pudo leer el archivo'));r.readAsDataURL(f);});
+        const {url,path}=await _subirDocumentoStorage(dataUrl,ventaId,f.name);
+        // Re-leer fresco para no pisar cambios de otra persona.
+        const ventas=getVentas();
+        const v=ventas.find(x=>x.id===ventaId);
+        if(!v){alert('Venta no encontrada.');return;}
+        if(!Array.isArray(v.documentos))v.documentos=[];
+        v.documentos.push({id:'doc_'+Date.now()+'_'+Math.random().toString(36).slice(2,6),nombre:f.name,url,path,tipo:f.type||'',tamano:f.size,fecha:new Date().toISOString(),subidoPor:(window.currentUser&&window.currentUser.email)||''});
+        v._lastModifiedAt=Date.now();
+        saveVentas(ventas);
+        if(status)status.textContent='';
+        document.getElementById('docFileInput').value='';
+        renderDocumentosList();
+        renderVentas();
+    }catch(e){if(status)status.textContent='';alert('No se pudo subir el documento: '+(e&&e.message||e));}
+}
+async function eliminarDocumento(docId){
+    if(!confirm('¿Eliminar este documento? No se puede deshacer.'))return;
+    const ventaId=document.getElementById('docVentaId').value;
+    const ventas=getVentas();
+    const v=ventas.find(x=>x.id===ventaId);
+    if(!v||!Array.isArray(v.documentos))return;
+    const doc=v.documentos.find(d=>d.id===docId);
+    if(doc&&doc.path&&window.fbStorage&&window.fbHelpers){
+        try{await window.fbHelpers.deleteObject(window.fbHelpers.storageRef(window.fbStorage,doc.path));}catch(e){console.warn('[docs] no se pudo borrar de Storage:',e);}
+    }
+    v.documentos=v.documentos.filter(d=>d.id!==docId);
+    v._lastModifiedAt=Date.now();
+    saveVentas(ventas);
+    renderDocumentosList();
+    renderVentas();
 }
 function setVentasTab(t){
     const valid=['grupal','crucero'].concat(SERVICIO_CAT_IDS);
