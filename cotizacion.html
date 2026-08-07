@@ -372,7 +372,7 @@ body{font-family:'Open Sans',sans-serif;background:var(--bg);color:var(--text);m
 .config-tab.active{background:var(--primary);color:white;box-shadow:0 2px 8px rgba(10,126,140,0.3)}
 .config-pane{display:none;background:white;border-radius:10px;padding:18px;box-shadow:0 1px 6px rgba(0,0,0,0.06);max-width:900px}
 .config-pane.active{display:block}
-.ventas-tabs{display:flex;gap:6px;margin-bottom:12px;border-bottom:2px solid var(--border)}
+.ventas-tabs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;border-bottom:2px solid var(--border)}
 .ventas-tab{padding:10px 18px;border:none;background:transparent;font-family:'Open Sans',sans-serif;font-size:0.88rem;font-weight:600;color:var(--text-light);cursor:pointer;border-bottom:3px solid transparent;margin-bottom:-2px;transition:all 0.2s;display:flex;align-items:center;gap:6px}
 .ventas-tab:hover{color:var(--primary)}
 .ventas-tab.active{color:var(--primary-dark);border-bottom-color:var(--primary)}
@@ -1187,6 +1187,11 @@ onAuthStateChanged(fbAuth, (user) => {
         <button class="ventas-tab active" data-vtab="personalizada" onclick="setVentasTab('personalizada')">Personalizadas <span class="vtab-count" id="vtabCountPers"></span></button>
         <button class="ventas-tab" data-vtab="grupal" onclick="setVentasTab('grupal')">Grupales <span class="vtab-count" id="vtabCountGrup"></span></button>
         <button class="ventas-tab" data-vtab="crucero" onclick="setVentasTab('crucero')">Cruceros <span class="vtab-count" id="vtabCountCru"></span></button>
+        <button class="ventas-tab" data-vtab="boleto" onclick="setVentasTab('boleto')">Boletos a&eacute;reos <span class="vtab-count" id="vtabCount_boleto"></span></button>
+        <button class="ventas-tab" data-vtab="hospedaje" onclick="setVentasTab('hospedaje')">Hospedajes <span class="vtab-count" id="vtabCount_hospedaje"></span></button>
+        <button class="ventas-tab" data-vtab="transporte" onclick="setVentasTab('transporte')">Transportes <span class="vtab-count" id="vtabCount_transporte"></span></button>
+        <button class="ventas-tab" data-vtab="seguro" onclick="setVentasTab('seguro')">Seguros <span class="vtab-count" id="vtabCount_seguro"></span></button>
+        <button class="ventas-tab" data-vtab="otro" onclick="setVentasTab('otro')">Otros <span class="vtab-count" id="vtabCount_otro"></span></button>
     </div>
     <div class="list-search"><input type="text" id="ventasSearch" placeholder="Buscar por destino, cliente, grupo, encargado..." oninput="renderVentas()"><select id="ventasFilterEstado" onchange="renderVentas()"><option value="">Todos los estados</option><option value="pendiente">Pendiente</option><option value="en_proceso">En proceso</option><option value="completada">Completada</option><option value="cancelada">Cancelada</option></select></div>
     <div class="list-view" id="ventasGrid"></div>
@@ -1529,6 +1534,25 @@ onAuthStateChanged(fbAuth, (user) => {
         <div class="form-group"><label>Notas</label><textarea id="crNotas" rows="2" placeholder="Detalles del crucero..."></textarea></div>
     </div>
     <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modalVentaCrucero')">Cancelar</button><button class="btn btn-success" onclick="guardarVentaCrucero()">Guardar venta de crucero</button></div>
+</div></div>
+
+<!-- MODAL: Nueva/Editar Venta de Servicio (boleto aéreo, hospedaje, transporte, seguro, otro) -->
+<div class="modal-overlay" id="modalVentaServicio"><div class="modal" style="max-width:520px;">
+    <div class="modal-header"><h3 id="svModalTitulo">Nueva venta de servicio</h3><button class="modal-close" onclick="closeModal('modalVentaServicio')">&times;</button></div>
+    <div class="modal-body">
+        <input type="hidden" id="svEditId"><input type="hidden" id="svCat">
+        <div class="form-group"><label>Cliente *</label><select id="svClienteId" onchange="svOnClienteChange()"><option value="">-- Seleccionar contacto existente --</option><option value="__nuevo">+ Crear nuevo contacto</option></select></div>
+        <div id="svNuevoClienteBox" style="display:none;border:1px dashed var(--border);padding:10px;border-radius:6px;margin-bottom:10px;">
+            <div class="form-row"><div class="form-group"><label>Nombre completo</label><input type="text" id="svNuevoNombre" placeholder="Nombre y apellido"></div><div class="form-group"><label>Tel&eacute;fono</label><input type="text" id="svNuevoTel"></div></div>
+            <div class="form-group"><label>Email</label><input type="email" id="svNuevoEmail"></div>
+        </div>
+        <div class="form-group"><label id="svDescLabel">Descripci&oacute;n</label><textarea id="svDescripcion" rows="2" placeholder="Detalle del servicio (aerol&iacute;nea, ruta, PNR, hotel y fechas, aseguradora/p&oacute;liza, etc.)"></textarea></div>
+        <div class="form-row"><div class="form-group"><label>Monto</label><input type="text" inputmode="text" id="svMonto" placeholder="0.00" title="Acepta f&oacute;rmulas: 500+200" onblur="evalMontoInput(this)" onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}"></div><div class="form-group"><label>Moneda</label><select id="svMoneda"><option value="USD">USD</option><option value="CRC">CRC</option><option value="EUR">EUR</option></select></div></div>
+        <div class="form-row"><div class="form-group"><label>Encargada</label><select id="svEncargado"><option value="">--</option></select></div><div class="form-group"><label>Fecha de la venta</label><input type="date" id="svFechaVenta"></div></div>
+        <div class="form-row"><div class="form-group"><label>Fecha del servicio (opcional)</label><input type="date" id="svFechaInicio"></div><div class="form-group"></div></div>
+        <div class="form-group"><label>Notas</label><textarea id="svNotas" rows="2" placeholder="Opcional..."></textarea></div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modalVentaServicio')">Cancelar</button><button class="btn btn-success" onclick="guardarVentaServicio()">Guardar venta</button></div>
 </div></div>
 
 <!-- Modal: Informacion extra de venta personalizada (despues de aceptar una cotizacion) -->
@@ -8425,8 +8449,151 @@ function renderVentasCruceros(filtered,grid){
         <tbody>${rows}</tbody>
     </table>`;
 }
+
+// ===== VENTAS DE SERVICIOS SUELTOS (boleto aéreo, hospedaje, transporte, seguro, otro) =====
+// Una pestaña por servicio. Venta manual con Descripción + Monto. Reusa toda la cobranza.
+const SERVICIO_CATS=[
+    {id:'boleto',    label:'Boletos aéreos', singular:'boleto aéreo'},
+    {id:'hospedaje', label:'Hospedajes',     singular:'hospedaje'},
+    {id:'transporte',label:'Transportes',    singular:'transporte'},
+    {id:'seguro',    label:'Seguros',        singular:'seguro'},
+    {id:'otro',      label:'Otros servicios',singular:'servicio'}
+];
+const SERVICIO_CAT_IDS=SERVICIO_CATS.map(s=>s.id);
+function _servicioCatInfo(id){return SERVICIO_CATS.find(s=>s.id===id)||null;}
+// Clave de pestaña de una venta (grupal/crucero/servicioCat/personalizada).
+function _ventaTabKey(v){
+    if(!v)return 'personalizada';
+    if(v.tipo==='grupal')return 'grupal';
+    if(v.tipo==='crucero')return 'crucero';
+    if(v.tipo==='servicio')return SERVICIO_CAT_IDS.indexOf(v.servicioCat)>=0?v.servicioCat:'otro';
+    return 'personalizada';
+}
+let _editingVentaServicioId=null;
+function svOnClienteChange(){document.getElementById('svNuevoClienteBox').style.display=(document.getElementById('svClienteId').value==='__nuevo')?'block':'none';}
+function openModalVentaServicio(cat){
+    const sc=_servicioCatInfo(cat)||_servicioCatInfo('otro');
+    _editingVentaServicioId=null;
+    document.getElementById('svEditId').value='';
+    document.getElementById('svCat').value=sc.id;
+    document.getElementById('svModalTitulo').textContent='Nueva venta de '+sc.singular;
+    document.getElementById('svDescLabel').textContent='Descripción del '+sc.singular;
+    const sel=document.getElementById('svClienteId');
+    const clientes=getClientes().slice().sort((a,b)=>(a.nombreCompleto||'').localeCompare(b.nombreCompleto||''));
+    sel.innerHTML='<option value="">-- Seleccionar --</option><option value="__nuevo">+ Crear nuevo contacto</option>'+clientes.map(c=>`<option value="${c.id}">${esc(c.nombreCompleto||'(sin nombre)')}${c.email?' · '+esc(c.email):''}</option>`).join('');
+    const encSel=document.getElementById('svEncargado');
+    encSel.innerHTML='<option value="">--</option>'+(cfgGet().encargados||[]).filter(Boolean).map(e=>`<option value="${esc(e)}">${esc(e)}</option>`).join('');
+    ['svNuevoNombre','svNuevoTel','svNuevoEmail','svDescripcion','svMonto','svFechaInicio','svNotas'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+    document.getElementById('svMoneda').value='USD';
+    document.getElementById('svFechaVenta').value=new Date().toISOString().slice(0,10);
+    document.getElementById('svNuevoClienteBox').style.display='none';
+    document.getElementById('modalVentaServicio').classList.add('open');
+}
+function editarVentaServicio(id){
+    const v=getVentas().find(x=>x.id===id);
+    if(!v){alert('Venta no encontrada.');return;}
+    openModalVentaServicio(v.servicioCat||'otro');
+    _editingVentaServicioId=id;
+    document.getElementById('svEditId').value=id;
+    const sc=_servicioCatInfo(v.servicioCat)||_servicioCatInfo('otro');
+    document.getElementById('svModalTitulo').textContent='Editar venta de '+sc.singular;
+    const sel=document.getElementById('svClienteId');
+    if(v.clienteId&&Array.from(sel.options).some(o=>o.value===v.clienteId)){sel.value=v.clienteId;}
+    else{const opt=document.createElement('option');opt.value='__keep__';opt.textContent=(v.clienteNombre||'(cliente actual)')+' (mantener)';opt.selected=true;sel.insertBefore(opt,sel.firstChild.nextSibling);}
+    document.getElementById('svNuevoClienteBox').style.display='none';
+    document.getElementById('svDescripcion').value=v.descripcion||'';
+    const cob=v.cobranza||{};
+    document.getElementById('svMonto').value=cob.montoTotal||'';
+    document.getElementById('svMoneda').value=cob.moneda||'USD';
+    document.getElementById('svEncargado').value=v.encargado||'';
+    document.getElementById('svFechaVenta').value=v.fechaVenta||'';
+    document.getElementById('svFechaInicio').value=v.fechaInicio||'';
+    document.getElementById('svNotas').value=v.notas||'';
+}
+function guardarVentaServicio(){
+    const editId=_editingVentaServicioId;
+    const ventas=getVentas();
+    const ventaPrev=editId?ventas.find(v=>v.id===editId):null;
+    const cat=document.getElementById('svCat').value||'otro';
+    const sc=_servicioCatInfo(cat)||_servicioCatInfo('otro');
+    const selV=document.getElementById('svClienteId').value;
+    if(!selV){alert('Seleccione un contacto o cree uno nuevo.');return;}
+    const monto=Math.round(evalExpr(document.getElementById('svMonto').value)*100)/100;
+    if(!(monto>0)){alert('Ingrese un monto mayor a 0.');return;}
+    const ahora=new Date().toISOString();
+    let clienteId=null,clienteNombre='';
+    if(selV==='__keep__'&&ventaPrev){clienteId=ventaPrev.clienteId||null;clienteNombre=ventaPrev.clienteNombre||'';}
+    else if(selV==='__nuevo'){
+        const nombre=document.getElementById('svNuevoNombre').value.trim();
+        if(!nombre){alert('Ingrese el nombre del nuevo contacto.');return;}
+        const nuevo={id:Date.now().toString()+'_c',nombreCompleto:nombre,telefono:document.getElementById('svNuevoTel').value.trim(),email:document.getElementById('svNuevoEmail').value.trim(),estado:'cliente',origen:'',etiquetas:[],fechaCreacion:ahora,fechaActualizacion:ahora,fechaCaptura:ahora,bitacora:[makeBitacoraEntry('captura','Contacto creado desde Nueva venta de '+sc.singular,{automatico:true})]};
+        const cls=getClientes();cls.unshift(nuevo);saveClientes(cls);
+        clienteId=nuevo.id;clienteNombre=nuevo.nombreCompleto;
+    }else{
+        const c=getClientes().find(x=>x.id===selV);
+        if(!c){alert('Contacto no encontrado.');return;}
+        clienteId=c.id;clienteNombre=c.nombreCompleto||'';
+    }
+    const usuarioEmail=(window.currentUser&&window.currentUser.email)||'';
+    const campos={
+        servicioCat:cat,
+        descripcion:document.getElementById('svDescripcion').value.trim(),
+        encargado:document.getElementById('svEncargado').value||usuarioEmail,
+        fechaInicio:document.getElementById('svFechaInicio').value,
+        notas:document.getElementById('svNotas').value.trim()
+    };
+    const moneda=document.getElementById('svMoneda').value||'USD';
+    if(editId&&ventaPrev){
+        Object.assign(ventaPrev,{tipo:'servicio',clienteId,clienteNombre,fechaVenta:document.getElementById('svFechaVenta').value||ventaPrev.fechaVenta||'',fechaActualizacion:ahora},campos);
+        ventaPrev.cobranza=ventaPrev.cobranza||{};
+        ventaPrev.cobranza.montoTotal=monto;
+        ventaPrev.cobranza.moneda=moneda;
+        ventaPrev.cobranza.pagos=ventaPrev.cobranza.pagos||[];
+        ventaPrev._lastModifiedAt=Date.now();
+        saveVentas(ventas);
+    }else{
+        const venta=Object.assign({
+            id:Date.now().toString()+'_sv',
+            tipo:'servicio',
+            cotizacionId:null,
+            clienteId,clienteNombre,
+            fechaVenta:document.getElementById('svFechaVenta').value||new Date().toISOString().slice(0,10),
+            estado:'pendiente',
+            checklist:defaultChecklistItems.map((t,i)=>({id:Date.now()+'_'+i,texto:t,completado:false})),
+            cobranza:{montoTotal:monto,moneda,pagos:[]},
+            fechaCreacion:ahora
+        },campos);
+        ventas.unshift(venta);saveVentas(ventas);
+    }
+    _editingVentaServicioId=null;
+    closeModal('modalVentaServicio');
+    setVentasTab(cat);
+    updateBadges();
+}
+function renderVentasServicios(filtered,grid,sc){
+    const estadoLabels={pendiente:'Pendiente',en_proceso:'En proceso',completada:'Completada',cancelada:'Cancelada'};
+    const estadoColors={pendiente:'var(--accent)',en_proceso:'var(--primary)',completada:'var(--success)',cancelada:'var(--danger)'};
+    const rows=filtered.map(v=>{
+        const cob=calcCobranzaStatus(v);
+        const cobBadge=cob.total>0?`<span class="lt-badge" style="background:${cob.color}22;color:${cob.color};">${cob.estadoPagoLabel} ${cob.pagadoPct}%</span>`:'<span style="color:var(--text-light);font-size:0.72rem;">-</span>';
+        return`<tr class="estado-${v.estado}">
+        <td>${esc(v.clienteNombre||'-')}</td>
+        <td>${esc(v.descripcion||'-')}</td>
+        <td>${esc(v.encargado||'-')}</td>
+        <td>${v.fechaInicio?esc(formatFechaCorta(v.fechaInicio)||v.fechaInicio):'<span style="color:var(--text-light);">-</span>'}</td>
+        <td><span class="lt-badge" style="background:${estadoColors[v.estado]||'var(--primary)'};color:white;">${estadoLabels[v.estado]||v.estado}</span></td>
+        <td>${cobBadge}</td>
+        <td><div class="lt-actions"><button class="btn btn-sm btn-primary" onclick="editarVentaServicio('${v.id}')" title="Editar venta">&#9998;</button><button class="btn-checklist" onclick="openChecklist('${v.id}')" title="Checklist">&#128221;</button><button class="btn-checklist" style="background:#fff3e0;color:#d4830f;border:1px solid #e8941a;" onclick="openCobranza('${v.id}')" title="Estado de cuenta">&#128176;</button><button class="btn btn-sm btn-danger" onclick="eliminarVenta('${v.id}')" title="Eliminar">&times;</button></div></td>
+        </tr>`;
+    }).join('');
+    grid.innerHTML=`<table class="list-table">
+        <thead><tr><th>Cliente</th><th>Descripci&oacute;n</th><th>Cotizador</th><th>Fecha del servicio</th><th>Estado</th><th>Cobranza</th><th>Acciones</th></tr></thead>
+        <tbody>${rows}</tbody>
+    </table>`;
+}
 function setVentasTab(t){
-    const tab=(t==='grupal'||t==='crucero')?t:'personalizada';
+    const valid=['grupal','crucero'].concat(SERVICIO_CAT_IDS);
+    const tab=valid.indexOf(t)>=0?t:'personalizada';
     localStorage.setItem('dv_ventas_tab',tab);
     document.querySelectorAll('.ventas-tab').forEach(b=>b.classList.toggle('active',b.dataset.vtab===tab));
     applyVentasHeaderActions();
@@ -8436,8 +8603,10 @@ function applyVentasHeaderActions(){
     const ha=document.getElementById('headerActions');
     if(!ha)return;
     const tab=getVentasTab();
+    const sc=_servicioCatInfo(tab);
     if(tab==='grupal')ha.innerHTML='<button class="btn btn-accent" onclick="openModalVentaGrupal()">+ Nueva Venta Grupal</button>';
     else if(tab==='crucero')ha.innerHTML='<button class="btn btn-accent" onclick="openModalVentaCrucero()">+ Nueva Venta de Crucero</button>';
+    else if(sc)ha.innerHTML='<button class="btn btn-accent" onclick="openModalVentaServicio(\''+sc.id+'\')">+ Nueva venta de '+esc(sc.singular)+'</button>';
     else ha.innerHTML='';
 }
 function renderVentas(){
@@ -8448,22 +8617,27 @@ function renderVentas(){
     const tab=getVentasTab();
     // Sincronizar UI tabs (por si renderVentas se llama desde otro flujo)
     document.querySelectorAll('.ventas-tab').forEach(b=>b.classList.toggle('active',b.dataset.vtab===tab));
-    // Compat hacia atras: ventas sin tipo se consideran personalizadas
-    const tipoOf=v=>v.tipo==='grupal'?'grupal':(v.tipo==='crucero'?'crucero':'personalizada');
-    const cuentaPers=ventas.filter(v=>tipoOf(v)==='personalizada').length;
-    const cuentaGrup=ventas.filter(v=>tipoOf(v)==='grupal').length;
-    const cuentaCru=ventas.filter(v=>tipoOf(v)==='crucero').length;
-    const cP=document.getElementById('vtabCountPers');if(cP)cP.textContent=cuentaPers;
-    const cG=document.getElementById('vtabCountGrup');if(cG)cG.textContent=cuentaGrup;
-    const cC=document.getElementById('vtabCountCru');if(cC)cC.textContent=cuentaCru;
-    const baseTipo=ventas.filter(v=>tipoOf(v)===tab);
-    const filtered=baseTipo.filter(v=>{const text=[v.destino,v.clienteNombre,v.encargado,v.grupoNombre,v.naviera,v.barco,v.reserva].join(' ').toLowerCase();return(!search||text.includes(search))&&(!filterE||v.estado===filterE);});
+    // Clave de pestaña de cada venta (compat: sin tipo => personalizada)
+    const counts={};
+    ventas.forEach(v=>{const k=_ventaTabKey(v);counts[k]=(counts[k]||0)+1;});
+    const setCount=(id,k)=>{const el=document.getElementById(id);if(el)el.textContent=counts[k]||0;};
+    setCount('vtabCountPers','personalizada');
+    setCount('vtabCountGrup','grupal');
+    setCount('vtabCountCru','crucero');
+    SERVICIO_CATS.forEach(sc=>setCount('vtabCount_'+sc.id,sc.id));
+    const scTab=_servicioCatInfo(tab);
+    const baseTipo=ventas.filter(v=>_ventaTabKey(v)===tab);
+    const filtered=baseTipo.filter(v=>{const text=[v.destino,v.clienteNombre,v.encargado,v.grupoNombre,v.naviera,v.barco,v.reserva,v.descripcion].join(' ').toLowerCase();return(!search||text.includes(search))&&(!filterE||v.estado===filterE);});
     if(!filtered.length){
-        const subt=tab==='grupal'?'Las ventas grupales se crean manualmente con el bot&oacute;n + Nueva Venta Grupal.':(tab==='crucero'?'Las ventas de crucero se crean con el bot&oacute;n + Nueva Venta de Crucero.':'Las ventas personalizadas se crean al aceptar cotizaciones.');
+        let subt='Las ventas personalizadas se crean al aceptar cotizaciones.';
+        if(tab==='grupal')subt='Las ventas grupales se crean manualmente con el bot&oacute;n + Nueva Venta Grupal.';
+        else if(tab==='crucero')subt='Las ventas de crucero se crean con el bot&oacute;n + Nueva Venta de Crucero.';
+        else if(scTab)subt='Registr&aacute; una venta con el bot&oacute;n + Nueva venta de '+esc(scTab.singular)+'.';
         grid.innerHTML=`<div class="grid-empty"><h3>${search||filterE?'Sin resultados':'Sin ventas'}</h3><p>${subt}</p></div>`;return;
     }
     if(tab==='grupal'){renderVentasGrupales(filtered,grid);return;}
     if(tab==='crucero'){renderVentasCruceros(filtered,grid);return;}
+    if(scTab){renderVentasServicios(filtered,grid,scTab);return;}
     const estadoLabels={pendiente:'Pendiente',en_proceso:'En proceso',completada:'Completada',cancelada:'Cancelada'};
     const estadoColors={pendiente:'var(--accent)',en_proceso:'var(--primary)',completada:'var(--success)',cancelada:'var(--danger)'};
     const rows=filtered.map(v=>{
@@ -8992,10 +9166,12 @@ function renderDocumento(tipo,ventaId,pagoId){
     // Viaje (destino + fechas) que aparece en la esquina superior derecha del recibo y del EDC.
     // Toma datos de la venta (v) y como fallback de la cotizacion (cot.data) si v esta vacio.
     const viajeDestino=(v.destino&&v.destino.trim())||(cot&&cot.data&&(cot.data.destinoTexto||cot.data.destino))||'';
-    // Para ventas de crucero, el documento habla de "crucero" en vez de "viaje".
+    // El documento adapta el concepto según el tipo de venta (viaje / crucero / servicio).
     const esCrucero=v.tipo==='crucero';
-    const palabraViaje=esCrucero?'crucero':'viaje';
-    const conceptoBase=esCrucero?('Crucero'+(v.naviera?' '+esc(v.naviera):'')):'Viaje';
+    const esServicio=v.tipo==='servicio';
+    let palabraViaje='viaje',conceptoBase='Viaje';
+    if(esCrucero){palabraViaje='crucero';conceptoBase='Crucero'+(v.naviera?' '+esc(v.naviera):'');}
+    else if(esServicio){const _sc=_servicioCatInfo(v.servicioCat)||{label:'Servicio',singular:'servicio'};palabraViaje=_sc.singular;const _scCap=_sc.singular.charAt(0).toUpperCase()+_sc.singular.slice(1);conceptoBase=_scCap+(v.descripcion?' &mdash; '+esc(v.descripcion):'');}
     const viajeFechas=v.fechaInicio?formatDateRange(v.fechaInicio,v.fechaFin):(cot&&cot.data&&cot.data.fechaInicio?formatDateRange(cot.data.fechaInicio,cot.data.fechaFin):'');
     const clienteEmail=cli?cli.email:'';
     const clienteTel=cli?cli.telefono:'';
@@ -9025,7 +9201,7 @@ function renderDocumento(tipo,ventaId,pagoId){
             <div class="recibo-section-title">Concepto del pago</div>
             <table class="recibo-table">
                 <thead><tr><th>Descripci\u00f3n</th><th>M\u00e9todo</th><th>Referencia</th><th style="text-align:right;">Monto</th></tr></thead>
-                <tbody><tr><td>${pago.descripcion?esc(pago.descripcion):'Abono al '+palabraViaje+' <strong>'+esc(v.destino)+'</strong>'+(v.fechaInicio?' ('+formatDateRange(v.fechaInicio,v.fechaFin)+')':'')}</td><td>${esc(pago.metodo||'')}</td><td>${esc(pago.referencia||'-')}</td><td style="text-align:right;font-weight:700;">${fmtMoney(pago.monto,c.moneda)}</td></tr></tbody>
+                <tbody><tr><td>${pago.descripcion?esc(pago.descripcion):(esServicio?('Abono: '+conceptoBase):('Abono al '+palabraViaje+(v.destino?' <strong>'+esc(v.destino)+'</strong>':'')+(v.fechaInicio?' ('+formatDateRange(v.fechaInicio,v.fechaFin)+')':'')))}</td><td>${esc(pago.metodo||'')}</td><td>${esc(pago.referencia||'-')}</td><td style="text-align:right;font-weight:700;">${fmtMoney(pago.monto,c.moneda)}</td></tr></tbody>
             </table>
             ${pago.nota?`<p style="font-size:0.82rem;color:var(--text-light);margin:10px 0;"><strong>Nota:</strong> ${esc(pago.nota)}</p>`:''}
             <div class="recibo-totals">
@@ -9048,7 +9224,7 @@ function renderDocumento(tipo,ventaId,pagoId){
         // Detalle de cargos (viaje base + adicionales). Solo se muestra si hay adicionales; si no, el
         // documento queda identico a como era antes de esta funcionalidad.
         const adicSorted=[...(v.cobranza.adicionales||[])].sort((a,b)=>(a.fecha||'').localeCompare(b.fecha||''));
-        const detalleCargosHtml=c.adicionalesTotal>0?`
+        const detalleCargosHtml=(c.adicionalesTotal>0||esCrucero||esServicio)?`
             <div class="recibo-section-title">Detalle de cargos</div>
             <table class="recibo-table">
                 <thead><tr><th>Fecha</th><th>Concepto</th><th style="text-align:right;">Monto</th></tr></thead>
@@ -9248,7 +9424,7 @@ function collectAllPagos(){
         const moneda=(v.cobranza&&v.cobranza.moneda)||'USD';
         const cli=v.clienteId?cliById[v.clienteId]:null;
         const nombreCliente=(cli&&cli.nombreCompleto)||v.clienteNombre||'(sin nombre)';
-        const tipo=v.tipo==='grupal'?'grupal':(v.tipo==='crucero'?'crucero':'personalizada');
+        const tipo=v.tipo==='grupal'?'grupal':(v.tipo==='crucero'?'crucero':(v.tipo==='servicio'?'servicio':'personalizada'));
         pagos.forEach(p=>{
             rows.push({
                 pagoId:p.id,
@@ -9257,6 +9433,8 @@ function collectAllPagos(){
                 cliente:nombreCliente,
                 destino:v.destino||'',
                 naviera:v.naviera||'',
+                servicioCat:v.servicioCat||'',
+                servicioDesc:v.descripcion||'',
                 grupo:v.grupoNombre||'',
                 encargado:v.encargado||'',
                 metodo:p.metodo||'',
@@ -9325,8 +9503,9 @@ function renderReportePagos(){
     });
     const rows=sorted.map(r=>{
         const fechaTxt=r.fecha?(formatFechaCorta(r.fecha)||r.fecha):'';
-        const ventaTxt=r.tipo==='grupal'?(r.grupo?`${esc(r.grupo)}`:'(grupo)'):(r.tipo==='crucero'?[r.naviera,r.destino].filter(Boolean).map(esc).join(' · '):(r.destino||''));
-        const tipoLabel=r.tipo==='grupal'?'<span class="lt-badge" style="background:var(--accent-light);color:#d4830f;font-size:0.66rem;">GRUPAL</span>':(r.tipo==='crucero'?'<span class="lt-badge" style="background:#e3f2fd;color:#1565c0;font-size:0.66rem;">CRUCERO</span>':'<span class="lt-badge" style="background:var(--primary-light);color:var(--primary-dark);font-size:0.66rem;">PERSONAL</span>');
+        const _scRep=r.tipo==='servicio'?_servicioCatInfo(r.servicioCat):null;
+        const ventaTxt=r.tipo==='grupal'?(r.grupo?`${esc(r.grupo)}`:'(grupo)'):(r.tipo==='crucero'?[r.naviera,r.destino].filter(Boolean).map(esc).join(' · '):(r.tipo==='servicio'?esc(r.servicioDesc||(_scRep?_scRep.label:'Servicio')):(r.destino||'')));
+        const tipoLabel=r.tipo==='grupal'?'<span class="lt-badge" style="background:var(--accent-light);color:#d4830f;font-size:0.66rem;">GRUPAL</span>':(r.tipo==='crucero'?'<span class="lt-badge" style="background:#e3f2fd;color:#1565c0;font-size:0.66rem;">CRUCERO</span>':(r.tipo==='servicio'?'<span class="lt-badge" style="background:#ede7f6;color:#5e35b1;font-size:0.66rem;">'+esc((_scRep?_scRep.label:'Servicio').toUpperCase())+'</span>':'<span class="lt-badge" style="background:var(--primary-light);color:var(--primary-dark);font-size:0.66rem;">PERSONAL</span>'));
         return`<tr>
             <td>${esc(fechaTxt)}</td>
             <td>${esc(r.cliente)}<div class="lt-secondary">${tipoLabel}</div></td>
@@ -9401,7 +9580,7 @@ function exportarReportePagosExcel(){
     const rows=filtered.map(r=>({
         Fecha:r.fecha,
         Cliente:r.cliente,
-        Tipo:r.tipo==='grupal'?'Grupal':(r.tipo==='crucero'?'Crucero':'Personalizada'),
+        Tipo:r.tipo==='grupal'?'Grupal':(r.tipo==='crucero'?'Crucero':(r.tipo==='servicio'?((_servicioCatInfo(r.servicioCat)||{label:'Servicio'}).label):'Personalizada')),
         Destino:r.destino,
         Grupo:r.grupo,
         Encargada:r.encargado,
