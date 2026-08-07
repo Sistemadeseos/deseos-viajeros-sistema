@@ -5462,13 +5462,17 @@ function tareaComentar(id){
 // No hay servidor: todo esto se calcula cuando alguien abre o refresca el sistema.
 // Cada evento se genera UNA sola vez por su clave (refTipo+refId), aunque después se complete.
 const TAREAS_AUTO_DEF=[
-    {id:'cot_seguimiento',nombre:'Cotización sin respuesta',       ayuda:'Crea una tarea al encargado cuando una cotización lleva X días sin aceptarse.',                  dias:7,  etiquetaDias:'Días sin respuesta'},
+    {id:'cot_seguimiento',nombre:'Cotización sin respuesta',       ayuda:'Desactivado: generaba demasiadas tareas de seguimiento. No se crean nuevas y las que quedaron abiertas se limpian solas.', dias:7,  etiquetaDias:'Días sin respuesta'},
     {id:'venta_saldo',    nombre:'Saldo pendiente con viaje cerca',ayuda:'Crea una tarea al encargado cuando falta cobrar y el viaje sale dentro de X días.',              dias:15, etiquetaDias:'Días antes del viaje'},
     {id:'cumple',         nombre:'Cumpleaños de colaboradora',     ayuda:'Avisa en la campana X días antes. Requiere la fecha de nacimiento en la ficha de empleado.',     dias:3,  etiquetaDias:'Días de anticipación'},
     {id:'aniversario',    nombre:'Aniversario laboral',            ayuda:'Avisa en la campana X días antes del aniversario de ingreso.',                                  dias:3,  etiquetaDias:'Días de anticipación'},
     {id:'periodo_prueba', nombre:'Fin de período de prueba',       ayuda:'Crea una tarea cuando una colaboradora está por cumplir 3 meses desde su ingreso.',              dias:7,  etiquetaDias:'Días de anticipación'},
     {id:'corte_planilla', nombre:'Corte de planilla',              ayuda:'Crea una tarea antes de cada quincena (día 15 y fin de mes) para preparar las colillas.',        dias:2,  etiquetaDias:'Días antes del corte'}
 ];
+// "Cotización sin respuesta" quedó DESACTIVADA a pedido del equipo: generaba demasiadas tareas de
+// seguimiento. Con esto en false no se crean nuevas y se limpian las que quedaron abiertas
+// (ver generarTareasAutomaticas). Para reactivarla en el futuro, poner en true.
+const AUTO_COT_SEGUIMIENTO=false;
 function getTareasAutoCfg(){
     const c=getConfig().tareasAuto||{};
     const out={};
@@ -5508,6 +5512,16 @@ function generarTareasAutomaticas(){
     const hoy=_tareaHoyISO();
     const admin=APROBADORES_RRHH[0];
     let creadas=0;
+    // LIMPIEZA: "Cotización sin respuesta" está desactivada → borrar las tareas de seguimiento que
+    // quedaron ABIERTAS. Se auto-repara entre sesiones (la sync no es en vivo): cada persona la corre al
+    // entrar/refrescar y las eliminaciones se propagan a Firestore; cuando todas refrescan, no vuelven.
+    if(!AUTO_COT_SEGUIMIENTO){
+        const _seg=getTareas().filter(t=>t&&t.origen==='auto'&&t.refTipo==='cot_seguimiento'&&_tareaAbierta(t));
+        if(_seg.length){
+            const _segIds=new Set(_seg.map(t=>t.id));
+            saveTareas(getTareas().filter(t=>!_segIds.has(t.id)));
+        }
+    }
     const nuevaTarea=(refTipo,refId,o)=>{
         if(_tareaAutoYaExiste(refTipo,refId))return;
         crearTarea(Object.assign({origen:'auto',refTipo:refTipo,refId:String(refId)},o));
@@ -5519,8 +5533,8 @@ function generarTareasAutomaticas(){
         creadas++;
     };
 
-    // 1) Cotizaciones sin respuesta.
-    if(cfg.cot_seguimiento.activo){
+    // 1) Cotizaciones sin respuesta. DESACTIVADO (AUTO_COT_SEGUIMIENTO=false): ya no se crean.
+    if(AUTO_COT_SEGUIMIENTO&&cfg.cot_seguimiento.activo){
         const dias=Math.max(1,cfg.cot_seguimiento.dias);
         // Techo doble para no inundar la lista la primera vez: no mira cotizaciones muy viejas
         // (VENTANA días) y no crea más de MAX tareas por corrida.
@@ -5666,7 +5680,7 @@ function _tareasAutoPanel(){
             ${diagHtml}
             ${TAREAS_AUTO_DEF.map(d=>`<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;border-bottom:1px solid var(--border);padding:8px 0;">
                 <label style="display:flex;align-items:center;gap:8px;cursor:pointer;flex:1;min-width:230px;margin:0;">
-                    <input type="checkbox" id="ta_${d.id}_on" ${c[d.id].activo?'checked':''} style="width:auto;margin:0;">
+                    <input type="checkbox" id="ta_${d.id}_on" ${d.id==='cot_seguimiento'?'disabled':''} ${(d.id!=='cot_seguimiento'&&c[d.id].activo)?'checked':''} style="width:auto;margin:0;">
                     <span><strong style="font-size:0.84rem;">${d.nombre}</strong><br><span style="font-size:0.72rem;color:var(--text-light);">${d.ayuda}</span></span>
                 </label>
                 <div style="display:flex;align-items:center;gap:6px;">
