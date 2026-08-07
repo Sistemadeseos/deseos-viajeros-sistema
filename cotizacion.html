@@ -1521,9 +1521,9 @@ onAuthStateChanged(fbAuth, (user) => {
         </div>
         <div class="form-row"><div class="form-group"><label>Naviera</label><select id="crNaviera"></select></div><div class="form-group"><label>Barco</label><input type="text" id="crBarco" placeholder="Ej: Wonder of the Seas"></div></div>
         <div class="form-row"><div class="form-group"><label>N&uacute;mero de reserva (naviera)</label><input type="text" id="crReserva" placeholder="Booking / confirmaci&oacute;n"></div><div class="form-group"><label>Itinerario / destino</label><input type="text" id="crDestino" placeholder="Ej: Caribe Occidental"></div></div>
-        <div class="form-row"><div class="form-group"><label>Encargada</label><select id="crEncargado"><option value="">--</option></select></div><div class="form-group"><label>Moneda</label><select id="crMoneda" onchange="crRecalcTotal()"><option value="USD">USD</option><option value="CRC">CRC</option><option value="EUR">EUR</option></select></div></div>
-        <div class="form-row"><div class="form-group"><label>Fecha de la venta</label><input type="date" id="crFechaVenta"></div><div class="form-group"></div></div>
-        <div class="form-row"><div class="form-group"><label>Fecha de embarque</label><input type="date" id="crFechaInicio"></div><div class="form-group"><label>Fecha de desembarque</label><input type="date" id="crFechaFin"></div></div>
+        <div class="form-row"><div class="form-group"><label>Encargada</label><select id="crEncargado"><option value="">--</option></select></div><div class="form-group"><label>Moneda</label><select id="crMoneda" onchange="crRecalcTotal();crRenderPlanPago()"><option value="USD">USD</option><option value="CRC">CRC</option><option value="EUR">EUR</option></select></div></div>
+        <div class="form-row"><div class="form-group"><label>Fecha de la venta</label><input type="date" id="crFechaVenta" onchange="crRenderPlanPago()"></div><div class="form-group"></div></div>
+        <div class="form-row"><div class="form-group"><label>Fecha de embarque</label><input type="date" id="crFechaInicio" onchange="crRenderPlanPago()"></div><div class="form-group"><label>Fecha de desembarque</label><input type="date" id="crFechaFin"></div></div>
         <div class="form-group"><label style="display:flex;align-items:center;justify-content:space-between;">Cabinas <button type="button" class="btn btn-sm btn-ghost" style="font-size:0.7rem;padding:3px 8px;" onclick="crAddCabina()">+ Agregar cabina</button></label>
             <p style="font-size:0.7rem;color:var(--text-light);margin:0 0 6px;">El total de la venta es la suma de las cabinas. Los montos aceptan f&oacute;rmulas (ej: 1200+300).</p>
             <div id="crCabinasBox"></div>
@@ -1531,9 +1531,10 @@ onAuthStateChanged(fbAuth, (user) => {
         </div>
         <div class="form-row"><div class="form-group"><label>N&uacute;mero de acompa&ntilde;antes</label><input type="number" id="crAcompCount" min="0" step="1" value="0" oninput="crRenderAcompanantes()"><p style="font-size:0.7rem;color:var(--text-light);margin-top:3px;">Sin contar al titular.</p></div><div class="form-group"></div></div>
         <div id="crAcompBox" style="display:none;margin-bottom:10px;"><label style="display:block;font-weight:600;font-size:0.78rem;color:var(--text-light);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.5px;">Nombres de acompa&ntilde;antes</label><div id="crAcompList" style="display:flex;flex-direction:column;gap:5px;"></div></div>
+        <div class="form-group"><label style="display:flex;align-items:center;gap:8px;">Plan de pago <button type="button" class="btn btn-sm btn-ghost" style="font-size:0.7rem;padding:3px 8px;" onclick="crDistribuirPlan()" title="Divide el total en partes iguales entre los meses">Distribuir total</button></label><p style="font-size:0.7rem;color:var(--text-light);margin:0 0 6px;">Una fila por mes desde la fecha de la venta hasta la fecha de embarque. Opcional.</p><div id="crPlanPagoBox"></div></div>
         <div class="form-group"><label>Notas</label><textarea id="crNotas" rows="2" placeholder="Detalles del crucero..."></textarea></div>
     </div>
-    <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modalVentaCrucero')">Cancelar</button><button class="btn btn-success" onclick="guardarVentaCrucero()">Guardar venta de crucero</button></div>
+    <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modalVentaCrucero')">Cancelar</button><button class="btn btn-success" id="crBtnGuardar" onclick="guardarVentaCrucero()">Guardar venta de crucero</button></div>
 </div></div>
 
 <!-- MODAL: Nueva/Editar Venta de Servicio (boleto aéreo, hospedaje, transporte, seguro, otro) -->
@@ -8273,14 +8274,70 @@ function crAddCabina(data){
     if(data.precio!=null&&data.precio!=='')row.querySelector('.cr-cab-precio').value=data.precio;
     crRecalcTotal();
 }
-function crRecalcTotal(){
+function crTotalCabinas(){
     let sum=0;
     document.querySelectorAll('#crCabinasBox .cr-cab-precio').forEach(inp=>{sum+=evalExpr(inp.value);});
-    sum=Math.round(sum*100)/100;
+    return Math.round(sum*100)/100;
+}
+function crRecalcTotal(){
+    const sum=crTotalCabinas();
     const m=(document.getElementById('crMoneda')||{}).value||'USD';
     const el=document.getElementById('crTotalCalc');
     if(el)el.textContent=fmtMoney(sum,m);
+    crActualizarTotalPlan(); // refresca el "falta/coincide" del plan de pago
     return sum;
+}
+// ----- Plan de pago del crucero (opcional). Mismo comportamiento que el grupal. -----
+function crRenderPlanPago(){
+    const box=document.getElementById('crPlanPagoBox');
+    if(!box)return;
+    const desde=document.getElementById('crFechaVenta').value;
+    const hasta=document.getElementById('crFechaInicio').value;
+    const meses=mesesEntre(desde,hasta);
+    const prev={};
+    Array.from(box.querySelectorAll('input.cr-pp-monto')).forEach(i=>{prev[i.dataset.mes]=i.value;});
+    if(!meses.length){box.innerHTML='<p style="font-size:0.78rem;color:var(--text-light);font-style:italic;">Cargá fecha de venta y fecha de embarque para generar el plan.</p>';return;}
+    const moneda=document.getElementById('crMoneda').value||'USD';
+    const sym=currencySymbol(moneda);
+    const filas=meses.map(ym=>`<tr><td style="font-size:0.82rem;">${esc(labelMes(ym))}</td><td><div style="display:flex;align-items:center;gap:4px;"><span style="color:var(--text-light);font-size:0.78rem;">${sym}</span><input type="number" class="cr-pp-monto" data-mes="${ym}" step="0.01" placeholder="0" value="${esc(prev[ym]||'')}" oninput="crActualizarTotalPlan()" style="flex:1;padding:5px 8px;border:1px solid var(--border);border-radius:4px;font-size:0.82rem;"></div></td></tr>`).join('');
+    box.innerHTML=`<table class="list-table" style="margin:0;"><thead><tr><th style="width:55%;">Mes</th><th>Monto acordado</th></tr></thead><tbody>${filas}</tbody><tfoot><tr><td style="text-align:right;font-weight:600;">Total plan</td><td><strong id="crPpTotal">${sym}0.00</strong> <span id="crPpDelta" style="font-size:0.72rem;margin-left:6px;color:var(--text-light);"></span></td></tr></tfoot></table>`;
+    crActualizarTotalPlan();
+}
+function crActualizarTotalPlan(){
+    const tot=document.getElementById('crPpTotal');if(!tot)return;
+    const moneda=document.getElementById('crMoneda').value||'USD';
+    const sym=currencySymbol(moneda);
+    let suma=0;
+    document.querySelectorAll('input.cr-pp-monto').forEach(i=>{suma+=parseFloat(i.value)||0;});
+    tot.textContent=sym+suma.toLocaleString('es-CR',{minimumFractionDigits:2,maximumFractionDigits:2});
+    const totalEsperado=crTotalCabinas();
+    const diff=totalEsperado-suma;
+    const delta=document.getElementById('crPpDelta');if(delta){
+        if(suma<=0){delta.textContent='';delta.style.color='var(--text-light)';}
+        else if(Math.abs(diff)<0.01){delta.textContent='✓ coincide con el total';delta.style.color='var(--success)';}
+        else if(diff>0){delta.textContent='Falta '+sym+diff.toFixed(2);delta.style.color='var(--danger)';}
+        else{delta.textContent='Excede en '+sym+Math.abs(diff).toFixed(2);delta.style.color='var(--accent-dark)';}
+    }
+    // El plan es OPCIONAL: solo se bloquea el guardado si se cargó un plan (suma>0) que no cuadra.
+    const btn=document.getElementById('crBtnGuardar');
+    if(btn){
+        const bloquear=suma>0&&totalEsperado>0&&Math.abs(diff)>=0.01;
+        btn.disabled=bloquear;btn.style.opacity=bloquear?'0.5':'';btn.style.cursor=bloquear?'not-allowed':'';
+        btn.title=bloquear?'El plan de pago no coincide con el total. Ajustalo antes de guardar.':'';
+    }
+}
+function crDistribuirPlan(){
+    const inputs=Array.from(document.querySelectorAll('input.cr-pp-monto'));
+    if(!inputs.length){alert('Primero cargá fecha de venta y fecha de embarque para generar las filas.');return;}
+    const total=crTotalCabinas();
+    if(total<=0){alert('Cargá el precio de las cabinas para calcular el total.');return;}
+    const cuota=Math.floor((total/inputs.length)*100)/100;
+    let restante=total;
+    inputs.forEach((inp,i)=>{if(i===inputs.length-1){inp.value=restante.toFixed(2);}else{inp.value=cuota.toFixed(2);restante-=cuota;}});
+    crActualizarTotalPlan();
+}
+function crCollectPlanPago(){
+    return Array.from(document.querySelectorAll('input.cr-pp-monto')).map(i=>{const m=parseFloat(i.value);return{mes:i.dataset.mes,monto:isFinite(m)?m:0};});
 }
 function _crCabinaCategoria(row){
     const sel=row.querySelector('.cr-cab-cat');
@@ -8328,6 +8385,7 @@ function openModalVentaCrucero(){
     document.getElementById('crCabinasBox').innerHTML='';
     crAddCabina();
     crRecalcTotal();
+    crRenderPlanPago();
     document.getElementById('modalVentaCrucero').classList.add('open');
 }
 function editarVentaCrucero(id){
@@ -8361,6 +8419,9 @@ function editarVentaCrucero(id){
     crRenderAcompanantes();
     const inputs=document.querySelectorAll('#crAcompList input.cr-acomp');
     (v.acompanantes||[]).forEach((a,i)=>{const nom=typeof a==='string'?a:(a&&a.nombre?a.nombre:'');if(inputs[i])inputs[i].value=nom;});
+    crRenderPlanPago();
+    (v.planPago||[]).forEach(p=>{const inp=document.querySelector(`input.cr-pp-monto[data-mes="${p.mes}"]`);if(inp)inp.value=p.monto!=null?p.monto:'';});
+    crActualizarTotalPlan();
 }
 function guardarVentaCrucero(){
     const editId=_editingVentaCruceroId;
@@ -8386,6 +8447,10 @@ function guardarVentaCrucero(){
     }
     const usuarioEmail=(window.currentUser&&window.currentUser.email)||'';
     const montoTotal=Math.round(cabinas.reduce((s,c)=>s+num(c.precio),0)*100)/100;
+    // Plan de pago (opcional): si se cargó, la suma debe coincidir con el total.
+    const planPago=crCollectPlanPago();
+    const sumaPlan=planPago.reduce((s,p)=>s+num(p.monto),0);
+    if(sumaPlan>0&&Math.abs(sumaPlan-montoTotal)>=0.01){alert('El plan de pago no coincide con el total. Ajustalo antes de guardar.');return;}
     const nAcomp=Math.max(0,parseInt(document.getElementById('crAcompCount').value||'0',10));
     const acompanantes=Array.from(document.querySelectorAll('#crAcompList input.cr-acomp')).map(i=>({nombre:i.value.trim(),tipo:'adulto'})).filter(a=>a.nombre);
     const campos={
@@ -8395,6 +8460,7 @@ function guardarVentaCrucero(){
         destino:document.getElementById('crDestino').value.trim(),
         encargado:document.getElementById('crEncargado').value||usuarioEmail,
         notas:document.getElementById('crNotas').value.trim(),
+        planPago:sumaPlan>0?planPago:[], // plan opcional: vacío => sin plan (no badge "al día" falso)
         fechaInicio:document.getElementById('crFechaInicio').value,
         fechaFin:document.getElementById('crFechaFin').value
     };
@@ -8432,7 +8498,11 @@ function renderVentasCruceros(filtered,grid){
     const estadoColors={pendiente:'var(--accent)',en_proceso:'var(--primary)',completada:'var(--success)',cancelada:'var(--danger)'};
     const rows=filtered.map(v=>{
         const cob=calcCobranzaStatus(v);
-        const cobBadge=cob.total>0?`<span class="lt-badge" style="background:${cob.color}22;color:${cob.color};">${cob.estadoPagoLabel} ${cob.pagadoPct}%</span>`:'<span style="color:var(--text-light);font-size:0.72rem;">-</span>';
+        const planSt=calcPlanPagoStatus(v);
+        const usaPlan=planSt.estado!=='sinplan';
+        const colorBadge=usaPlan?planSt.color:cob.color;
+        const titleBadge=usaPlan?('Plan: '+planSt.label+' · esperado al mes actual '+fmtMoney(planSt.esperadoActual||0,cob.moneda)+' · pagado '+fmtMoney(planSt.pagado||0,cob.moneda)):'';
+        const cobBadge=cob.total>0?`<span class="lt-badge" title="${esc(titleBadge)}" style="background:${colorBadge}22;color:${colorBadge};">${cob.estadoPagoLabel} ${cob.pagadoPct}%</span>`:'<span style="color:var(--text-light);font-size:0.72rem;">-</span>';
         const navBarco=[v.naviera,v.barco].filter(Boolean).join(' · ')||'-';
         return`<tr class="estado-${v.estado}">
         <td>${esc(v.clienteNombre||'-')}</td>
