@@ -9127,7 +9127,7 @@ function removePago(pagoId){
 // ===== PRODUCTOS / SERVICIOS ADICIONALES (cargos posteriores a la venta) =====
 // Viven en v.cobranza.adicionales[] y se suman al total en calcCobranzaStatus.
 // Mismo patron multiusuario que los pagos: merge por id + tumbas (adicionalesEliminados).
-const TIPOS_ADICIONAL=['Seguro','Tour','Transporte','Otro servicio'];
+const TIPOS_ADICIONAL=['Seguro','Boleto aéreo','Hospedaje','Traslado','Tour','Transporte','Paquete de viaje','Otro servicio'];
 let adicEditandoId=null;
 function _llenarTiposAdic(seleccionado){
     const sel=document.getElementById('adicTipo');
