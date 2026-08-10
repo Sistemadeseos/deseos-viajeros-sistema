@@ -5026,25 +5026,30 @@ function guardarNotifNueva(){
     alert('Enviado. Le va a aparecer a esa persona la próxima vez que entre o recargue el sistema.');
 }
 // Anuncio de novedades: se muestra una sola vez por navegador (clave dvAnuncioVisto, no se migra ni se borra con la caché).
-const _ANUNCIO_ID='estado-cuenta-ago2026';
+const _ANUNCIO_ID='calendario-2026-08';
 function mostrarAnuncioNotif(){
     try{if(localStorage.getItem('dvAnuncioVisto')===_ANUNCIO_ID)return;}catch(e){}
     const overlay=document.getElementById('modalAnuncio');
     if(!overlay)return;
     overlay.innerHTML=`<div class="modal" style="max-width:520px;">
-        <div class="modal-header"><h3>&#10024; ¡Novedades en el sistema!</h3></div>
+        <div class="modal-header"><h3>&#128197; ¡Nuevo! Calendario</h3></div>
         <div class="modal-body" style="font-size:0.9rem;line-height:1.5;">
-            <p style="margin:0 0 12px;">Mejoramos el <strong>Estado de cuenta</strong> de las ventas. Dos cosas nuevas:</p>
+            <p style="margin:0 0 12px;">Ahora en el menú de la izquierda tenés una sección nueva: <strong>📅 Calendario</strong>. Junta en un solo lugar todas las fechas importantes —y podés agregar las tuyas.</p>
 
-            <p style="margin:0 0 4px;font-weight:700;">🧮 El campo <em>Monto</em> ahora hace cuentas (como en Excel)</p>
-            <p style="margin:0 0 8px;">Al <strong>Registrar un pago</strong> o <strong>Agregar un producto</strong>, en el campo <strong>Monto</strong> podés escribir una operación y el sistema la resuelve sola. Escribís <strong>20+10</strong> y, al salir del campo o apretando <strong>Enter</strong>, queda <strong>30</strong>. Ideal para sumar varios abonos.</p>
-            <div style="background:var(--bg);border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:0.84rem;">
-                Sirve con <strong>+ − × ÷</strong> (usá <strong>*</strong> para multiplicar y <strong>/</strong> para dividir).<br>
-                Ejemplos: <strong>2500+2500</strong> → 5000 &nbsp;·&nbsp; <strong>500*2</strong> → 1000 &nbsp;·&nbsp; <strong>1500*1.13</strong> → 1695
+            <p style="margin:0 0 4px;font-weight:700;">Se llena solo con:</p>
+            <ul style="margin:0 0 12px 18px;padding:0;">
+                <li><strong>Tareas</strong> en su fecha de vencimiento (color por prioridad).</li>
+                <li><strong>Viajes / Check-ins</strong> de las ventas: embarque, check-in, vuelo, regreso…</li>
+                <li><strong>Cobros de cuotas</strong> del plan de pago.</li>
+                <li><strong>Planilla:</strong> cumpleaños, aniversarios, corte de planilla y vacaciones aprobadas.</li>
+            </ul>
+
+            <p style="margin:0 0 4px;font-weight:700;">Y vos podés:</p>
+            <p style="margin:0 0 12px;">Agregar tus <strong>propios eventos</strong> (con el botón <strong>+ Nuevo evento</strong> o tocando un día): reuniones, recordatorios, lo que necesites, con color y hora.</p>
+
+            <div style="background:var(--bg);border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:0.84rem;">
+                Tenés <strong>3 vistas</strong>: <strong>Mes</strong>, <strong>Semana</strong> y <strong>Agenda</strong> (lista de próximos, ideal en el celular). Filtrás por tipo o por encargada, y con <strong>"Hoy"</strong> volvés al día actual. Tocá cualquier evento para abrir la tarea o la venta.
             </div>
-
-            <p style="margin:0 0 4px;font-weight:700;">🧾 Productos / servicios adicionales</p>
-            <p style="margin:0 0 10px;">Después de vender un viaje, podés agregarle al cliente <strong>seguros, tours, transportes u otros servicios</strong> desde el mismo Estado de cuenta (botón <strong>+ Agregar producto</strong>). Se suman al total, aparecen en el <strong>detalle de cargos</strong> del documento y ajustan el saldo —sin tocar el precio del viaje original.</p>
 
             <p style="font-size:0.82rem;color:var(--text-light);margin:0;">Cualquier duda, consultá con Xavier o María José. 💜</p>
         </div>
