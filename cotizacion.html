@@ -373,6 +373,32 @@ body{font-family:'Open Sans',sans-serif;background:var(--bg);color:var(--text);m
 .config-pane{display:none;background:white;border-radius:10px;padding:18px;box-shadow:0 1px 6px rgba(0,0,0,0.06);max-width:900px}
 .config-pane.active{display:block}
 .ventas-tabs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;border-bottom:2px solid var(--border)}
+/* ===== CALENDARIO ===== */
+.cal-toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px}
+.cal-nav{display:flex;gap:4px;align-items:center}
+.cal-nav button{min-width:34px}
+.cal-period{font-family:'Playfair Display',serif;font-size:1.15rem;font-weight:700;color:var(--primary-dark);text-transform:capitalize;min-width:150px}
+.cal-seg{display:inline-flex;border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.cal-seg button{border:none;background:#fff;padding:6px 12px;font-size:0.8rem;cursor:pointer;color:var(--text)}
+.cal-seg button.active{background:var(--primary);color:#fff}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+.cal-dow{text-align:center;font-size:0.68rem;font-weight:700;color:var(--text-light);text-transform:uppercase;letter-spacing:0.4px;padding:4px 0}
+.cal-cell{min-height:92px;border:1px solid var(--border);border-radius:6px;padding:4px 5px;background:#fff;overflow:hidden;cursor:pointer;transition:background 0.12s}
+.cal-cell:hover{background:rgba(10,126,140,0.04)}
+.cal-cell.otro{background:#f7f9fa}
+.cal-cell.otro .cal-daynum{color:var(--text-light);opacity:0.55}
+.cal-cell.hoy{box-shadow:inset 0 0 0 2px var(--primary)}
+.cal-daynum{font-size:0.74rem;font-weight:700;color:var(--text);display:inline-block;margin-bottom:2px}
+.cal-cell.hoy .cal-daynum{background:var(--primary);color:#fff;border-radius:50%;width:20px;height:20px;text-align:center;line-height:20px}
+.cal-chip{font-size:0.66rem;color:#fff;border-radius:4px;padding:1px 5px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;line-height:1.5}
+.cal-more{font-size:0.64rem;color:var(--text-light);margin-top:2px;cursor:pointer;font-weight:600}
+.cal-agenda-day{margin-bottom:14px}
+.cal-agenda-head{font-size:0.8rem;font-weight:700;color:var(--primary-dark);border-bottom:1px solid var(--border);padding-bottom:4px;margin-bottom:6px;text-transform:capitalize}
+.cal-agenda-item{display:flex;align-items:center;gap:9px;padding:7px 6px;border-radius:6px;cursor:pointer}
+.cal-agenda-item:hover{background:rgba(10,126,140,0.05)}
+.cal-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+.cal-agenda-hora{font-size:0.72rem;color:var(--text-light);min-width:44px}
+@media(max-width:640px){.cal-cell{min-height:58px;padding:2px 3px}.cal-chip{font-size:0.6rem;padding:0 3px}.cal-period{font-size:1rem;min-width:110px}}
 .ventas-tab{padding:10px 18px;border:none;background:transparent;font-family:'Open Sans',sans-serif;font-size:0.88rem;font-weight:600;color:var(--text-light);cursor:pointer;border-bottom:3px solid transparent;margin-bottom:-2px;transition:all 0.2s;display:flex;align-items:center;gap:6px}
 .ventas-tab:hover{color:var(--primary)}
 .ventas-tab.active{color:var(--primary-dark);border-bottom-color:var(--primary)}
@@ -1011,6 +1037,7 @@ onAuthStateChanged(fbAuth, (user) => {
         <div class="sidebar-item" onclick="nav('clientes')"><span class="si-icon">&#128101;</span>Contactos<span class="si-badge" id="badgeClientes"></span></div>
         <div class="sidebar-item" onclick="nav('clientesventas')"><span class="si-icon">&#127881;</span>Clientes<span class="si-badge" id="badgeClientesVentas"></span></div>
         <div class="sidebar-item" onclick="nav('tareas')"><span class="si-icon">&#9989;</span>Tareas<span class="si-badge" id="badgeTareas"></span></div>
+        <div class="sidebar-item" onclick="nav('calendario')"><span class="si-icon">&#128197;</span>Calendario</div>
     </div>
     <div class="sidebar-section">
         <div class="sidebar-section-label">Contabilidad</div>
@@ -1211,6 +1238,7 @@ onAuthStateChanged(fbAuth, (user) => {
 
 <!-- VIEW: REPORTE DE PAGOS -->
 <div class="app-view view-list" id="viewTareas"></div>
+<div class="app-view view-list" id="viewCalendario"></div>
 
 <div class="app-view view-list" id="viewReportePagos"
     <div class="list-search" style="flex-wrap:wrap;">
@@ -1569,6 +1597,19 @@ onAuthStateChanged(fbAuth, (user) => {
     <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modalDocumentos')">Cerrar</button></div>
 </div></div>
 
+<!-- MODAL: Evento del calendario (manual) -->
+<div class="modal-overlay" id="modalEvento"><div class="modal" style="max-width:480px;">
+    <div class="modal-header"><h3 id="evModalTitulo">Nuevo evento</h3><button class="modal-close" onclick="closeModal('modalEvento')">&times;</button></div>
+    <div class="modal-body">
+        <input type="hidden" id="evId">
+        <div class="form-group"><label>Título *</label><input type="text" id="evTitulo" placeholder="Ej: Reunión con proveedor"></div>
+        <div class="form-row"><div class="form-group"><label>Categoría</label><select id="evCategoria"></select></div><div class="form-group"><label>Hora (opcional)</label><input type="time" id="evHora"></div></div>
+        <div class="form-row"><div class="form-group"><label>Fecha *</label><input type="date" id="evFecha"></div><div class="form-group"><label>Fecha fin (opcional)</label><input type="date" id="evFechaFin"></div></div>
+        <div class="form-group"><label>Nota</label><textarea id="evNota" rows="2" placeholder="Opcional..."></textarea></div>
+    </div>
+    <div class="modal-footer" style="justify-content:space-between;"><button class="btn btn-danger" id="evBtnEliminar" onclick="eliminarEvento()" style="display:none;">Eliminar</button><span style="display:flex;gap:8px;"><button class="btn btn-ghost" onclick="closeModal('modalEvento')">Cancelar</button><button class="btn btn-success" onclick="guardarEvento()">Guardar</button></span></div>
+</div></div>
+
 <!-- Modal: Informacion extra de venta personalizada (despues de aceptar una cotizacion) -->
 <div class="modal-overlay" id="modalVentaInfoExtra"><div class="modal" style="max-width:560px;">
     <div class="modal-header"><h3>Informaci&oacute;n de la venta</h3><button class="modal-close" onclick="closeModal('modalVentaInfoExtra')">&times;</button></div>
@@ -1690,7 +1731,7 @@ let _idb=null,_idbReady=false;
 const _IDB_DB='dv_store',_IDB_STORE='kv';
 // Claves de DATOS (colecciones) que migramos a IndexedDB. El resto de claves dv_ (preferencias de UI,
 // respaldos, estado de vistas) se quedan en localStorage tal como estaban.
-const _CLAVES_DATOS=['dv_cotizaciones','dv_ventas','dv_clientes','dv_encabezados','dv_config','dv_grupos','dv_hoteles','dv_rrhh_colillas','dv_rrhh_vacaciones','dv_rrhh_horasextra'];
+const _CLAVES_DATOS=['dv_cotizaciones','dv_ventas','dv_clientes','dv_encabezados','dv_config','dv_grupos','dv_hoteles','dv_rrhh_colillas','dv_rrhh_vacaciones','dv_rrhh_horasextra','dv_eventos'];
 function _esClaveDatos(k){return _CLAVES_DATOS.indexOf(k)>=0;}
 function _idbOpen(){return new Promise(resolve=>{try{if(!window.indexedDB)return resolve(null);const req=indexedDB.open(_IDB_DB,1);req.onupgradeneeded=()=>{const db=req.result;if(!db.objectStoreNames.contains(_IDB_STORE))db.createObjectStore(_IDB_STORE);};req.onsuccess=()=>resolve(req.result);req.onerror=()=>resolve(null);}catch(e){resolve(null);}});}
 function _idbSet(k,str){if(!_idb)return;try{_idb.transaction(_IDB_STORE,'readwrite').objectStore(_IDB_STORE).put(str,k);}catch(e){console.warn('[idb] set',k,e);}}
@@ -1752,7 +1793,7 @@ function setLSObj(k,v){
 //   destinos/{pais}/{ciudad}_{timestamp}
 
 // Tracking de IDs que ya subimos a Firestore (para poder detectar eliminaciones)
-const _fsDocIds={cotizaciones:new Set(),ventas:new Set(),clientes:new Set(),destinos:new Set(),hoteles:new Set(),grupos:new Set(),rrhh_colillas:new Set(),rrhh_vacaciones:new Set(),rrhh_horasextra:new Set(),notificaciones:new Set(),tareas:new Set()};
+const _fsDocIds={cotizaciones:new Set(),ventas:new Set(),clientes:new Set(),destinos:new Set(),hoteles:new Set(),grupos:new Set(),rrhh_colillas:new Set(),rrhh_vacaciones:new Set(),rrhh_horasextra:new Set(),notificaciones:new Set(),tareas:new Set(),eventos:new Set()};
 
 // ===== METADATA (timestamp + autor en cada save) =====
 // Agrega _lastModifiedAt y _lastModifiedBy a un objeto antes de guardarlo.
@@ -1787,6 +1828,7 @@ function guardarSnapshotRespaldo(motivo){
             rrhh_horasextra:getLS('dv_rrhh_horasextra'),
             notificaciones:getLS('dv_notificaciones'),
             tareas:getLS('dv_tareas'),
+            eventos:getLS('dv_eventos'),
             config:getLSObj('dv_config')
         };
         localStorage.setItem(key,JSON.stringify(snap));
@@ -1875,6 +1917,8 @@ async function pushToFirestore(key,value){
             await syncArrayCollection('notificaciones',value,false);
         }else if(key==='dv_tareas'){
             await syncArrayCollection('tareas',value,false);
+        }else if(key==='dv_eventos'){
+            await syncArrayCollection('eventos',value,false);
         }
     }catch(e){
         console.error('[FS] error en pushToFirestore para',key,':',e);
@@ -2172,6 +2216,14 @@ async function loadAllFromFirestore(){
         tareas=mergedTar.merged;recuperadosTotal+=mergedTar.recovered;
         guardarLocal('dv_tareas',tareas);
         if(mergedTar.recovered>0)setTimeout(()=>{if(_fsEnabled)pushToFirestore('dv_tareas',tareas).catch(e=>console.error(e));},13500);
+        // eventos del calendario (array de docs independientes, defensivo)
+        const localEventos=getLS('dv_eventos');
+        const evSnap=await h.getDocs(h.collection(db,'eventos'));
+        let eventos=[];evSnap.forEach(dd=>{eventos.push(dd.data());_fsDocIds.eventos.add(dd.id);});
+        const mergedEv=mergeArrayDefensivo('eventos',eventos,localEventos);
+        eventos=mergedEv.merged;recuperadosTotal+=mergedEv.recovered;
+        guardarLocal('dv_eventos',eventos);
+        if(mergedEv.recovered>0)setTimeout(()=>{if(_fsEnabled)pushToFirestore('dv_eventos',eventos).catch(e=>console.error(e));},14500);
         console.log(`[FS] datos cargados: ${cots.length} cotizaciones, ${ventas.length} ventas, ${clientes.length} clientes, ${Object.keys(destObj).length} pa\u00edses, ${hoteles.length} hoteles${recuperadosTotal>0?' ('+recuperadosTotal+' items recuperados de localStorage)':''}`);
         if(recuperadosTotal>0){
             setTimeout(()=>{
@@ -2613,7 +2665,7 @@ function exigirPermiso(clave,accionTxt){
 // Aplica visibilidad del menú lateral, calculadora de costos y pestaña de usuarios según permisos.
 function aplicarPermisosUI(){
     if(!window.currentUser)return;
-    const views=['inicio','dashboard','editor','historial','ventas','clientes','clientesventas','tareas','reportePagos','configuracion','rrhh'];
+    const views=['inicio','dashboard','editor','historial','ventas','clientes','clientesventas','tareas','calendario','reportePagos','configuracion','rrhh'];
     const items=document.querySelectorAll('.sidebar-item');
     items.forEach((el,i)=>{if(i<views.length)el.style.display=puedeVerVista(views[i])?'':'none';});
     document.body.classList.toggle('sin-costos',!tienePermiso('cotizaciones.ver_costos'));
@@ -2631,19 +2683,20 @@ function nav(view){
     renderNotifBell();
     document.querySelectorAll('.sidebar-item').forEach(el=>el.classList.remove('active'));
     const items=document.querySelectorAll('.sidebar-item');
-    const map={inicio:0,dashboard:1,editor:2,historial:3,ventas:4,clientes:5,clientesventas:6,tareas:7,reportePagos:8,configuracion:9,rrhh:10};
+    const map={inicio:0,dashboard:1,editor:2,historial:3,ventas:4,clientes:5,clientesventas:6,tareas:7,calendario:8,reportePagos:9,configuracion:10,rrhh:11};
     if(map[view]!==undefined)items[map[view]].classList.add('active');
     document.querySelectorAll('.app-view').forEach(v=>v.classList.remove('active'));
-    const titles={inicio:'',dashboard:'Dashboard',editor:'Editor de Cotizaci\u00f3n',historial:'Historial de Cotizaciones',encabezados:'Destinos',ventas:'Ventas',clientes:'Contactos',clientesventas:'Clientes',tareas:'Tareas',reportePagos:'Reporte de pagos',configuracion:'Configuraci\u00f3n',rrhh:'Planilla',documento:'Documento'};
+    const titles={inicio:'',dashboard:'Dashboard',editor:'Editor de Cotizaci\u00f3n',historial:'Historial de Cotizaciones',encabezados:'Destinos',ventas:'Ventas',clientes:'Contactos',clientesventas:'Clientes',tareas:'Tareas',calendario:'Calendario',reportePagos:'Reporte de pagos',configuracion:'Configuraci\u00f3n',rrhh:'Planilla',documento:'Documento'};
     document.getElementById('headerTitle').textContent=titles[view]||'';
     const ha=document.getElementById('headerActions');
     if(view==='editor')ha.innerHTML='<button class="btn btn-outline" onclick="resetForm()">&#128260; Nueva</button>'+(tienePermiso('cotizaciones.exportar')?'<button class="btn btn-accent" onclick="window.print()">&#128424; Exportar PDF</button>':'');
     else if(view==='clientes')ha.innerHTML='<button class="btn btn-accent" onclick="openClienteModal()">+ Nuevo Contacto</button>';
     else if(view==='clientesventas')ha.innerHTML='<button class="btn btn-accent" onclick="nuevoClienteConVenta()">+ Nuevo Cliente</button>';
     else if(view==='tareas')ha.innerHTML='<button class="btn btn-accent" onclick="openTareaModal()">+ Nueva Tarea</button>';
+    else if(view==='calendario')ha.innerHTML='<button class="btn btn-accent" onclick="openEventoModal()">+ Nuevo evento</button>';
     else if(view==='dashboard')ha.innerHTML='<button class="btn btn-outline" onclick="renderDashboard()">&#8635; Actualizar</button>';
     else ha.innerHTML='';
-    const viewIds={inicio:'viewInicio',dashboard:'viewDashboard',editor:'viewEditor',historial:'viewHistorial',encabezados:'viewEncabezados',ventas:'viewVentas',clientes:'viewClientes',clientesventas:'viewClientesVentas',tareas:'viewTareas',reportePagos:'viewReportePagos',configuracion:'viewConfiguracion',rrhh:'viewRrhh',documento:'viewDocumento'};
+    const viewIds={inicio:'viewInicio',dashboard:'viewDashboard',editor:'viewEditor',historial:'viewHistorial',encabezados:'viewEncabezados',ventas:'viewVentas',clientes:'viewClientes',clientesventas:'viewClientesVentas',tareas:'viewTareas',calendario:'viewCalendario',reportePagos:'viewReportePagos',configuracion:'viewConfiguracion',rrhh:'viewRrhh',documento:'viewDocumento'};
     document.getElementById(viewIds[view]).classList.add('active');
     if(view==='dashboard')renderDashboard();
     if(view==='historial')renderHistorial();
@@ -2652,6 +2705,7 @@ function nav(view){
     if(view==='clientes')renderClientes();
     if(view==='clientesventas')renderClientesVentas();
     if(view==='tareas')renderTareas();
+    if(view==='calendario')renderCalendario();
     if(view==='reportePagos')renderReportePagos();
     if(view==='configuracion')renderConfiguracion();
     if(view==='rrhh')renderRrhh();
@@ -5033,6 +5087,174 @@ function generarNotificacionesViajesProximos(){
 // ============================================================================
 function getTareas(){return getLS('dv_tareas');}
 function saveTareas(arr){return setLS('dv_tareas',Array.isArray(arr)?arr:[]);}
+
+// ================= CALENDARIO =================
+const getEventos=()=>getLS('dv_eventos');
+const saveEventos=(l)=>setLS('dv_eventos',Array.isArray(l)?l:[]);
+const EVENTO_CATEGORIAS=[
+    {id:'general',    label:'General',      color:'#0a7e8c'},
+    {id:'recordatorio',label:'Recordatorio',color:'#d4830f'},
+    {id:'reunion',    label:'Reunión',      color:'#5e35b1'},
+    {id:'checkin',    label:'Check-in',     color:'#1565c0'},
+    {id:'personal',   label:'Personal',     color:'#2e7d32'}
+];
+function _evCat(id){return EVENTO_CATEGORIAS.find(c=>c.id===id)||EVENTO_CATEGORIAS[0];}
+let _calAnio=null,_calMes=null,_calVista='mes',_calFiltroTipo='',_calFiltroEnc='',_calAgendaBase=null;
+function _calHoyISO(){const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
+function _addDiasISO(iso,n){const d=new Date(iso+'T12:00:00');d.setDate(d.getDate()+n);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
+function _fechaLarga(iso){const d=new Date(iso+'T12:00:00');return d.toLocaleDateString('es-CR',{weekday:'long',day:'2-digit',month:'long'});}
+function _calVentaLabelIni(v){if(v.tipo==='crucero')return 'Embarque';if(v.tipo==='servicio'){if(v.servicioCat==='hospedaje')return 'Check-in';if(v.servicioCat==='boleto')return 'Vuelo';if(v.servicioCat==='transporte')return 'Traslado';return 'Servicio';}return 'Check-in';}
+function _calVentaLabelFin(v){if(v.tipo==='crucero')return 'Desembarque';if(v.tipo==='servicio'&&v.servicioCat==='hospedaje')return 'Check-out';return 'Regreso';}
+// Junta eventos (manuales + tareas por vencimiento + viajes/check-ins) en [desde,hasta] ISO inclusive.
+function _calEventos(desde,hasta){
+    const out=[];
+    const enR=f=>f&&f>=desde&&f<=hasta;
+    const fT=_calFiltroTipo,fE=_calFiltroEnc,fEnorm=fE?normalizarParaMatch(fE):'';
+    if(!fT||fT==='tarea'){
+        getTareas().forEach(t=>{
+            if(!t||!t.vence||!enR(t.vence))return;
+            if(fE&&normalizarParaMatch(t.responsableNombre||'')!==fEnorm)return;
+            const done=t.estado==='completada'||t.estado==='anulada';
+            const col=done?'#9aa5b1':(t.prioridad==='urgente'?'#e74c3c':(t.prioridad==='alta'?'#d4830f':(t.prioridad==='baja'?'#78909c':'#3b5bdb')));
+            out.push({fecha:t.vence,hora:'',titulo:(done?'✓ ':'')+(t.titulo||'Tarea'),color:col,tipo:'tarea',kind:'tarea',refId:t.id});
+        });
+    }
+    if(!fT||fT==='viaje'){
+        getVentas().forEach(v=>{
+            if(!v)return;
+            if(fE&&normalizarParaMatch(v.encargado||'')!==fEnorm)return;
+            const quien=v.clienteNombre||v.destino||v.naviera||'venta';
+            if(enR(v.fechaInicio))out.push({fecha:v.fechaInicio,hora:'',titulo:_calVentaLabelIni(v)+': '+quien,color:'#0a7e8c',tipo:'viaje',kind:'venta',refId:v.id});
+            if(v.fechaFin&&v.fechaFin!==v.fechaInicio&&enR(v.fechaFin))out.push({fecha:v.fechaFin,hora:'',titulo:_calVentaLabelFin(v)+': '+quien,color:'#5aa0a8',tipo:'viaje',kind:'venta',refId:v.id});
+        });
+    }
+    if(!fT||fT==='manual'){
+        getEventos().forEach(e=>{
+            if(!e||!e.fecha)return;
+            const fin=(e.fechaFin&&e.fechaFin>e.fecha)?e.fechaFin:e.fecha;
+            let d=e.fecha,g=0;
+            while(d<=fin&&g<400){if(enR(d))out.push({fecha:d,hora:e.hora||'',titulo:e.titulo||'Evento',color:_evCat(e.categoria).color,tipo:'manual',kind:'evento',refId:e.id});d=_addDiasISO(d,1);g++;}
+        });
+    }
+    out.sort((a,b)=>String(a.fecha).localeCompare(b.fecha)||String(a.hora||'99').localeCompare(String(b.hora||'99')));
+    return out;
+}
+function _calAbrirEvento(kind,refId){
+    if(kind==='tarea')openTareaModal(refId);
+    else if(kind==='venta')openCobranza(refId);
+    else if(kind==='evento')openEventoModal(refId);
+}
+function calSetVista(v){_calVista=v;if(v==='agenda')_calAgendaBase=null;renderCalendario();}
+function calHoy(){const h=new Date();_calAnio=h.getFullYear();_calMes=h.getMonth();_calAgendaBase=null;renderCalendario();}
+function calMover(dir){
+    if(_calVista==='agenda'){_calAgendaBase=_addDiasISO(_calAgendaBase||_calHoyISO(),dir*30);renderCalendario();return;}
+    _calMes+=dir;if(_calMes<0){_calMes=11;_calAnio--;}else if(_calMes>11){_calMes=0;_calAnio++;}renderCalendario();
+}
+function calVerDia(iso){_calAgendaBase=iso;_calVista='agenda';renderCalendario();}
+function renderCalendario(){
+    const cont=document.getElementById('viewCalendario');
+    if(!cont)return;
+    if(_calAnio==null){const h=new Date();_calAnio=h.getFullYear();_calMes=h.getMonth();if(window.innerWidth<640)_calVista='agenda';}
+    const encList=(cfgGet().encargados||[]).filter(Boolean);
+    const encOpts='<option value="">Todas las encargadas</option>'+encList.map(e=>`<option value="${esc(e)}" ${_calFiltroEnc===e?'selected':''}>${esc(e)}</option>`).join('');
+    const tipoOpts=`<option value="">Todo</option><option value="tarea" ${_calFiltroTipo==='tarea'?'selected':''}>Tareas</option><option value="viaje" ${_calFiltroTipo==='viaje'?'selected':''}>Viajes/Check-ins</option><option value="manual" ${_calFiltroTipo==='manual'?'selected':''}>Mis eventos</option>`;
+    const periodLabel=_calVista==='agenda'?'Próximos eventos':labelMes(_calAnio+'-'+String(_calMes+1).padStart(2,'0'));
+    const toolbar=`<div class="cal-toolbar">
+        <div class="cal-nav">
+            <button class="btn btn-sm btn-ghost" onclick="calMover(-1)" title="Anterior">&#9664;</button>
+            <button class="btn btn-sm btn-outline" onclick="calHoy()">Hoy</button>
+            <button class="btn btn-sm btn-ghost" onclick="calMover(1)" title="Siguiente">&#9654;</button>
+        </div>
+        <div class="cal-period">${esc(periodLabel)}</div>
+        <div style="flex:1;min-width:8px;"></div>
+        <select onchange="_calFiltroTipo=this.value;renderCalendario()" style="max-width:170px;">${tipoOpts}</select>
+        <select onchange="_calFiltroEnc=this.value;renderCalendario()" style="max-width:190px;">${encOpts}</select>
+        <div class="cal-seg"><button class="${_calVista==='mes'?'active':''}" onclick="calSetVista('mes')">Mes</button><button class="${_calVista==='agenda'?'active':''}" onclick="calSetVista('agenda')">Agenda</button></div>
+    </div>`;
+    cont.innerHTML=toolbar+(_calVista==='agenda'?_calRenderAgenda():_calRenderMes());
+}
+function _calRenderMes(){
+    const anio=_calAnio,mes=_calMes;
+    const primero=new Date(anio,mes,1);
+    const offset=(primero.getDay()+6)%7; // 0=Lunes
+    const diasMes=new Date(anio,mes+1,0).getDate();
+    const totalCeldas=Math.ceil((offset+diasMes)/7)*7;
+    const firstISO=anio+'-'+String(mes+1).padStart(2,'0')+'-01';
+    const startCell=_addDiasISO(firstISO,-offset);
+    const endCell=_addDiasISO(startCell,totalCeldas-1);
+    const evs=_calEventos(startCell,endCell);
+    const porDia={};evs.forEach(e=>{(porDia[e.fecha]=porDia[e.fecha]||[]).push(e);});
+    const hoy=_calHoyISO();
+    const dows=['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
+    let html='<div class="cal-grid">'+dows.map(d=>`<div class="cal-dow">${d}</div>`).join('');
+    let cur=startCell;
+    for(let i=0;i<totalCeldas;i++){
+        const d=new Date(cur+'T12:00:00');
+        const esOtro=(d.getMonth()!==mes);
+        const evsDia=porDia[cur]||[];
+        const maxShow=3;
+        const chips=evsDia.slice(0,maxShow).map(e=>`<div class="cal-chip" style="background:${e.color};" title="${esc(e.titulo)}" onclick="event.stopPropagation();_calAbrirEvento('${e.kind}','${e.refId}')">${e.hora?esc(e.hora)+' ':''}${esc(e.titulo)}</div>`).join('');
+        const more=evsDia.length>maxShow?`<div class="cal-more" onclick="event.stopPropagation();calVerDia('${cur}')">+${evsDia.length-maxShow} más</div>`:'';
+        html+=`<div class="cal-cell${esOtro?' otro':''}${cur===hoy?' hoy':''}" onclick="openEventoModal('',{fecha:'${cur}'})"><span class="cal-daynum">${d.getDate()}</span>${chips}${more}</div>`;
+        cur=_addDiasISO(cur,1);
+    }
+    return html+'</div>';
+}
+function _calRenderAgenda(){
+    const base=_calAgendaBase||_calHoyISO();
+    const hasta=_addDiasISO(base,45);
+    const evs=_calEventos(base,hasta);
+    if(!evs.length)return '<div class="grid-empty"><h3>Sin eventos próximos</h3><p>No hay tareas, viajes ni eventos en los próximos 45 días con este filtro.</p></div>';
+    const porDia={};evs.forEach(e=>{(porDia[e.fecha]=porDia[e.fecha]||[]).push(e);});
+    const hoy=_calHoyISO(),man=_addDiasISO(hoy,1);
+    return Object.keys(porDia).sort().map(iso=>{
+        const head=iso===hoy?('Hoy · '+_fechaLarga(iso)):(iso===man?('Mañana · '+_fechaLarga(iso)):_fechaLarga(iso));
+        const items=porDia[iso].map(e=>`<div class="cal-agenda-item" onclick="_calAbrirEvento('${e.kind}','${e.refId}')"><span class="cal-dot" style="background:${e.color};"></span><span class="cal-agenda-hora">${e.hora?esc(e.hora):'—'}</span><span style="flex:1;">${esc(e.titulo)}</span><span style="font-size:0.64rem;color:var(--text-light);text-transform:uppercase;letter-spacing:0.4px;">${e.tipo==='tarea'?'Tarea':(e.tipo==='viaje'?'Viaje':'Evento')}</span></div>`).join('');
+        return `<div class="cal-agenda-day"><div class="cal-agenda-head">${esc(head)}</div>${items}</div>`;
+    }).join('');
+}
+// ----- Evento manual (crear/editar/eliminar) -----
+function openEventoModal(id,opts){
+    opts=opts||{};
+    const ev=id?getEventos().find(e=>e.id===id):null;
+    document.getElementById('evId').value=ev?ev.id:'';
+    document.getElementById('evModalTitulo').textContent=ev?'Editar evento':'Nuevo evento';
+    const cat=document.getElementById('evCategoria');
+    cat.innerHTML=EVENTO_CATEGORIAS.map(c=>`<option value="${c.id}">${esc(c.label)}</option>`).join('');
+    cat.value=ev?(ev.categoria||'general'):'general';
+    document.getElementById('evTitulo').value=ev?(ev.titulo||''):'';
+    document.getElementById('evFecha').value=ev?(ev.fecha||''):(opts.fecha||_calHoyISO());
+    document.getElementById('evFechaFin').value=ev?(ev.fechaFin||''):'';
+    document.getElementById('evHora').value=ev?(ev.hora||''):'';
+    document.getElementById('evNota').value=ev?(ev.nota||''):'';
+    document.getElementById('evBtnEliminar').style.display=ev?'':'none';
+    document.getElementById('modalEvento').classList.add('open');
+    setTimeout(()=>{const t=document.getElementById('evTitulo');if(t)t.focus();},80);
+}
+function guardarEvento(){
+    const id=document.getElementById('evId').value;
+    const titulo=document.getElementById('evTitulo').value.trim();
+    const fecha=document.getElementById('evFecha').value;
+    if(!titulo){alert('Escribí un título.');return;}
+    if(!fecha){alert('Elegí una fecha.');return;}
+    let fechaFin=document.getElementById('evFechaFin').value||'';
+    if(fechaFin&&fechaFin<fecha)fechaFin='';
+    const datos={titulo,fecha,fechaFin,hora:document.getElementById('evHora').value||'',categoria:document.getElementById('evCategoria').value||'general',nota:document.getElementById('evNota').value.trim()};
+    const eventos=getEventos();
+    if(id){const e=eventos.find(x=>x.id===id);if(e){Object.assign(e,datos);e._lastModifiedAt=Date.now();}}
+    else{eventos.unshift(Object.assign({id:'ev_'+Date.now()+'_'+Math.random().toString(36).slice(2,6),creadoPor:(window.currentUser&&window.currentUser.email)||'',creadaTs:Date.now(),_lastModifiedAt:Date.now()},datos));}
+    saveEventos(eventos);
+    closeModal('modalEvento');
+    renderCalendario();
+}
+function eliminarEvento(){
+    const id=document.getElementById('evId').value;
+    if(!id)return;
+    if(!confirm('¿Eliminar este evento?'))return;
+    saveEventos(getEventos().filter(e=>e.id!==id));
+    closeModal('modalEvento');
+    renderCalendario();
+}
 function _tareaEmailActual(){return _normEmail(window.currentUser&&window.currentUser.email);}
 const TAREA_ESTADOS=[
     {id:'pendiente',   label:'Pendiente',   color:'#d4830f'},
