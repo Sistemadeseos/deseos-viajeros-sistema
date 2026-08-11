@@ -9,7 +9,8 @@ service firebase.storage {
         'operaciones@deseosviajeros.com',
         'reservas@deseosviajeros.com',
         'miladyzuniga@deseosviajeros.com',
-        'susanacastro@deseosviajeros.com'
+        'susanacastro@deseosviajeros.com',
+        'silegomez21@gmail.com'
       ];
     }
     match /{allPaths=**} {
