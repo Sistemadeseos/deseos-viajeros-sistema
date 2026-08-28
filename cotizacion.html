@@ -885,6 +885,10 @@ body.sin-costos .btn-calc-toggle,body.sin-costos .calc-row{display:none!importan
 .bitacora-item.bita-estado_cambio::before{background:var(--accent);box-shadow:0 0 0 2px var(--accent)}
 .bitacora-item.bita-cotizacion::before{background:var(--primary);box-shadow:0 0 0 2px var(--primary)}
 .bitacora-item.bita-cotizacion_aceptada::before{background:var(--success);box-shadow:0 0 0 2px var(--success)}
+.bitacora-item.bita-venta::before{background:#27ae60;box-shadow:0 0 0 2px #27ae60}
+.bitacora-item.bita-pago::before{background:#d4830f;box-shadow:0 0 0 2px #d4830f}
+.bitacora-item.bita-saldado::before{background:#0f6e56;box-shadow:0 0 0 2px #0f6e56}
+.bitacora-item.bita-viaje::before{background:#2b7cd3;box-shadow:0 0 0 2px #2b7cd3}
 .bitacora-item.automatico{opacity:0.85;background:rgba(10,126,140,0.04)}
 .bitacora-item-header{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:3px}
 .bitacora-item-title{font-weight:700;color:var(--primary-dark);font-size:0.82rem;display:flex;align-items:center;gap:6px}
@@ -10294,7 +10298,11 @@ const BITACORA_TIPOS={
     captura:{label:'Captura inicial',icon:'\u26A1'},
     estado_cambio:{label:'Cambio de estado',icon:'\u{1F504}'},
     cotizacion:{label:'Cotizaci\u00f3n generada',icon:'\u{1F4C4}'},
-    cotizacion_aceptada:{label:'Cotizaci\u00f3n aceptada',icon:'\u2705'}
+    cotizacion_aceptada:{label:'Cotizaci\u00f3n aceptada',icon:'\u2705'},
+    venta:{label:'Venta registrada',icon:'\u{1F6D2}'},
+    pago:{label:'Pago recibido',icon:'\u{1F4B5}'},
+    saldado:{label:'Saldo saldado',icon:'\u2705'},
+    viaje:{label:'Viaje / check-in',icon:'\u2708\ufe0f'}
 };
 
 let _bitaVisibles=20; // cuantos items mostrar (para "cargar mas")
@@ -10366,13 +10374,46 @@ function guardarBitacoraEntry(){
     renderBitacoraTimeline(contactoId);
 }
 
+// Fase 3: eventos comerciales DERIVADOS al vuelo (ventas, pagos, saldo saldado, viaje).
+// No se persisten: se calculan desde las ventas vinculadas por clienteId, así que aparecen
+// también para todo lo ya cargado y no agregan escrituras a la nube (cero riesgo de pérdida).
+function _bitacoraEventosDerivados(contactoId){
+    const out=[];
+    const ventas=getVentas().filter(v=>v.clienteId===contactoId);
+    ventas.forEach(v=>{
+        const cob=calcCobranzaStatus(v);
+        const m=cob.moneda;
+        const label=_venta360Label(v);
+        const fVenta=v.fechaVenta||v.fechaCreacion||v.fechaInicio||'';
+        // Venta registrada
+        out.push({tipo:'venta',descripcion:label+(cob.total>0?' · '+fmtMoney(cob.total,m):''),fecha:fVenta,automatico:true,usuarioEmail:''});
+        // Pagos recibidos
+        const pagos=(v.cobranza&&Array.isArray(v.cobranza.pagos))?v.cobranza.pagos:[];
+        pagos.forEach(p=>{
+            if(!(num(p.monto)>0))return;
+            const met=p.metodo?' · '+p.metodo:'';
+            out.push({tipo:'pago',descripcion:fmtMoney(p.monto,m)+met+' · '+label,fecha:p.fecha||fVenta,automatico:true,usuarioEmail:''});
+        });
+        // Saldo saldado (cuando hay total y el saldo llegó a 0): fechado en el último pago
+        if(cob.total>0&&cob.saldo<=0&&pagos.length){
+            const fechas=pagos.map(p=>p.fecha||'').filter(Boolean).sort();
+            out.push({tipo:'saldado',descripcion:label,fecha:fechas.length?fechas[fechas.length-1]:fVenta,automatico:true,usuarioEmail:''});
+        }
+        // Viaje / check-in
+        if(v.fechaInicio)out.push({tipo:'viaje',descripcion:label,fecha:v.fechaInicio,automatico:true,usuarioEmail:''});
+    });
+    return out;
+}
+
 function renderBitacoraTimeline(contactoId){
     const tl=document.getElementById('mcBitacoraTimeline');
     const countEl=document.getElementById('mcBitacoraCount');
     if(!tl)return;
     const clientes=getClientes();
     const c=clientes.find(x=>x.id===contactoId);
-    const bita=Array.isArray(c&&c.bitacora)?c.bitacora:[];
+    const persistidas=Array.isArray(c&&c.bitacora)?c.bitacora:[];
+    // Mezcla notas persistidas (manuales + cotización) con eventos comerciales derivados.
+    const bita=persistidas.concat(_bitacoraEventosDerivados(contactoId));
     if(countEl)countEl.textContent=bita.length?` (${bita.length})`:'';
     if(!bita.length){
         tl.innerHTML='<div class="bitacora-empty">Sin interacciones registradas. Agregue la primera arriba &#8593;</div>';
