@@ -1223,7 +1223,7 @@ onAuthStateChanged(fbAuth, (user) => {
         <button class="ventas-tab" data-vtab="crucero" onclick="setVentasTab('crucero')">Cruceros <span class="vtab-count" id="vtabCountCru"></span></button>
         <button class="ventas-tab" data-vtab="boleto" onclick="setVentasTab('boleto')">Boletos a&eacute;reos <span class="vtab-count" id="vtabCount_boleto"></span></button>
         <button class="ventas-tab" data-vtab="hospedaje" onclick="setVentasTab('hospedaje')">Hospedajes <span class="vtab-count" id="vtabCount_hospedaje"></span></button>
-        <button class="ventas-tab" data-vtab="transporte" onclick="setVentasTab('transporte')">Transportes <span class="vtab-count" id="vtabCount_transporte"></span></button>
+        <button class="ventas-tab" data-vtab="transporte" onclick="setVentasTab('transporte')">Tours <span class="vtab-count" id="vtabCount_transporte"></span></button>
         <button class="ventas-tab" data-vtab="seguro" onclick="setVentasTab('seguro')">Seguros <span class="vtab-count" id="vtabCount_seguro"></span></button>
         <button class="ventas-tab" data-vtab="otro" onclick="setVentasTab('otro')">Otros <span class="vtab-count" id="vtabCount_otro"></span></button>
     </div>
@@ -8842,7 +8842,7 @@ function renderVentasCruceros(filtered,grid){
 const SERVICIO_CATS=[
     {id:'boleto',    label:'Boletos aéreos', singular:'boleto aéreo'},
     {id:'hospedaje', label:'Hospedajes',     singular:'hospedaje'},
-    {id:'transporte',label:'Transportes',    singular:'transporte'},
+    {id:'transporte',label:'Tours',          singular:'tour'},
     {id:'seguro',    label:'Seguros',        singular:'seguro'},
     {id:'otro',      label:'Otros servicios',singular:'servicio'}
 ];
