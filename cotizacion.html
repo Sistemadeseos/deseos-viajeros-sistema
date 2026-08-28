@@ -1223,7 +1223,7 @@ onAuthStateChanged(fbAuth, (user) => {
         <button class="ventas-tab" data-vtab="crucero" onclick="setVentasTab('crucero')">Cruceros <span class="vtab-count" id="vtabCountCru"></span></button>
         <button class="ventas-tab" data-vtab="boleto" onclick="setVentasTab('boleto')">Boletos a&eacute;reos <span class="vtab-count" id="vtabCount_boleto"></span></button>
         <button class="ventas-tab" data-vtab="hospedaje" onclick="setVentasTab('hospedaje')">Hospedajes <span class="vtab-count" id="vtabCount_hospedaje"></span></button>
-        <button class="ventas-tab" data-vtab="transporte" onclick="setVentasTab('transporte')">Tours <span class="vtab-count" id="vtabCount_transporte"></span></button>
+        <button class="ventas-tab" data-vtab="tour" onclick="setVentasTab('tour')">Tours <span class="vtab-count" id="vtabCount_tour"></span></button>
         <button class="ventas-tab" data-vtab="seguro" onclick="setVentasTab('seguro')">Seguros <span class="vtab-count" id="vtabCount_seguro"></span></button>
         <button class="ventas-tab" data-vtab="otro" onclick="setVentasTab('otro')">Otros <span class="vtab-count" id="vtabCount_otro"></span></button>
     </div>
@@ -5115,7 +5115,7 @@ let _calAnio=null,_calMes=null,_calVista='mes',_calFiltroTipo='',_calFiltroEnc='
 function _calHoyISO(){const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
 function _addDiasISO(iso,n){const d=new Date(iso+'T12:00:00');d.setDate(d.getDate()+n);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
 function _fechaLarga(iso){const d=new Date(iso+'T12:00:00');return d.toLocaleDateString('es-CR',{weekday:'long',day:'2-digit',month:'long'});}
-function _calVentaLabelIni(v){if(v.tipo==='crucero')return 'Embarque';if(v.tipo==='servicio'){if(v.servicioCat==='hospedaje')return 'Check-in';if(v.servicioCat==='boleto')return 'Vuelo';if(v.servicioCat==='transporte')return 'Traslado';return 'Servicio';}return 'Check-in';}
+function _calVentaLabelIni(v){if(v.tipo==='crucero')return 'Embarque';if(v.tipo==='servicio'){if(v.servicioCat==='hospedaje')return 'Check-in';if(v.servicioCat==='boleto')return 'Vuelo';if(v.servicioCat==='tour')return 'Tour';return 'Servicio';}return 'Check-in';}
 function _calVentaLabelFin(v){if(v.tipo==='crucero')return 'Desembarque';if(v.tipo==='servicio'&&v.servicioCat==='hospedaje')return 'Check-out';return 'Regreso';}
 // Junta eventos (manuales + tareas por vencimiento + viajes/check-ins) en [desde,hasta] ISO inclusive.
 function _calEventos(desde,hasta){
@@ -8842,7 +8842,7 @@ function renderVentasCruceros(filtered,grid){
 const SERVICIO_CATS=[
     {id:'boleto',    label:'Boletos aéreos', singular:'boleto aéreo'},
     {id:'hospedaje', label:'Hospedajes',     singular:'hospedaje'},
-    {id:'transporte',label:'Tours',          singular:'tour'},
+    {id:'tour',      label:'Tours',          singular:'tour'},
     {id:'seguro',    label:'Seguros',        singular:'seguro'},
     {id:'otro',      label:'Otros servicios',singular:'servicio'}
 ];
