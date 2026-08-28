@@ -381,6 +381,8 @@ body{font-family:'Open Sans',sans-serif;background:var(--bg);color:var(--text);m
 .cal-seg{display:inline-flex;border:1px solid var(--border);border-radius:8px;overflow:hidden}
 .cal-seg button{border:none;background:#fff;padding:6px 12px;font-size:0.8rem;cursor:pointer;color:var(--text)}
 .cal-seg button.active{background:var(--primary);color:#fff}
+.cliente-link{color:var(--primary);cursor:pointer;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:2px;font-weight:600}
+.cliente-link:hover{color:var(--primary-dark)}
 .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
 .cal-dow{text-align:center;font-size:0.68rem;font-weight:700;color:var(--text-light);text-transform:uppercase;letter-spacing:0.4px;padding:4px 0}
 .cal-cell{min-height:92px;border:1px solid var(--border);border-radius:6px;padding:4px 5px;background:#fff;overflow:hidden;cursor:pointer;transition:background 0.12s}
@@ -1041,8 +1043,7 @@ onAuthStateChanged(fbAuth, (user) => {
     <div class="sidebar-section">
         <div class="sidebar-section-label">Gesti&oacute;n</div>
         <div class="sidebar-item" onclick="nav('ventas')"><span class="si-icon">&#128176;</span>Ventas<span class="si-badge" id="badgeVentas"></span></div>
-        <div class="sidebar-item" onclick="nav('clientes')"><span class="si-icon">&#128101;</span>Contactos<span class="si-badge" id="badgeClientes"></span></div>
-        <div class="sidebar-item" onclick="nav('clientesventas')"><span class="si-icon">&#127881;</span>Clientes<span class="si-badge" id="badgeClientesVentas"></span></div>
+        <div class="sidebar-item" onclick="nav('clientes')"><span class="si-icon">&#128101;</span>Clientes<span class="si-badge" id="badgeClientes"></span></div>
         <div class="sidebar-item" onclick="nav('tareas')"><span class="si-icon">&#9989;</span>Tareas<span class="si-badge" id="badgeTareas"></span></div>
         <div class="sidebar-item" onclick="nav('calendario')"><span class="si-icon">&#128197;</span>Calendario</div>
     </div>
@@ -1231,9 +1232,9 @@ onAuthStateChanged(fbAuth, (user) => {
     <div class="list-view" id="ventasGrid"></div>
 </div>
 
-<!-- VIEW: CONTACTOS (sin ventas) -->
+<!-- VIEW: CLIENTES Y CONTACTOS (unificado, con filtro) -->
 <div class="app-view view-list" id="viewClientes">
-    <div class="list-search"><input type="text" id="clientesSearch" placeholder="Buscar por nombre, email, documento..." oninput="renderClientes()"><select id="clientesFilterCreador" onchange="onContactosFilterCreadorChange()"><option value="">Todos los que ingresaron</option></select></div>
+    <div class="list-search"><div class="cal-seg" id="clientesFiltroSeg"><button class="active" data-ctf="todos" onclick="setClientesFiltro('todos')">Todos</button><button data-ctf="contactos" onclick="setClientesFiltro('contactos')">Contactos</button><button data-ctf="clientes" onclick="setClientesFiltro('clientes')">Clientes</button></div><input type="text" id="clientesSearch" placeholder="Buscar por nombre, email, documento..." oninput="renderClientes()"><select id="clientesFilterCreador" onchange="onContactosFilterCreadorChange()"><option value="">Todos los que ingresaron</option></select></div>
     <div class="list-view" id="clientesGrid"></div>
 </div>
 
@@ -1448,6 +1449,7 @@ onAuthStateChanged(fbAuth, (user) => {
 <!-- MODAL: Estado de Cuenta -->
 <div class="modal-overlay" id="modalCobranza"><div class="modal" style="max-width:720px;"><div class="modal-header"><h3 id="modalCobranzaTitulo">Estado de Cuenta</h3><button class="modal-close" onclick="closeModal('modalCobranza')">&times;</button></div><div class="modal-body">
     <input type="hidden" id="cobVentaId">
+    <div id="cobClienteLink" style="margin:-4px 0 12px;font-size:0.86rem;"></div>
     <div class="form-row">
         <div class="form-group"><label>Monto total del viaje</label><input type="number" id="cobMontoTotal" step="0.01" oninput="recalcCobranza()"></div>
         <div class="form-group"><label>Moneda</label><select id="cobMoneda" onchange="recalcCobranza()"><option value="USD">USD ($)</option><option value="CRC">CRC (&#8353;)</option><option value="EUR">EUR (&#8364;)</option></select></div>
@@ -2679,7 +2681,7 @@ function exigirPermiso(clave,accionTxt){
 // Aplica visibilidad del menú lateral, calculadora de costos y pestaña de usuarios según permisos.
 function aplicarPermisosUI(){
     if(!window.currentUser)return;
-    const views=['inicio','dashboard','editor','historial','ventas','clientes','clientesventas','tareas','calendario','reportePagos','configuracion','rrhh'];
+    const views=['inicio','dashboard','editor','historial','ventas','clientes','tareas','calendario','reportePagos','configuracion','rrhh'];
     const items=document.querySelectorAll('.sidebar-item');
     items.forEach((el,i)=>{if(i<views.length)el.style.display=puedeVerVista(views[i])?'':'none';});
     document.body.classList.toggle('sin-costos',!tienePermiso('cotizaciones.ver_costos'));
@@ -2692,15 +2694,17 @@ function aplicarPermisosUI(){
 function nav(view){
     // Compat retro: la antigua entrada "encabezados" ahora vive en Configuracion > Cotizacion > Destinos.
     if(view==='encabezados'){nav('configuracion');setTimeout(()=>{switchConfigTab('cotizacion');switchConfigSubTab('destinos');},0);return;}
+    // Fase 2: la antigua seccion "Clientes" (clientesventas) se unifico dentro de "clientes".
+    if(view==='clientesventas')view='clientes';
     // Guardrail: si no tiene permiso para la vista, redirigir a Inicio (siempre permitido).
     if(!puedeVerVista(view)){if(view!=='inicio')return nav('inicio');}
     renderNotifBell();
     document.querySelectorAll('.sidebar-item').forEach(el=>el.classList.remove('active'));
     const items=document.querySelectorAll('.sidebar-item');
-    const map={inicio:0,dashboard:1,editor:2,historial:3,ventas:4,clientes:5,clientesventas:6,tareas:7,calendario:8,reportePagos:9,configuracion:10,rrhh:11};
+    const map={inicio:0,dashboard:1,editor:2,historial:3,ventas:4,clientes:5,tareas:6,calendario:7,reportePagos:8,configuracion:9,rrhh:10};
     if(map[view]!==undefined)items[map[view]].classList.add('active');
     document.querySelectorAll('.app-view').forEach(v=>v.classList.remove('active'));
-    const titles={inicio:'',dashboard:'Dashboard',editor:'Editor de Cotizaci\u00f3n',historial:'Historial de Cotizaciones',encabezados:'Destinos',ventas:'Ventas',clientes:'Contactos',clientesventas:'Clientes',tareas:'Tareas',calendario:'Calendario',reportePagos:'Reporte de pagos',configuracion:'Configuraci\u00f3n',rrhh:'Planilla',documento:'Documento'};
+    const titles={inicio:'',dashboard:'Dashboard',editor:'Editor de Cotizaci\u00f3n',historial:'Historial de Cotizaciones',encabezados:'Destinos',ventas:'Ventas',clientes:'Clientes',clientesventas:'Clientes',tareas:'Tareas',calendario:'Calendario',reportePagos:'Reporte de pagos',configuracion:'Configuraci\u00f3n',rrhh:'Planilla',documento:'Documento'};
     document.getElementById('headerTitle').textContent=titles[view]||'';
     const ha=document.getElementById('headerActions');
     if(view==='editor')ha.innerHTML='<button class="btn btn-outline" onclick="resetForm()">&#128260; Nueva</button>'+(tienePermiso('cotizaciones.exportar')?'<button class="btn btn-accent" onclick="window.print()">&#128424; Exportar PDF</button>':'');
@@ -2735,7 +2739,7 @@ function updateBadges(){
     const contactosCount=c.filter(x=>!idsConVenta.has(x.id)).length;
     const clientesCount=c.filter(x=>idsConVenta.has(x.id)).length;
     const bh=document.getElementById('badgeHistorial'),bv=document.getElementById('badgeVentas'),bc=document.getElementById('badgeClientes'),bcv=document.getElementById('badgeClientesVentas');
-    bh.textContent=h.length||'';bv.textContent=v.length||'';bc.textContent=contactosCount||'';if(bcv)bcv.textContent=clientesCount||'';
+    bh.textContent=h.length||'';bv.textContent=v.length||'';bc.textContent=c.length||'';if(bcv)bcv.textContent=clientesCount||'';
     const bt=document.getElementById('badgeTareas');
     if(bt){try{bt.textContent=_tareasPendientesCount()||'';}catch(e){bt.textContent='';}}
 }
@@ -8043,7 +8047,7 @@ function renderVentasGrupales(filtered,grid){
             const cobBadge=cob.total>0?`<span class="lt-badge" title="${esc(titleBadge)}" style="background:${colorBadge}22;color:${colorBadge};">${cob.estadoPagoLabel} ${cob.pagadoPct}%</span>`:'<span style="color:var(--text-light);font-size:0.72rem;">-</span>';
             const fv=v.fechaVenta?formatFechaCorta(v.fechaVenta)||v.fechaVenta:'';
             return`<tr class="estado-${v.estado}">
-            <td>${esc(v.clienteNombre||'-')}${fv?`<div class="lt-secondary">Vendida: ${esc(fv)}</div>`:''}</td>
+            <td>${_clienteLinkHtml(v.clienteId,v.clienteNombre,'-')}${fv?`<div class="lt-secondary">Vendida: ${esc(fv)}</div>`:''}</td>
             <td>${esc(v.encargado||'-')}</td>
             <td>${v.fechaInicio?formatDateRange(v.fechaInicio,v.fechaFin):'<span style="color:var(--text-light);">-</span>'}</td>
             <td>${cobBadge}</td>
@@ -8829,7 +8833,7 @@ function renderVentasCruceros(filtered,grid){
         const cobBadge=cob.total>0?`<span class="lt-badge" title="${esc(titleBadge)}" style="background:${colorBadge}22;color:${colorBadge};">${cob.estadoPagoLabel} ${cob.pagadoPct}%</span>`:'<span style="color:var(--text-light);font-size:0.72rem;">-</span>';
         const navBarco=[v.naviera,v.barco].filter(Boolean).join(' · ')||'-';
         return`<tr class="estado-${v.estado}">
-        <td>${esc(v.clienteNombre||'-')}</td>
+        <td>${_clienteLinkHtml(v.clienteId,v.clienteNombre,'-')}</td>
         <td>${esc(navBarco)}${v.destino?`<div class="lt-secondary">${esc(v.destino)}</div>`:''}</td>
         <td>${esc(v.reserva||'-')}</td>
         <td>${v.fechaInicio?`<div>${formatDateRange(v.fechaInicio,v.fechaFin)}</div>`:'<span style="color:var(--text-light);">-</span>'}</td>
@@ -8971,7 +8975,7 @@ function renderVentasServicios(filtered,grid,sc){
         const cob=calcCobranzaStatus(v);
         const cobBadge=cob.total>0?`<span class="lt-badge" style="background:${cob.color}22;color:${cob.color};">${cob.estadoPagoLabel} ${cob.pagadoPct}%</span>`:'<span style="color:var(--text-light);font-size:0.72rem;">-</span>';
         return`<tr class="estado-${v.estado}">
-        <td>${esc(v.clienteNombre||'-')}</td>
+        <td>${_clienteLinkHtml(v.clienteId,v.clienteNombre,'-')}</td>
         <td>${esc(v.descripcion||'-')}</td>
         <td>${esc(v.encargado||'-')}</td>
         <td>${v.fechaInicio?esc(formatFechaCorta(v.fechaInicio)||v.fechaInicio):'<span style="color:var(--text-light);">-</span>'}</td>
@@ -9124,7 +9128,7 @@ function renderVentas(){
         const cobBadge=cob.total>0?`<span class="lt-badge" style="background:${cob.color}22;color:${cob.color};">${cob.estadoPagoLabel} ${cob.pagadoPct}%</span>`:'<span style="color:var(--text-light);font-size:0.72rem;">-</span>';
         return`<tr class="estado-${v.estado}">
         <td><div class="lt-destino">${esc(v.destino||'-')}</div></td>
-        <td>${esc(v.clienteNombre||'-')}</td>
+        <td>${_clienteLinkHtml(v.clienteId,v.clienteNombre,'-')}</td>
         <td>${esc(v.encargado||'-')}</td>
         <td>${v.fechaInicio?`<div>${formatDateRange(v.fechaInicio,v.fechaFin)}</div>`:'<span style="color:var(--text-light);">-</span>'}</td>
         <td><span class="lt-badge" style="background:${estadoColors[v.estado]||'var(--primary)'};color:white;">${estadoLabels[v.estado]||v.estado}</span></td>
@@ -9209,6 +9213,9 @@ function openCobranza(ventaId){
     if(!v.cobranza)v.cobranza={montoTotal:0,moneda:'USD',pagos:[]};
     document.getElementById('cobVentaId').value=ventaId;
     document.getElementById('modalCobranzaTitulo').textContent='Estado de Cuenta - '+v.destino;
+    // Enlace a la ficha del cliente (Fase 2). Tambien aplica a los eventos de viaje/cobro del calendario.
+    const _cobCl=document.getElementById('cobClienteLink');
+    if(_cobCl){_cobCl.innerHTML=v.clienteId?`<span class="cliente-link" onclick="openClienteModal('${v.clienteId}')" title="Abrir ficha del cliente">&#128100; Ver ficha de ${esc(v.clienteNombre||'este cliente')}</span>`:'';}
     document.getElementById('cobMontoTotal').value=v.cobranza.montoTotal||'';
     document.getElementById('cobMoneda').value=v.cobranza.moneda||'USD';
     document.getElementById('pagoForm').classList.remove('open');
@@ -9796,17 +9803,22 @@ function autoCreateCliente(data){
 }
 
 // Renderiza la tabla de contactos. mode='contactos' (sin ventas) | 'clientes' (con al menos una venta).
-function renderListadoContactos(mode){
+let _clientesFiltroTipo='todos'; // 'todos' | 'contactos' | 'clientes'
+function setClientesFiltro(t){
+    _clientesFiltroTipo=t;
+    const seg=document.getElementById('clientesFiltroSeg');
+    if(seg)seg.querySelectorAll('button').forEach(b=>b.classList.toggle('active',b.getAttribute('data-ctf')===t));
+    renderClientes();
+}
+function renderListadoContactos(){
     const clientes=getClientes();
     const ventas=getVentas();
     const idsConVenta=new Set(ventas.map(v=>v.clienteId).filter(Boolean));
-    const isClientes=mode==='clientes';
-    const gridId=isClientes?'clientesVentasGrid':'clientesGrid';
-    const searchId=isClientes?'clientesVentasSearch':'clientesSearch';
-    const grid=document.getElementById(gridId);
+    const tipo=_clientesFiltroTipo;
+    const grid=document.getElementById('clientesGrid');
     if(!grid)return;
-    const search=(document.getElementById(searchId)?.value||'').toLowerCase();
-    const base=clientes.filter(c=>isClientes?idsConVenta.has(c.id):!idsConVenta.has(c.id));
+    const search=(document.getElementById('clientesSearch')?.value||'').toLowerCase();
+    const base=clientes.filter(c=>{if(tipo==='contactos')return !idsConVenta.has(c.id);if(tipo==='clientes')return idsConVenta.has(c.id);return true;});
     // Helper para obtener quien creo el contacto (con fallback a bitacora vieja o asignadoA)
     const creadorEmailDe=c=>{
         if(c.creadoPor)return c.creadoPor;
@@ -9821,8 +9833,8 @@ function renderListadoContactos(mode){
         const m=matchEncargadoDesdeEmail(email,encargados);
         return m||email;
     };
-    // Poblar el select de creador (solo para la vista de Contactos), mostrando nombre del usuario
-    if(!isClientes){
+    // Poblar el select de creador (quien ingreso), mostrando nombre del usuario
+    {
         const sel=document.getElementById('clientesFilterCreador');
         if(sel){
             // Determinar el valor a preservar: prioridad
@@ -9843,11 +9855,11 @@ function renderListadoContactos(mode){
             if(cur&&lista.includes(cur))sel.value=cur;
         }
     }
-    const filterCreador=isClientes?'':(document.getElementById('clientesFilterCreador')?.value||'');
+    const filterCreador=document.getElementById('clientesFilterCreador')?.value||'';
     const filtered=base.filter(c=>{const text=[c.nombreCompleto,c.email,c.telefono,c.numeroDocumento,c.empresa,c.estado,c.origen,(c.etiquetas||[]).join(' ')].join(' ').toLowerCase();const matchSearch=!search||text.includes(search);const matchCre=!filterCreador||creadorNombreDe(c)===filterCreador;return matchSearch&&matchCre;});
     if(!filtered.length){
-        const titulo=search?'Sin resultados':(isClientes?'Sin clientes':'Sin contactos');
-        const subt=isClientes?'Los contactos pasan a Clientes cuando se les registra una venta.':'Los contactos se crean al guardar cotizaciones o manualmente.';
+        const titulo=search?'Sin resultados':(tipo==='clientes'?'Sin clientes':(tipo==='contactos'?'Sin contactos':'Sin personas'));
+        const subt=tipo==='clientes'?'Una persona pasa a Cliente cuando se le registra una venta.':'Los contactos se crean al guardar cotizaciones o manualmente.';
         grid.innerHTML=`<div class="grid-empty"><h3>${titulo}</h3><p>${subt}</p></div>`;return;
     }
     const hist=getHistorial();
@@ -9856,19 +9868,21 @@ function renderListadoContactos(mode){
     const rows=filtered.map(c=>{
         const numCots=hist.filter(h=>h.clienteId===c.id).length;
         const numVentas=ventas.filter(v=>v.clienteId===c.id).length;
+        const esCliente=idsConVenta.has(c.id);
+        const tipoChip=esCliente?'<span class="lt-badge" style="background:#e1f5ee;color:#0f6e56;">Cliente</span>':'<span class="lt-badge" style="background:var(--primary-light);color:var(--primary-dark);">Contacto</span>';
         const estado=_estadoContactoNorm(c.estado||'nuevo');
         const estadoBadge=`<span class="estado-badge st-${estado}">${esc(estadoLabels[estado]||estado)}</span>`;
         const origenTxt=c.origen&&origenLabels[c.origen]?esc(origenLabels[c.origen]):'<span style="color:var(--text-light);">-</span>';
         const etiquetasHtml=Array.isArray(c.etiquetas)&&c.etiquetas.length?`<div style="margin-top:3px;display:flex;flex-wrap:wrap;gap:3px;">${c.etiquetas.map(t=>`<span style="font-size:0.62rem;padding:1px 7px;border-radius:10px;background:var(--primary-light);color:var(--primary-dark);font-weight:600;">${esc(t)}</span>`).join('')}</div>`:'';
         return`<tr>
-        <td><div class="lt-nombre">${esc(c.nombreCompleto||'-')}</div>${c.asignadoA?`<div class="lt-secondary">Asignado: ${esc(_asignadoNombre(c.asignadoA))}</div>`:''}${etiquetasHtml}</td>
+        <td><div class="lt-nombre"><span class="cliente-link" onclick="openClienteModal('${c.id}')">${esc(c.nombreCompleto||'-')}</span> ${tipoChip}</div>${c.asignadoA?`<div class="lt-secondary">Asignado: ${esc(_asignadoNombre(c.asignadoA))}</div>`:''}${etiquetasHtml}</td>
         <td>${estadoBadge}</td>
         <td>${origenTxt}</td>
         <td>${c.email?esc(c.email):'<span style="color:var(--text-light);">-</span>'}</td>
         <td>${c.telefono?esc(c.telefono):'<span style="color:var(--text-light);">-</span>'}</td>
         <td>${c.numeroPasaporte?esc(c.numeroPasaporte):'<span style="color:var(--text-light);">-</span>'}${c.vencimientoPasaporte?`<div class="lt-secondary">vence ${esc(c.vencimientoPasaporte)}</div>`:''}</td>
         <td><span class="lt-badge" style="background:var(--primary-light);color:var(--primary-dark);">${numCots} cot.</span> <span class="lt-badge" style="background:var(--accent-light);color:#d4830f;">${numVentas} ventas</span></td>
-        <td><div class="lt-actions"><button class="btn btn-sm btn-primary" onclick="openClienteModal('${c.id}')">Editar</button><button class="btn btn-sm btn-danger" onclick="eliminarCliente('${c.id}')">&times;</button></div></td>
+        <td><div class="lt-actions"><button class="btn btn-sm btn-primary" onclick="openClienteModal('${c.id}')">Abrir</button><button class="btn btn-sm btn-danger" onclick="eliminarCliente('${c.id}')">&times;</button></div></td>
         </tr>`;
     }).join('');
     grid.innerHTML=`<table class="list-table">
@@ -9885,8 +9899,8 @@ function renderListadoContactos(mode){
         <tbody>${rows}</tbody>
     </table>`;
 }
-function renderClientes(){renderListadoContactos('contactos');}
-function renderClientesVentas(){renderListadoContactos('clientes');}
+function renderClientes(){renderListadoContactos();}
+function renderClientesVentas(){renderListadoContactos();}
 
 // ===== REPORTE DE PAGOS =====
 // Consolida todos los pagos registrados en ventas (personalizadas + grupales) para auditoria.
@@ -9905,6 +9919,7 @@ function collectAllPagos(){
             rows.push({
                 pagoId:p.id,
                 ventaId:v.id,
+                clienteId:(cli?cli.id:(v.clienteId||null)),
                 fecha:p.fecha||'',
                 cliente:nombreCliente,
                 destino:v.destino||'',
@@ -9984,7 +9999,7 @@ function renderReportePagos(){
         const tipoLabel=r.tipo==='grupal'?'<span class="lt-badge" style="background:var(--accent-light);color:#d4830f;font-size:0.66rem;">GRUPAL</span>':(r.tipo==='crucero'?'<span class="lt-badge" style="background:#e3f2fd;color:#1565c0;font-size:0.66rem;">CRUCERO</span>':(r.tipo==='servicio'?'<span class="lt-badge" style="background:#ede7f6;color:#5e35b1;font-size:0.66rem;">'+esc((_scRep?_scRep.label:'Servicio').toUpperCase())+'</span>':'<span class="lt-badge" style="background:var(--primary-light);color:var(--primary-dark);font-size:0.66rem;">PERSONAL</span>'));
         return`<tr>
             <td>${esc(fechaTxt)}</td>
-            <td>${esc(r.cliente)}<div class="lt-secondary">${tipoLabel}</div></td>
+            <td>${_clienteLinkHtml(r.clienteId,r.cliente,'(sin nombre)')}<div class="lt-secondary">${tipoLabel}</div></td>
             <td>${esc(ventaTxt)}</td>
             <td>${esc(r.encargado||'-')}</td>
             <td>${esc(r.metodo||'-')}</td>
@@ -10396,6 +10411,13 @@ function _venta360Label(v){
     return v.destino||v.clienteNombre||'Venta';
 }
 function _tipoVentaLabel(t){return t==='grupal'?'Grupal':t==='crucero'?'Crucero':t==='servicio'?'Servicio':'Personalizada';}
+// Nombre del cliente como enlace a su ficha 360 (Fase 2). Si no hay clienteId, texto plano.
+// stopPropagation por si la fila tiene su propio onclick.
+function _clienteLinkHtml(clienteId,nombre,fallback){
+    const nom=nombre||fallback||'-';
+    if(!clienteId)return esc(nom);
+    return `<span class="cliente-link" onclick="event.stopPropagation();openClienteModal('${clienteId}')" title="Ver ficha del cliente">${esc(nom)}</span>`;
+}
 
 // Abre una cotizacion del cliente en modo solo-lectura (cierra la ficha primero, porque navega al editor)
 function verCotizacionCliente(id){closeModal('modalCliente');cargarCotizacion(id,true);}
@@ -10602,7 +10624,7 @@ function openClienteModal(id){
     if(id){
         const clientes=getClientes();
         const c=clientes.find(x=>x.id===id);
-        if(!c)return;
+        if(!c){alert('Este contacto ya no existe (puede haber sido eliminado).');return;}
         titulo.textContent='Editar Contacto';
         document.getElementById('mcId').value=id;
         document.getElementById('mcNombre').value=c.nombreCompleto||'';
