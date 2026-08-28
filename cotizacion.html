@@ -1385,6 +1385,13 @@ onAuthStateChanged(fbAuth, (user) => {
         </div>
     </div></details>
 
+    <!-- Ficha 360: cotizaciones y ventas del cliente (solo visible en modo edicion) -->
+    <div class="cli360-section" id="mc360Section" style="display:none;">
+        <hr class="wizard-divider">
+        <div class="wizard-divider-label">Actividad del cliente</div>
+        <div id="mc360Body"></div>
+    </div>
+
     <!-- Bitacora / Timeline (solo visible en modo edicion) -->
     <div class="bitacora-section" id="mcBitacoraSection" style="display:none;">
         <hr class="wizard-divider">
@@ -10381,6 +10388,80 @@ function cargarMasBitacora(contactoId){
     renderBitacoraTimeline(contactoId);
 }
 
+// ===== FICHA 360 DEL CLIENTE (cotizaciones + ventas en un solo lugar) =====
+// Etiqueta legible de una venta segun su tipo
+function _venta360Label(v){
+    if(v.tipo==='crucero'){const nb=[v.naviera,v.barco].filter(Boolean).join(' · ');return 'Crucero'+(nb?' · '+nb:'')+(v.destino?' · '+v.destino:'');}
+    if(v.tipo==='servicio'){const cat=(typeof SERVICIO_CATS!=='undefined'?(SERVICIO_CATS.find(s=>s.id===v.servicioCat)||{}):{});const lbl=cat.label||'Servicio';return lbl+(v.descripcion?' · '+v.descripcion:'');}
+    return v.destino||v.clienteNombre||'Venta';
+}
+function _tipoVentaLabel(t){return t==='grupal'?'Grupal':t==='crucero'?'Crucero':t==='servicio'?'Servicio':'Personalizada';}
+
+// Abre una cotizacion del cliente en modo solo-lectura (cierra la ficha primero, porque navega al editor)
+function verCotizacionCliente(id){closeModal('modalCliente');cargarCotizacion(id,true);}
+// Abre el estado de cuenta de una venta ENCIMA de la ficha (sin perder el contexto del cliente)
+function verVentaCliente(id){openCobranza(id);}
+
+// Renderiza "Actividad del cliente": resumen de dinero + ventas + cotizaciones, todo clicable
+function render360Cliente(id){
+    const cont=document.getElementById('mc360Body');
+    if(!cont)return;
+    const ventas=getVentas().filter(v=>v.clienteId===id);
+    const cots=getHistorial().filter(h=>h.clienteId===id);
+    // --- Resumen de dinero por moneda (solo si hay ventas) ---
+    let resumenHtml='';
+    if(ventas.length){
+        const porMoneda={};
+        ventas.forEach(v=>{const c=calcCobranzaStatus(v);const m=c.moneda||'USD';if(!porMoneda[m])porMoneda[m]={total:0,pagado:0,saldo:0};porMoneda[m].total+=c.total;porMoneda[m].pagado+=c.pagado;porMoneda[m].saldo+=c.saldo;});
+        resumenHtml=Object.keys(porMoneda).map(m=>{const t=porMoneda[m];const saldoColor=t.saldo>0?'#d4830f':'#27ae60';
+            return`<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:6px 0 12px;">
+            <div style="background:#f4f7f9;border-radius:8px;padding:8px 10px;"><div style="font-size:0.64rem;color:var(--text-light);text-transform:uppercase;letter-spacing:.5px;">Facturado</div><div style="font-size:1.02rem;font-weight:700;">${fmtMoney(t.total,m)}</div></div>
+            <div style="background:#f4f7f9;border-radius:8px;padding:8px 10px;"><div style="font-size:0.64rem;color:var(--text-light);text-transform:uppercase;letter-spacing:.5px;">Pagado</div><div style="font-size:1.02rem;font-weight:700;color:#27ae60;">${fmtMoney(t.pagado,m)}</div></div>
+            <div style="background:#f4f7f9;border-radius:8px;padding:8px 10px;"><div style="font-size:0.64rem;color:var(--text-light);text-transform:uppercase;letter-spacing:.5px;">Saldo</div><div style="font-size:1.02rem;font-weight:700;color:${saldoColor};">${fmtMoney(t.saldo,m)}</div></div>
+            </div>`;
+        }).join('');
+    }
+    // --- Ventas ---
+    let ventasRows;
+    if(ventas.length){
+        ventasRows=ventas.map(v=>{
+            const c=calcCobranzaStatus(v);
+            const badge=c.total>0?`<span style="flex:0 0 auto;font-size:0.66rem;font-weight:700;padding:2px 8px;border-radius:12px;background:${c.color}22;color:${c.color};">${esc(c.estadoPagoLabel)} ${c.pagadoPct}%</span>`:'';
+            const fechas=v.fechaInicio?formatDateRange(v.fechaInicio,v.fechaFin):'';
+            const sub=[_tipoVentaLabel(v.tipo),fechas].filter(Boolean).join(' · ');
+            return`<div onclick="verVentaCliente('${v.id}')" title="Ver estado de cuenta" style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--border-color,#e5e9ee);border-radius:8px;margin-bottom:6px;cursor:pointer;">
+                <div style="flex:1;min-width:0;"><div style="font-size:0.82rem;font-weight:600;">${esc(_venta360Label(v))}</div>${sub?`<div style="font-size:0.7rem;color:var(--text-light);">${esc(sub)}</div>`:''}</div>
+                ${badge}
+                <span style="flex:0 0 auto;color:var(--text-light);font-weight:700;">&rsaquo;</span>
+            </div>`;
+        }).join('');
+    }else{
+        ventasRows='<div style="font-size:0.76rem;color:var(--text-light);padding:2px 0 6px;">Sin ventas registradas.</div>';
+    }
+    // --- Cotizaciones (mas recientes primero) ---
+    let cotsRows;
+    if(cots.length){
+        const cotsSorted=cots.slice().sort((a,b)=>(b.fecha||'').localeCompare(a.fecha||''));
+        cotsRows=cotsSorted.map(h=>{
+            const d=h.data||{};
+            const creada=h.fecha?new Date(h.fecha).toLocaleDateString('es-CR',{day:'2-digit',month:'short',year:'numeric'}):'';
+            const acep=h.aceptada?'<span style="flex:0 0 auto;font-size:0.66rem;font-weight:700;padding:2px 8px;border-radius:12px;background:#27ae6022;color:#27ae60;">Aceptada</span>':'';
+            const sub=[d.fechaInicio?'Viaje '+formatDateRange(d.fechaInicio,d.fechaFin):'',creada?'Creada '+creada:''].filter(Boolean).join(' · ');
+            return`<div onclick="verCotizacionCliente('${h.id}')" title="Ver cotización" style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--border-color,#e5e9ee);border-radius:8px;margin-bottom:6px;cursor:pointer;">
+                <div style="flex:1;min-width:0;"><div style="font-size:0.82rem;font-weight:600;">${esc(d.destino||'Sin destino')}</div>${sub?`<div style="font-size:0.7rem;color:var(--text-light);">${esc(sub)}</div>`:''}</div>
+                ${acep}
+                <span style="flex:0 0 auto;color:var(--text-light);font-weight:700;">&rsaquo;</span>
+            </div>`;
+        }).join('');
+    }else{
+        cotsRows='<div style="font-size:0.76rem;color:var(--text-light);padding:2px 0 6px;">Sin cotizaciones registradas.</div>';
+    }
+    const hdr=(txt)=>`<div style="font-size:0.72rem;font-weight:700;color:var(--primary-dark);text-transform:uppercase;letter-spacing:.5px;margin:12px 0 6px;">${txt}</div>`;
+    cont.innerHTML=resumenHtml
+        +hdr(`Ventas (${ventas.length})`)+ventasRows
+        +hdr(`Cotizaciones (${cots.length})`)+cotsRows;
+}
+
 // ===== DETECCION DE DUPLICADOS =====
 // Normaliza telefono: solo digitos
 function normalizarTelefono(t){return String(t||'').replace(/\D/g,'');}
@@ -10597,6 +10678,12 @@ function openClienteModal(id){
         }else{
             bitaSection.style.display='none';
         }
+    }
+    // Ficha 360: cotizaciones + ventas del cliente (solo en modo edicion)
+    const sec360=document.getElementById('mc360Section');
+    if(sec360){
+        if(id){sec360.style.display='';render360Cliente(id);}
+        else{sec360.style.display='none';}
     }
     modal.classList.add('open');
 }
