@@ -851,6 +851,12 @@ body.sin-costos .btn-calc-toggle,body.sin-costos .calc-row{display:none!importan
 .wizard-nav .wizard-hint{font-size:0.72rem;color:var(--text-light);flex:1;text-align:center}
 .wizard-divider{border:none;border-top:1px dashed var(--border);margin:16px 0 10px}
 .wizard-divider-label{font-size:0.68rem;color:var(--text-light);text-transform:uppercase;letter-spacing:1px;font-weight:700;margin-bottom:10px;text-align:center}
+.mc-tabs{display:flex;gap:4px;margin:0 0 16px;padding:4px;background:var(--bg);border-radius:8px;flex-wrap:wrap}
+.mc-tab{flex:1;min-width:88px;padding:9px 10px;text-align:center;border:none;background:transparent;border-radius:6px;font-family:'Open Sans',sans-serif;font-size:0.8rem;font-weight:700;color:var(--text-light);cursor:pointer;transition:all .15s}
+.mc-tab:hover:not(.active){background:white;color:var(--primary-dark)}
+.mc-tab.active{background:var(--primary);color:white;box-shadow:0 2px 6px rgba(10,126,140,0.3)}
+.mc-pane{display:none}
+.mc-pane.active{display:block}
 
 /* ===== DETECCION DE DUPLICADOS ===== */
 .dup-warning{background:#fff3cd;border:1px solid #ffd966;border-radius:8px;padding:10px 12px;margin:8px 0 12px;display:none}
@@ -1350,6 +1356,13 @@ onAuthStateChanged(fbAuth, (user) => {
 <!-- MODAL: Cliente -->
 <div class="modal-overlay" id="modalCliente"><div class="modal" style="max-width:940px;"><div class="modal-header"><h3 id="modalClienteTitulo">Nuevo Contacto</h3><button class="modal-close" onclick="closeModal('modalCliente')">&times;</button></div><div class="modal-body">
     <input type="hidden" id="mcId">
+    <div class="mc-tabs">
+        <button type="button" class="mc-tab active" data-mctab="datos" onclick="mcSwitchTab('datos')">Datos</button>
+        <button type="button" class="mc-tab" data-mctab="viajero" onclick="mcSwitchTab('viajero')">Viajero</button>
+        <button type="button" class="mc-tab" data-mctab="prefs" onclick="mcSwitchTab('prefs')">Preferencias</button>
+        <button type="button" class="mc-tab" data-mctab="actividad" id="mcTabActividad" onclick="mcSwitchTab('actividad')" style="display:none;">Actividad</button>
+    </div>
+    <div class="mc-pane active" data-mcpane="datos">
     <p style="font-size:0.7rem;color:var(--text-light);text-transform:uppercase;font-weight:700;letter-spacing:1px;margin-bottom:4px;">Estado del contacto</p>
     <div class="pipeline-bar" id="mcPipelineBar"></div>
 
@@ -1372,24 +1385,44 @@ onAuthStateChanged(fbAuth, (user) => {
     <div class="form-group"><label>Asignado a</label><select id="mcAsignadoA"><option value="">-- Sin asignar --</option></select></div>
     <div id="mcCapturaInfo" style="font-size:0.7rem;color:var(--text-light);margin-bottom:10px;"></div>
 
-    <!-- Datos adicionales (colapsado): disponibles para cuando el cliente reserva o para no duplicar contactos -->
-    <details class="mc-section" style="margin-top:12px;"><summary>Datos adicionales (opcional)</summary><div class="mc-section-body">
-        <div class="form-group"><label>Email</label><input type="email" id="mcEmail" placeholder="correo@ejemplo.com" oninput="checkDuplicates('mc')"></div>
-        <div class="form-row"><div class="form-group"><label>Servicio de inter&eacute;s</label><select id="mcServicio"><option value="">-- Seleccionar --</option></select></div><div class="form-group"><label>Urgencia</label><select id="mcUrgencia"><option value="">-- Seleccionar --</option></select></div></div>
-        <div class="form-group"><label>Notas sobre la necesidad</label><textarea id="mcNecesidadNotas" style="min-height:45px;"></textarea></div>
+    <div class="form-group"><label>Email</label><input type="email" id="mcEmail" placeholder="correo@ejemplo.com" oninput="checkDuplicates('mc')"></div>
+    <div class="form-row"><div class="form-group"><label>Servicio de inter&eacute;s</label><select id="mcServicio"><option value="">-- Seleccionar --</option></select></div><div class="form-group"><label>Urgencia</label><select id="mcUrgencia"><option value="">-- Seleccionar --</option></select></div></div>
+    <div class="form-group"><label>Notas sobre la necesidad</label><textarea id="mcNecesidadNotas" style="min-height:45px;"></textarea></div>
+    </div><!-- /pane datos -->
+
+    <!-- PESTAÑA: Viajero -->
+    <div class="mc-pane" data-mcpane="viajero">
         <div class="form-row"><div class="form-group"><label>Tipo documento</label><select id="mcTipoDoc"><option value="cedula">C&eacute;dula</option><option value="pasaporte">Pasaporte</option><option value="otro">Otro</option></select></div><div class="form-group"><label>N&uacute;mero documento</label><input type="text" id="mcNumDoc"></div></div>
-        <div class="form-row"><div class="form-group"><label>Nacionalidad</label><input type="text" id="mcNacionalidad"></div><div class="form-group"><label>Fecha nacimiento</label><input type="date" id="mcFechaNac"></div></div>
+        <div class="form-row"><div class="form-group"><label>Nacionalidad</label><input type="text" id="mcNacionalidad"></div><div class="form-group"><label>Fecha de nacimiento</label><input type="date" id="mcFechaNac"></div></div>
         <div class="form-group"><label>Direcci&oacute;n</label><input type="text" id="mcDireccion"></div>
         <div class="form-group"><label>Empresa (opcional)</label><input type="text" id="mcEmpresa"></div>
-        <div class="form-row"><div class="form-group"><label>N&ordm; pasaporte</label><input type="text" id="mcPasaporte"></div><div class="form-group"><label>Vencimiento pasaporte</label><input type="date" id="mcPasaporteVenc"></div></div>
+        <div class="form-row"><div class="form-group"><label>N&ordm; pasaporte</label><input type="text" id="mcPasaporte"></div><div class="form-group"><label>Vencimiento pasaporte</label><input type="date" id="mcPasaporteVenc" onchange="_mcRenderPasaporteAlerta(this.value)"></div></div>
+        <div id="mcPasaporteAlerta" style="display:none;font-size:0.78rem;margin:-4px 0 10px;padding:6px 10px;border-radius:6px;"></div>
         <div class="form-row"><div class="form-group"><label>Programa viajero - Aerol&iacute;nea</label><input type="text" id="mcVFAerolinea"></div><div class="form-group"><label>N&ordm; viajero frecuente</label><input type="text" id="mcVFNumero"></div></div>
-        <div class="form-group"><label>Etiquetas</label>
+        <hr class="wizard-divider"><div class="wizard-divider-label">Acompa&ntilde;antes / grupo familiar</div>
+        <div id="mcAcompanantesList"></div>
+        <button type="button" class="btn btn-sm btn-ghost" onclick="_mcAddAcompanante()">+ Agregar acompa&ntilde;ante</button>
+        <hr class="wizard-divider"><div class="wizard-divider-label">Contacto de emergencia</div>
+        <div class="form-row"><div class="form-group"><label>Nombre</label><input type="text" id="mcEmergNombre"></div><div class="form-group"><label>Tel&eacute;fono</label><input type="text" id="mcEmergTelefono"></div></div>
+    </div><!-- /pane viajero -->
+
+    <!-- PESTAÑA: Preferencias -->
+    <div class="mc-pane" data-mcpane="prefs">
+        <div class="form-row"><div class="form-group"><label>Asiento preferido</label><select id="mcPrefAsiento"><option value="">-- Indistinto --</option><option value="ventana">Ventana</option><option value="pasillo">Pasillo</option></select></div><div class="form-group"><label>M&eacute;todo de contacto preferido</label><select id="mcPrefContacto"><option value="">-- Sin preferencia --</option><option value="whatsapp">WhatsApp</option><option value="llamada">Llamada</option><option value="email">Email</option></select></div></div>
+        <div class="form-group"><label>Comida / dieta / alergias</label><input type="text" id="mcPrefComida" placeholder="Ej: sin gluten, vegetariano, alergia a mariscos"></div>
+        <div class="form-row"><div class="form-group"><label>Hotel preferido</label><input type="text" id="mcPrefHotel" placeholder="Cadena o categor&iacute;a (4-5&#9733;)"></div><div class="form-group"><label>Aerol&iacute;nea preferida</label><input type="text" id="mcPrefAerolinea"></div></div>
+        <div class="form-group"><label>Otras preferencias / notas</label><textarea id="mcPrefNotas" style="min-height:45px;" placeholder="Cualquier preferencia de viaje del cliente."></textarea></div>
+        <hr class="wizard-divider"><div class="wizard-divider-label">Etiquetas</div>
+        <div class="form-group">
             <div class="tag-input-container" id="mcEtiquetasContainer" onclick="document.getElementById('mcEtiquetasInput').focus()">
-                <input type="text" class="tag-input-field" id="mcEtiquetasInput" placeholder="Ej: Grupal Finlandia, Luna de miel, VIP..." onkeydown="handleEtiquetaKey(event)">
+                <input type="text" class="tag-input-field" id="mcEtiquetasInput" placeholder="Ej: VIP, Luna de miel, Grupal Finlandia..." onkeydown="handleEtiquetaKey(event)">
             </div>
             <small style="font-size:0.7rem;color:var(--text-light);">Presione <strong>Enter</strong> o <strong>,</strong> para agregar. Click en &times; para quitar.</small>
         </div>
-    </div></details>
+    </div><!-- /pane prefs -->
+
+    <!-- PESTAÑA: Actividad -->
+    <div class="mc-pane" data-mcpane="actividad">
 
     <!-- Ficha 360: cotizaciones y ventas del cliente (solo visible en modo edicion) -->
     <div class="cli360-section" id="mc360Section" style="display:none;">
@@ -1423,6 +1456,7 @@ onAuthStateChanged(fbAuth, (user) => {
         </div>
         <div class="bitacora-timeline" id="mcBitacoraTimeline"></div>
     </div>
+    </div><!-- /pane actividad -->
 </div><div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modalCliente')">Cancelar</button><button class="btn btn-success" onclick="guardarCliente()">Guardar Contacto</button></div></div></div>
 
 <!-- FAB: Captura rapida (boton flotante) — eliminado a pedido del usuario -->
@@ -5208,6 +5242,15 @@ function _calEventos(desde,hasta){
             while(d<=fin&&g<120){if(enR(d))out.push({fecha:d,hora:'',titulo:'Vacaciones '+(s.empleadoNombre||''),color:'#00897b',tipo:'planilla',kind:'rrhh',refId:''});d=_addDiasISO(d,1);g++;}
         });
     }
+    // Clientes: cumpleaños y vencimientos de pasaporte. Solo bajo el filtro "Clientes"
+    // (no en "Todo") para no saturar el calendario cuando hay cientos de contactos.
+    if(fT==='cliente'){
+        getClientes().forEach(c=>{
+            if(!c)return;
+            if(c.fechaNacimiento){const iso=_ocurrenciaEnRango(c.fechaNacimiento,desde,hasta);if(iso)out.push({fecha:iso,hora:'',titulo:'🎂 Cumple '+(c.nombreCompleto||''),color:'#e91e63',tipo:'cliente',kind:'cliente',refId:c.id});}
+            if(c.vencimientoPasaporte){const vp=String(c.vencimientoPasaporte).slice(0,10);if(vp>=desde&&vp<=hasta)out.push({fecha:vp,hora:'',titulo:'Pasaporte vence · '+(c.nombreCompleto||''),color:'#c0392b',tipo:'cliente',kind:'cliente',refId:c.id});}
+        });
+    }
     out.sort((a,b)=>String(a.fecha).localeCompare(b.fecha)||String(a.hora||'99').localeCompare(String(b.hora||'99')));
     return out;
 }
@@ -5242,6 +5285,7 @@ function _calAbrirEvento(kind,refId){
     if(kind==='tarea')openTareaModal(refId);
     else if(kind==='venta')openCobranza(refId);
     else if(kind==='evento')openEventoModal(refId);
+    else if(kind==='cliente'){if(refId)openClienteModal(refId);}
     else if(kind==='rrhh')nav('rrhh');
 }
 function calSetVista(v){_calVista=v;if(v==='agenda')_calAgendaBase=null;if(v==='semana')_calSemanaBase=null;renderCalendario();}
@@ -5259,7 +5303,7 @@ function renderCalendario(){
     const encList=(cfgGet().encargados||[]).filter(Boolean);
     const encOpts='<option value="">Todas las encargadas</option>'+encList.map(e=>`<option value="${esc(e)}" ${_calFiltroEnc===e?'selected':''}>${esc(e)}</option>`).join('');
     const _tOpt=(val,lbl)=>`<option value="${val}" ${_calFiltroTipo===val?'selected':''}>${lbl}</option>`;
-    const tipoOpts=_tOpt('','Todo')+_tOpt('tarea','Tareas')+_tOpt('viaje','Viajes/Check-ins')+_tOpt('cobro','Cobros de cuotas')+_tOpt('planilla','Planilla')+_tOpt('manual','Mis eventos');
+    const tipoOpts=_tOpt('','Todo')+_tOpt('tarea','Tareas')+_tOpt('viaje','Viajes/Check-ins')+_tOpt('cobro','Cobros de cuotas')+_tOpt('cliente','Clientes (cumpleaños / pasaportes)')+_tOpt('planilla','Planilla')+_tOpt('manual','Mis eventos');
     const periodLabel=_calVista==='agenda'?'Próximos eventos':(_calVista==='semana'?_calSemanaLabel():labelMes(_calAnio+'-'+String(_calMes+1).padStart(2,'0')));
     const toolbar=`<div class="cal-toolbar">
         <div class="cal-nav">
@@ -10684,6 +10728,21 @@ function render360Cliente(id){
     if(!cont)return;
     const ventas=getVentas().filter(v=>v.clienteId===id);
     const cots=getHistorial().filter(h=>h.clienteId===id);
+    // --- Métricas rápidas (ventas, último/próximo viaje) ---
+    let metricasHtml='';
+    if(ventas.length){
+        const fechasIni=ventas.map(v=>v.fechaInicio).filter(Boolean).map(f=>String(f).slice(0,10)).sort();
+        const hoy=new Date().toISOString().slice(0,10);
+        const pasados=fechasIni.filter(f=>f<hoy);
+        const futuros=fechasIni.filter(f=>f>=hoy);
+        const fFmt=f=>f?new Date(f+'T12:00:00').toLocaleDateString('es-CR',{day:'2-digit',month:'short',year:'numeric'}):'—';
+        const mbox=(lbl,val)=>`<div style="background:#eef4f5;border-radius:8px;padding:8px 10px;"><div style="font-size:0.62rem;color:var(--text-light);text-transform:uppercase;letter-spacing:.5px;">${lbl}</div><div style="font-size:0.98rem;font-weight:700;">${val}</div></div>`;
+        metricasHtml=`<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:2px 0 10px;">
+            ${mbox('Ventas',ventas.length)}
+            ${mbox('Último viaje',fFmt(pasados.length?pasados[pasados.length-1]:''))}
+            ${mbox('Próximo viaje',fFmt(futuros.length?futuros[0]:''))}
+        </div>`;
+    }
     // --- Resumen de dinero por moneda (solo si hay ventas) ---
     let resumenHtml='';
     if(ventas.length){
@@ -10733,7 +10792,7 @@ function render360Cliente(id){
         cotsRows='<div style="font-size:0.76rem;color:var(--text-light);padding:2px 0 6px;">Sin cotizaciones registradas.</div>';
     }
     const hdr=(txt)=>`<div style="font-size:0.72rem;font-weight:700;color:var(--primary-dark);text-transform:uppercase;letter-spacing:.5px;margin:12px 0 6px;">${txt}</div>`;
-    cont.innerHTML=resumenHtml
+    cont.innerHTML=metricasHtml+resumenHtml
         +hdr(`Ventas (${ventas.length})`)+ventasRows
         +hdr(`Cotizaciones (${cots.length})`)+cotsRows;
 }
@@ -10867,6 +10926,38 @@ function populateOrigenSelect(current){
     populateSelectConstante('mcOrigen',CONTACTO_ORIGENES,current);
 }
 
+// --- Ficha enriquecida: pestañas, acompañantes y alerta de pasaporte ---
+let _mcAcompanantes=[];
+function mcSwitchTab(name){
+    document.querySelectorAll('#modalCliente .mc-tab').forEach(t=>t.classList.toggle('active',t.dataset.mctab===name));
+    document.querySelectorAll('#modalCliente .mc-pane').forEach(p=>p.classList.toggle('active',p.dataset.mcpane===name));
+}
+function _mcRenderAcompanantes(){
+    const cont=document.getElementById('mcAcompanantesList');
+    if(!cont)return;
+    if(!_mcAcompanantes.length){cont.innerHTML='<div style="font-size:0.74rem;color:var(--text-light);padding:2px 0 8px;">Sin acompañantes cargados.</div>';return;}
+    cont.innerHTML=_mcAcompanantes.map((a,i)=>`<div class="form-row" style="gap:6px;margin-bottom:6px;align-items:flex-end;">
+        <div class="form-group" style="margin:0;"><input type="text" placeholder="Nombre" value="${esc(a.nombre||'')}" oninput="_mcAcompanantes[${i}].nombre=this.value"></div>
+        <div class="form-group" style="margin:0;"><input type="text" placeholder="Parentesco (esposo, hija…)" value="${esc(a.relacion||'')}" oninput="_mcAcompanantes[${i}].relacion=this.value"></div>
+        <div class="form-group" style="margin:0;"><input type="date" title="Fecha de nacimiento" value="${esc(a.fechaNacimiento||'')}" oninput="_mcAcompanantes[${i}].fechaNacimiento=this.value"></div>
+        <button type="button" class="btn btn-sm btn-danger" style="flex:0 0 auto;" onclick="_mcDelAcompanante(${i})" title="Quitar">&times;</button>
+    </div>`).join('');
+}
+function _mcAddAcompanante(){_mcAcompanantes.push({nombre:'',relacion:'',fechaNacimiento:''});_mcRenderAcompanantes();}
+function _mcDelAcompanante(i){_mcAcompanantes.splice(i,1);_mcRenderAcompanantes();}
+function _mcRenderPasaporteAlerta(venc){
+    const el=document.getElementById('mcPasaporteAlerta');
+    if(!el)return;
+    el.style.display='none';el.innerHTML='';
+    if(!venc)return;
+    const iso=String(venc).slice(0,10);
+    const v=new Date(iso+'T12:00:00');
+    if(isNaN(v))return;
+    const dias=Math.round((v-new Date())/86400000);
+    if(dias<0){el.style.display='';el.style.background='#fcebeb';el.style.color='#a32d2d';el.innerHTML='&#9888;&#65039; Pasaporte VENCIDO ('+fmtFechaCorta(iso)+').';}
+    else if(dias<=180){el.style.display='';el.style.background='#faeeda';el.style.color='#854f0b';el.innerHTML='&#9888;&#65039; El pasaporte vence pronto ('+fmtFechaCorta(iso)+', en '+dias+' días). Muchos destinos exigen 6 meses de vigencia.';}
+}
+
 function openClienteModal(id){
     // Reset por defecto. nuevoClienteConVenta() lo vuelve a poner en true tras este open.
     _pendingVentaForNewCliente=false;
@@ -10874,7 +10965,7 @@ function openClienteModal(id){
     const titulo=document.getElementById('modalClienteTitulo');
     const ahora=new Date().toISOString();
     const usuarioEmail=(window.currentUser&&window.currentUser.email)||'';
-    const editFields=['mcNombre','mcNumDoc','mcNacionalidad','mcFechaNac','mcTelefono','mcEmail','mcDireccion','mcEmpresa','mcPasaporte','mcPasaporteVenc','mcVFAerolinea','mcVFNumero','mcNotas','mcNecesidadNotas','mcDestinosTentativos','mcFechasTentativas','mcPersonas'];
+    const editFields=['mcNombre','mcNumDoc','mcNacionalidad','mcFechaNac','mcTelefono','mcEmail','mcDireccion','mcEmpresa','mcPasaporte','mcPasaporteVenc','mcVFAerolinea','mcVFNumero','mcNotas','mcNecesidadNotas','mcDestinosTentativos','mcFechasTentativas','mcPersonas','mcEmergNombre','mcEmergTelefono','mcPrefAsiento','mcPrefContacto','mcPrefComida','mcPrefHotel','mcPrefAerolinea','mcPrefNotas'];
     if(id){
         const clientes=getClientes();
         const c=clientes.find(x=>x.id===id);
@@ -10901,6 +10992,18 @@ function openClienteModal(id){
         document.getElementById('mcDestinosTentativos').value=c.destinosTentativos||'';
         document.getElementById('mcFechasTentativas').value=c.fechasTentativas||'';
         document.getElementById('mcPersonas').value=c.personas||'';
+        // Viajero (nuevos) + preferencias
+        document.getElementById('mcEmergNombre').value=c.emergenciaNombre||'';
+        document.getElementById('mcEmergTelefono').value=c.emergenciaTelefono||'';
+        document.getElementById('mcPrefAsiento').value=c.prefAsiento||'';
+        document.getElementById('mcPrefContacto').value=c.prefContacto||'';
+        document.getElementById('mcPrefComida').value=c.prefComida||'';
+        document.getElementById('mcPrefHotel').value=c.prefHotel||'';
+        document.getElementById('mcPrefAerolinea').value=c.prefAerolinea||'';
+        document.getElementById('mcPrefNotas').value=c.prefNotas||'';
+        _mcAcompanantes=Array.isArray(c.acompanantes)?c.acompanantes.map(a=>Object.assign({},a)):[];
+        _mcRenderAcompanantes();
+        _mcRenderPasaporteAlerta(c.vencimientoPasaporte);
         // Etiquetas
         _mcEtiquetas=Array.isArray(c.etiquetas)?c.etiquetas.slice():[];
         document.getElementById('mcEtiquetasInput').value='';
@@ -10931,6 +11034,9 @@ function openClienteModal(id){
         _mcEtiquetas=[];
         document.getElementById('mcEtiquetasInput').value='';
         renderEtiquetasChips();
+        // Acompañantes + alerta de pasaporte: resetear
+        _mcAcompanantes=[];_mcRenderAcompanantes();
+        _mcRenderPasaporteAlerta('');
         // Pipeline inicial: Nuevo
         _estadoActualModal='nuevo';
         renderPipelineBar('nuevo');
@@ -10961,6 +11067,10 @@ function openClienteModal(id){
         if(id){sec360.style.display='';render360Cliente(id);}
         else{sec360.style.display='none';}
     }
+    // Pestaña "Actividad": solo en modo edicion. Siempre abrir en "Datos".
+    const tabAct=document.getElementById('mcTabActividad');
+    if(tabAct)tabAct.style.display=id?'':'none';
+    mcSwitchTab('datos');
     modal.classList.add('open');
 }
 
@@ -11002,6 +11112,15 @@ function guardarCliente(){
         destinosTentativos:document.getElementById('mcDestinosTentativos').value||'',
         fechasTentativas:document.getElementById('mcFechasTentativas').value||'',
         personas:(document.getElementById('mcPersonas')||{}).value||'',
+        emergenciaNombre:document.getElementById('mcEmergNombre').value||'',
+        emergenciaTelefono:document.getElementById('mcEmergTelefono').value||'',
+        acompanantes:_mcAcompanantes.filter(a=>(a.nombre||'').trim()).map(a=>({nombre:(a.nombre||'').trim(),relacion:(a.relacion||'').trim(),fechaNacimiento:a.fechaNacimiento||''})),
+        prefAsiento:document.getElementById('mcPrefAsiento').value||'',
+        prefContacto:document.getElementById('mcPrefContacto').value||'',
+        prefComida:document.getElementById('mcPrefComida').value||'',
+        prefHotel:document.getElementById('mcPrefHotel').value||'',
+        prefAerolinea:document.getElementById('mcPrefAerolinea').value||'',
+        prefNotas:document.getElementById('mcPrefNotas').value||'',
         asignadoA:document.getElementById('mcAsignadoA').value||matchEncargadoDesdeEmail(usuarioEmail,cfgGet().encargados)||usuarioEmail,
         fechaCreacion:ahora,
         fechaActualizacion:ahora
