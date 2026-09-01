@@ -8030,7 +8030,24 @@ function eliminarCotizacion(id){if(!exigirPermiso('cotizaciones.eliminar','elimi
 function limpiarHistorial(){if(!confirm('\u00bfEliminar TODAS las cotizaciones?'))return;saveHistorial([]);renderHistorial();updateBadges();}
 
 // ===== VENTAS =====
-function crearVenta(cotEntry){const ventas=getVentas();if(ventas.find(v=>v.cotizacionId===cotEntry.id))return;const d=cotEntry.data;const v={id:Date.now().toString(),tipo:'personalizada',cotizacionId:cotEntry.id,clienteId:cotEntry.clienteId||null,destino:d.destino,clienteNombre:d.tipoCliente==='empresa'?(d.empresaNombre||''):(d.clienteNombre||''),fechaInicio:d.fechaInicio,fechaFin:d.fechaFin,encargado:d.encargado,estado:'pendiente',checklist:defaultChecklistItems.map((t,i)=>({id:Date.now()+'_'+i,texto:t,completado:false})),fechaCreacion:new Date().toISOString()};ventas.unshift(v);saveVentas(ventas);}
+function crearVenta(cotEntry){
+    const ventas=getVentas();
+    if(ventas.find(v=>v.cotizacionId===cotEntry.id))return;
+    const d=cotEntry.data;
+    // Anti-huerfana: si la cotizacion no tiene contacto vinculado (tipico en cotizaciones viejas),
+    // crear/enlazar el contacto ahora con los datos de la cotizacion y persistirlo tambien en el historial.
+    let clienteId=cotEntry.clienteId||null;
+    if(!clienteId){
+        try{clienteId=autoCreateCliente(d)||null;}catch(e){console.error('[crearVenta] autoCreateCliente',e);}
+        if(clienteId){
+            cotEntry.clienteId=clienteId;
+            const hist=getHistorial();const he=hist.find(h=>h.id===cotEntry.id);
+            if(he){he.clienteId=clienteId;saveHistorial(hist);}
+        }
+    }
+    const v={id:Date.now().toString(),tipo:'personalizada',cotizacionId:cotEntry.id,clienteId:clienteId,destino:d.destino,clienteNombre:d.tipoCliente==='empresa'?(d.empresaNombre||''):(d.clienteNombre||''),fechaInicio:d.fechaInicio,fechaFin:d.fechaFin,encargado:d.encargado,estado:'pendiente',checklist:defaultChecklistItems.map((t,i)=>({id:Date.now()+'_'+i,texto:t,completado:false})),fechaCreacion:new Date().toISOString()};
+    ventas.unshift(v);saveVentas(ventas);
+}
 
 // ===== VENTAS GRUPALES =====
 function renderVentasGrupales(filtered,grid){
@@ -10628,6 +10645,34 @@ function _dvVincularTodasClaras(){
     abrirDiagnosticoVentas();
 }
 
+// --- Aviso temprano (toast) de ventas huerfanas al entrar, solo para quien administra ---
+function _mostrarToastHuerfanas(n){
+    try{
+        const prev=document.getElementById('dvToastHuerfanas');if(prev)prev.remove();
+        const t=document.createElement('div');
+        t.id='dvToastHuerfanas';
+        t.style.cssText='position:fixed;z-index:300;right:18px;bottom:18px;max-width:320px;background:#fff;border:1px solid #e8941a;border-left:5px solid #e8941a;border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,0.18);padding:12px 14px;font-size:0.84rem;color:var(--text,#333);';
+        t.innerHTML='<div style="display:flex;align-items:flex-start;gap:8px;">'
+            +'<span style="font-size:1.1rem;">&#9888;&#65039;</span>'
+            +'<div style="flex:1;"><div style="font-weight:700;margin-bottom:2px;">'+n+' venta'+(n===1?'':'s')+' sin cliente</div>'
+            +'<div style="color:var(--text-light,#666);font-size:0.78rem;margin-bottom:8px;">No aparecen en la ficha de ningún cliente. Podés vincularlas en un clic.</div>'
+            +'<div style="display:flex;gap:6px;"><button class="btn btn-sm btn-accent" style="padding:3px 10px;" onclick="var e=document.getElementById(\'dvToastHuerfanas\');if(e)e.remove();abrirDiagnosticoVentas();">Revisar</button>'
+            +'<button class="btn btn-sm btn-ghost" style="padding:3px 10px;" onclick="var e=document.getElementById(\'dvToastHuerfanas\');if(e)e.remove();">Ahora no</button></div>'
+            +'</div></div>';
+        document.body.appendChild(t);
+        setTimeout(()=>{const el=document.getElementById('dvToastHuerfanas');if(el)el.remove();},15000);
+    }catch(e){console.error('[toast huerfanas]',e);}
+}
+function _chequearHuerfanasAlEntrar(){
+    try{
+        // Solo para quien puede entrar a Configuracion (donde esta la herramienta) y editar ventas.
+        if(typeof puedeVerVista==='function'&&!puedeVerVista('configuracion'))return;
+        if(!tienePermiso('ventas.crear_editar'))return;
+        const d=diagnosticoVentasHuerfanas();
+        if(d.huerfanas.length>0)_mostrarToastHuerfanas(d.huerfanas.length);
+    }catch(e){console.error('[chequeo huerfanas]',e);}
+}
+
 // Abre una cotizacion del cliente en modo solo-lectura (cierra la ficha primero, porque navega al editor)
 function verCotizacionCliente(id){closeModal('modalCliente');cargarCotizacion(id,true);}
 // Abre el estado de cuenta de una venta ENCIMA de la ficha (sin perder el contexto del cliente)
@@ -11022,7 +11067,14 @@ function nuevoClienteConVenta(){
     if(tit)tit.textContent='Nuevo Cliente (con venta vinculada)';
 }
 
-function eliminarCliente(id){if(!exigirPermiso('contactos.eliminar','eliminar contactos'))return;if(!confirm('\u00bfEliminar este contacto?'))return;saveClientes(getClientes().filter(c=>c.id!==id));renderClientes();updateBadges();}
+function eliminarCliente(id){
+    if(!exigirPermiso('contactos.eliminar','eliminar contactos'))return;
+    // Anti-huerfana: si el contacto tiene ventas, borrarlo las dejaria sin cliente.
+    const nV=getVentas().filter(v=>v.clienteId===id).length;
+    if(nV>0){alert('Este contacto tiene '+nV+' venta(s) vinculada(s).\n\nPara no dejar ventas sin cliente, primero reasignalas (o elimin\u00e1 esas ventas) y despu\u00e9s borr\u00e1 el contacto.');return;}
+    if(!confirm('\u00bfEliminar este contacto?'))return;
+    saveClientes(getClientes().filter(c=>c.id!==id));renderClientes();updateBadges();
+}
 
 // ===== MODALS =====
 function closeModal(id){document.getElementById(id).classList.remove('open');}
@@ -11152,6 +11204,8 @@ window.onUserReady=async function(user){
     aplicarPermisosUI();
     // Mostrar (una sola vez) el anuncio de novedades.
     setTimeout(()=>{try{mostrarAnuncioNotif();}catch(e){console.error('[anuncio]',e);}},600);
+    // Aviso temprano de ventas huerfanas (solo administradores), despues del anuncio.
+    setTimeout(()=>{try{_chequearHuerfanasAlEntrar();}catch(e){console.error('[huerfanas]',e);}},1800);
 };
 
 // Handler del form de login
