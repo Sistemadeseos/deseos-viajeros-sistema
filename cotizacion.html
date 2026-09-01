@@ -857,6 +857,12 @@ body.sin-costos .btn-calc-toggle,body.sin-costos .calc-row{display:none!importan
 .mc-tab.active{background:var(--primary);color:white;box-shadow:0 2px 6px rgba(10,126,140,0.3)}
 .mc-pane{display:none}
 .mc-pane.active{display:block}
+.mcv-tabs{display:flex;gap:2px;border-bottom:1px solid var(--border);margin:0 0 16px;flex-wrap:wrap}
+.mcv-tab{padding:8px 14px;border:none;background:transparent;font-family:'Open Sans',sans-serif;font-size:0.88rem;font-weight:700;color:var(--text-light);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px}
+.mcv-tab:hover:not(.active){color:var(--primary-dark)}
+.mcv-tab.active{color:var(--primary-dark);border-bottom-color:var(--primary)}
+.mcv-pane{display:none}
+.mcv-pane.active{display:block}
 
 /* ===== DETECCION DE DUPLICADOS ===== */
 .dup-warning{background:#fff3cd;border:1px solid #ffd966;border-radius:8px;padding:10px 12px;margin:8px 0 12px;display:none}
@@ -1356,11 +1362,54 @@ onAuthStateChanged(fbAuth, (user) => {
 <!-- MODAL: Cliente -->
 <div class="modal-overlay" id="modalCliente"><div class="modal" style="max-width:940px;"><div class="modal-header"><h3 id="modalClienteTitulo">Nuevo Contacto</h3><button class="modal-close" onclick="closeModal('modalCliente')">&times;</button></div><div class="modal-body">
     <input type="hidden" id="mcId">
+
+    <!-- ===== VISTA (solo lectura) ===== -->
+    <div id="mcView" style="display:none;">
+        <div id="mcvHeader"></div>
+        <div id="mcvMetrics"></div>
+        <div class="mcv-tabs">
+            <button type="button" class="mcv-tab active" data-mcvtab="datos" onclick="mcvSwitchTab('datos')">Datos</button>
+            <button type="button" class="mcv-tab" data-mcvtab="viajero" onclick="mcvSwitchTab('viajero')">Viajero</button>
+            <button type="button" class="mcv-tab" data-mcvtab="prefs" onclick="mcvSwitchTab('prefs')">Preferencias</button>
+            <button type="button" class="mcv-tab" data-mcvtab="actividad" onclick="mcvSwitchTab('actividad')">Actividad</button>
+        </div>
+        <div class="mcv-pane active" data-mcvpane="datos" id="mcvDatos"></div>
+        <div class="mcv-pane" data-mcvpane="viajero" id="mcvViajero"></div>
+        <div class="mcv-pane" data-mcvpane="prefs" id="mcvPrefs"></div>
+        <div class="mcv-pane" data-mcvpane="actividad">
+            <div id="mc360Body"></div>
+            <div class="bitacora-section" id="mcBitacoraSection" style="margin-top:4px;">
+                <div class="bitacora-header">
+                    <h4>Bit&aacute;cora<span class="bita-count" id="mcBitacoraCount"></span></h4>
+                    <button type="button" class="btn btn-sm btn-primary" onclick="toggleBitacoraForm()">+ Nueva interacci&oacute;n</button>
+                </div>
+                <div class="bitacora-add-form" id="mcBitacoraForm">
+                    <div class="form-row">
+                        <div class="form-group"><label>Tipo</label><select id="bitaTipo">
+                            <option value="llamada">&#128222; Llamada</option>
+                            <option value="whatsapp">&#128172; WhatsApp</option>
+                            <option value="email">&#9993; Email</option>
+                            <option value="reunion">&#129309; Reuni&oacute;n / Visita</option>
+                            <option value="nota">&#128204; Nota interna</option>
+                        </select></div>
+                    </div>
+                    <div class="form-group"><label>Descripci&oacute;n</label><textarea id="bitaDescripcion" placeholder="Ej: Pregunt&oacute; por paquete Finlandia para diciembre..." style="min-height:55px;"></textarea></div>
+                    <div style="display:flex;gap:6px;justify-content:flex-end;">
+                        <button type="button" class="btn btn-sm btn-ghost" onclick="toggleBitacoraForm()">Cancelar</button>
+                        <button type="button" class="btn btn-sm btn-success" onclick="guardarBitacoraEntry()">Registrar</button>
+                    </div>
+                </div>
+                <div class="bitacora-timeline" id="mcBitacoraTimeline"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== FORMULARIO (edicion) ===== -->
+    <div id="mcForm">
     <div class="mc-tabs">
         <button type="button" class="mc-tab active" data-mctab="datos" onclick="mcSwitchTab('datos')">Datos</button>
         <button type="button" class="mc-tab" data-mctab="viajero" onclick="mcSwitchTab('viajero')">Viajero</button>
         <button type="button" class="mc-tab" data-mctab="prefs" onclick="mcSwitchTab('prefs')">Preferencias</button>
-        <button type="button" class="mc-tab" data-mctab="actividad" id="mcTabActividad" onclick="mcSwitchTab('actividad')" style="display:none;">Actividad</button>
     </div>
     <div class="mc-pane active" data-mcpane="datos">
     <p style="font-size:0.7rem;color:var(--text-light);text-transform:uppercase;font-weight:700;letter-spacing:1px;margin-bottom:4px;">Estado del contacto</p>
@@ -1421,43 +1470,8 @@ onAuthStateChanged(fbAuth, (user) => {
         </div>
     </div><!-- /pane prefs -->
 
-    <!-- PESTAÑA: Actividad -->
-    <div class="mc-pane" data-mcpane="actividad">
-
-    <!-- Ficha 360: cotizaciones y ventas del cliente (solo visible en modo edicion) -->
-    <div class="cli360-section" id="mc360Section" style="display:none;">
-        <hr class="wizard-divider">
-        <div class="wizard-divider-label">Actividad del cliente</div>
-        <div id="mc360Body"></div>
-    </div>
-
-    <!-- Bitacora / Timeline (solo visible en modo edicion) -->
-    <div class="bitacora-section" id="mcBitacoraSection" style="display:none;">
-        <hr class="wizard-divider">
-        <div class="bitacora-header">
-            <h4>Bit&aacute;cora del contacto<span class="bita-count" id="mcBitacoraCount"></span></h4>
-            <button type="button" class="btn btn-sm btn-primary" onclick="toggleBitacoraForm()">+ Nueva interacci&oacute;n</button>
-        </div>
-        <div class="bitacora-add-form" id="mcBitacoraForm">
-            <div class="form-row">
-                <div class="form-group"><label>Tipo</label><select id="bitaTipo">
-                    <option value="llamada">&#128222; Llamada</option>
-                    <option value="whatsapp">&#128172; WhatsApp</option>
-                    <option value="email">&#9993; Email</option>
-                    <option value="reunion">&#129309; Reuni&oacute;n / Visita</option>
-                    <option value="nota">&#128204; Nota interna</option>
-                </select></div>
-            </div>
-            <div class="form-group"><label>Descripci&oacute;n</label><textarea id="bitaDescripcion" placeholder="Ej: Pregunt&oacute; por paquete Finlandia para diciembre..." style="min-height:55px;"></textarea></div>
-            <div style="display:flex;gap:6px;justify-content:flex-end;">
-                <button type="button" class="btn btn-sm btn-ghost" onclick="toggleBitacoraForm()">Cancelar</button>
-                <button type="button" class="btn btn-sm btn-success" onclick="guardarBitacoraEntry()">Registrar</button>
-            </div>
-        </div>
-        <div class="bitacora-timeline" id="mcBitacoraTimeline"></div>
-    </div>
-    </div><!-- /pane actividad -->
-</div><div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modalCliente')">Cancelar</button><button class="btn btn-success" onclick="guardarCliente()">Guardar Contacto</button></div></div></div>
+    </div><!-- /form -->
+</div><div class="modal-footer" id="mcFooter"></div></div></div>
 
 <!-- FAB: Captura rapida (boton flotante) — eliminado a pedido del usuario -->
 
@@ -10728,21 +10742,6 @@ function render360Cliente(id){
     if(!cont)return;
     const ventas=getVentas().filter(v=>v.clienteId===id);
     const cots=getHistorial().filter(h=>h.clienteId===id);
-    // --- Métricas rápidas (ventas, último/próximo viaje) ---
-    let metricasHtml='';
-    if(ventas.length){
-        const fechasIni=ventas.map(v=>v.fechaInicio).filter(Boolean).map(f=>String(f).slice(0,10)).sort();
-        const hoy=new Date().toISOString().slice(0,10);
-        const pasados=fechasIni.filter(f=>f<hoy);
-        const futuros=fechasIni.filter(f=>f>=hoy);
-        const fFmt=f=>f?new Date(f+'T12:00:00').toLocaleDateString('es-CR',{day:'2-digit',month:'short',year:'numeric'}):'—';
-        const mbox=(lbl,val)=>`<div style="background:#eef4f5;border-radius:8px;padding:8px 10px;"><div style="font-size:0.62rem;color:var(--text-light);text-transform:uppercase;letter-spacing:.5px;">${lbl}</div><div style="font-size:0.98rem;font-weight:700;">${val}</div></div>`;
-        metricasHtml=`<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:2px 0 10px;">
-            ${mbox('Ventas',ventas.length)}
-            ${mbox('Último viaje',fFmt(pasados.length?pasados[pasados.length-1]:''))}
-            ${mbox('Próximo viaje',fFmt(futuros.length?futuros[0]:''))}
-        </div>`;
-    }
     // --- Resumen de dinero por moneda (solo si hay ventas) ---
     let resumenHtml='';
     if(ventas.length){
@@ -10792,7 +10791,7 @@ function render360Cliente(id){
         cotsRows='<div style="font-size:0.76rem;color:var(--text-light);padding:2px 0 6px;">Sin cotizaciones registradas.</div>';
     }
     const hdr=(txt)=>`<div style="font-size:0.72rem;font-weight:700;color:var(--primary-dark);text-transform:uppercase;letter-spacing:.5px;margin:12px 0 6px;">${txt}</div>`;
-    cont.innerHTML=metricasHtml+resumenHtml
+    cont.innerHTML=resumenHtml
         +hdr(`Ventas (${ventas.length})`)+ventasRows
         +hdr(`Cotizaciones (${cots.length})`)+cotsRows;
 }
@@ -10959,7 +10958,187 @@ function _mcRenderPasaporteAlerta(venc){
 }
 
 function openClienteModal(id){
-    // Reset por defecto. nuevoClienteConVenta() lo vuelve a poner en true tras este open.
+    _pendingVentaForNewCliente=false;
+    const modal=document.getElementById('modalCliente');
+    if(id){
+        const c=getClientes().find(x=>x.id===id);
+        if(!c){alert('Este contacto ya no existe (puede haber sido eliminado).');return;}
+        document.getElementById('mcId').value=id;
+        _mcMostrarVista(c);
+    }else{
+        document.getElementById('mcId').value='';
+        _mcLlenarFormulario(null);
+        _mcMostrarForm(false);
+    }
+    modal.classList.add('open');
+}
+
+// Rellena TODOS los campos del formulario desde un contacto (o los limpia si c es null).
+function _mcLlenarFormulario(c){
+    const usuarioEmail=(window.currentUser&&window.currentUser.email)||'';
+    const g=fid=>document.getElementById(fid);
+    const simples=['mcNombre','mcNumDoc','mcNacionalidad','mcFechaNac','mcTelefono','mcEmail','mcDireccion','mcEmpresa','mcPasaporte','mcPasaporteVenc','mcVFAerolinea','mcVFNumero','mcNotas','mcNecesidadNotas','mcDestinosTentativos','mcFechasTentativas','mcPersonas','mcEmergNombre','mcEmergTelefono','mcPrefAsiento','mcPrefContacto','mcPrefComida','mcPrefHotel','mcPrefAerolinea','mcPrefNotas'];
+    if(c){
+        g('mcNombre').value=c.nombreCompleto||'';
+        g('mcTipoDoc').value=c.tipoDocumento||'cedula';
+        g('mcNumDoc').value=c.numeroDocumento||'';
+        g('mcNacionalidad').value=c.nacionalidad||'';
+        g('mcFechaNac').value=c.fechaNacimiento||'';
+        g('mcTelefono').value=c.telefono||'';
+        g('mcEmail').value=c.email||'';
+        g('mcDireccion').value=c.direccion||'';
+        g('mcEmpresa').value=c.empresa||'';
+        g('mcPasaporte').value=c.numeroPasaporte||'';
+        g('mcPasaporteVenc').value=c.vencimientoPasaporte||'';
+        g('mcVFAerolinea').value=c.viajeroProgramaAerolinea||'';
+        g('mcVFNumero').value=c.viajeroProgramaNumero||'';
+        g('mcNotas').value=c.notas||'';
+        g('mcNecesidadNotas').value=c.necesidadNotas||'';
+        g('mcDestinosTentativos').value=c.destinosTentativos||'';
+        g('mcFechasTentativas').value=c.fechasTentativas||'';
+        g('mcPersonas').value=c.personas||'';
+        g('mcEmergNombre').value=c.emergenciaNombre||'';
+        g('mcEmergTelefono').value=c.emergenciaTelefono||'';
+        g('mcPrefAsiento').value=c.prefAsiento||'';
+        g('mcPrefContacto').value=c.prefContacto||'';
+        g('mcPrefComida').value=c.prefComida||'';
+        g('mcPrefHotel').value=c.prefHotel||'';
+        g('mcPrefAerolinea').value=c.prefAerolinea||'';
+        g('mcPrefNotas').value=c.prefNotas||'';
+        _mcAcompanantes=Array.isArray(c.acompanantes)?c.acompanantes.map(a=>Object.assign({},a)):[];
+        _mcRenderAcompanantes();
+        _mcRenderPasaporteAlerta(c.vencimientoPasaporte);
+        _mcEtiquetas=Array.isArray(c.etiquetas)?c.etiquetas.slice():[];
+        g('mcEtiquetasInput').value='';renderEtiquetasChips();
+        _llenarAsignadoSelect(_asignadoNombre(c.asignadoA));
+        _estadoActualModal=_estadoContactoNorm(c.estado||'nuevo');renderPipelineBar(_estadoActualModal);
+        populateSelectConstante('mcOrigen',CONTACTO_ORIGENES,c.origen||'');
+        populateSelectConstante('mcServicio',CONTACTO_SERVICIOS,c.servicio||'');
+        populateSelectConstante('mcUrgencia',CONTACTO_URGENCIAS,c.urgencia||'');
+        const infoBox=g('mcCapturaInfo');
+        if(c.fechaCaptura){const fc=new Date(c.fechaCaptura).toLocaleString('es-CR',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'});infoBox.textContent='Capturado el '+fc+(c.asignadoA?' por '+_asignadoNombre(c.asignadoA):'');}else infoBox.textContent='';
+    }else{
+        simples.forEach(fid=>{const el=g(fid);if(el)el.value='';});
+        g('mcTipoDoc').value='cedula';
+        _mcAcompanantes=[];_mcRenderAcompanantes();_mcRenderPasaporteAlerta('');
+        _mcEtiquetas=[];g('mcEtiquetasInput').value='';renderEtiquetasChips();
+        _llenarAsignadoSelect(matchEncargadoDesdeEmail(usuarioEmail,cfgGet().encargados)||'');
+        _estadoActualModal='nuevo';renderPipelineBar('nuevo');
+        populateSelectConstante('mcOrigen',CONTACTO_ORIGENES,'');
+        populateSelectConstante('mcServicio',CONTACTO_SERVICIOS,'');
+        populateSelectConstante('mcUrgencia',CONTACTO_URGENCIAS,'');
+        g('mcCapturaInfo').textContent='Se capturará ahora'+(usuarioEmail?' por '+(matchEncargadoDesdeEmail(usuarioEmail,cfgGet().encargados)||usuarioEmail):'');
+    }
+    const dw=g('mcDupWarning');if(dw)dw.classList.remove('show');
+    mcSwitchTab('datos');
+}
+
+function _mcMostrarVista(c){
+    if(!c)return;
+    document.getElementById('modalClienteTitulo').textContent='Ficha del contacto';
+    renderClienteView(c);
+    document.getElementById('mcView').style.display='';
+    document.getElementById('mcForm').style.display='none';
+    document.getElementById('mcFooter').innerHTML='<button class="btn btn-ghost" onclick="closeModal(\'modalCliente\')">Cerrar</button><button class="btn btn-success" onclick="mcEditarContacto()">&#9998; Editar</button>';
+    const bf=document.getElementById('mcBitacoraForm');if(bf)bf.classList.remove('open');
+    mcvSwitchTab('datos');
+}
+function _mcMostrarForm(esEdicion){
+    document.getElementById('modalClienteTitulo').textContent=esEdicion?'Editar Contacto':'Nuevo Contacto';
+    document.getElementById('mcView').style.display='none';
+    document.getElementById('mcForm').style.display='';
+    const cancel=esEdicion?"mcCancelarEdicion()":"closeModal('modalCliente')";
+    document.getElementById('mcFooter').innerHTML='<button class="btn btn-ghost" onclick="'+cancel+'">Cancelar</button><button class="btn btn-success" onclick="guardarCliente()">Guardar Contacto</button>';
+    mcSwitchTab('datos');
+}
+function mcEditarContacto(){
+    const id=document.getElementById('mcId').value;
+    const c=id?getClientes().find(x=>x.id===id):null;
+    _mcLlenarFormulario(c);
+    _mcMostrarForm(!!id);
+}
+function mcCancelarEdicion(){
+    const id=document.getElementById('mcId').value;
+    const c=id?getClientes().find(x=>x.id===id):null;
+    if(c)_mcMostrarVista(c);else closeModal('modalCliente');
+}
+function mcvSwitchTab(name){
+    document.querySelectorAll('#modalCliente .mcv-tab').forEach(t=>t.classList.toggle('active',t.dataset.mcvtab===name));
+    document.querySelectorAll('#modalCliente .mcv-pane').forEach(p=>p.classList.toggle('active',p.dataset.mcvpane===name));
+}
+function _edadDesde(iso){if(!iso)return null;const d=new Date(String(iso).slice(0,10)+'T12:00:00');if(isNaN(d))return null;const t=new Date();let e=t.getFullYear()-d.getFullYear();const m=t.getMonth()-d.getMonth();if(m<0||(m===0&&t.getDate()<d.getDate()))e--;return (e>=0&&e<130)?e:null;}
+function _diasAlCumple(iso){if(!iso)return '';const d=new Date(String(iso).slice(0,10)+'T12:00:00');if(isNaN(d))return '';const t=new Date();const hoy0=new Date(t.getFullYear(),t.getMonth(),t.getDate());let next=new Date(t.getFullYear(),d.getMonth(),d.getDate());if(next<hoy0)next=new Date(t.getFullYear()+1,d.getMonth(),d.getDate());const dias=Math.round((next-hoy0)/86400000);if(dias===0)return '¡cumple hoy!';if(dias===1)return 'cumple mañana';if(dias<=30)return 'cumple en '+dias+' días';if(dias<=60)return 'cumple en '+Math.round(dias/7)+' sem';return '';}
+
+// Render de la VISTA tipo ficha (solo lectura), estilo CRM.
+function renderClienteView(c){
+    const id=c.id;
+    const ventas=getVentas().filter(v=>v.clienteId===id);
+    const asign=_asignadoNombre(c.asignadoA);
+    const inic=((c.nombreCompleto||'?').trim().split(/\s+/).map(w=>w[0]||'').slice(0,2).join('')||'?').toUpperCase();
+    const esCliente=ventas.length>0;
+    const estadoLbl=esCliente?'Cliente':((CONTACTO_ESTADOS.find(s=>s.id===_estadoContactoNorm(c.estado||'nuevo'))||{}).label||'Contacto');
+    const estadoBg=esCliente?'#e1f5ee':'var(--primary-light)',estadoCol=esCliente?'#0f6e56':'var(--primary-dark)';
+    const esVip=Array.isArray(c.etiquetas)&&c.etiquetas.some(t=>/vip/i.test(t));
+    const vipBadge=esVip?'<span style="font-size:0.7rem;padding:2px 10px;border-radius:20px;background:#faeeda;color:#854f0b;font-weight:700;">&#9733; VIP</span>':'';
+    const desde=String(c.fechaCreacion||c.fechaCaptura||'').slice(0,4);
+    const sub=[desde?(esCliente?'Cliente desde ':'Contacto desde ')+desde:'',asign?'asignada a '+esc(asign):''].filter(Boolean).join(' · ');
+    document.getElementById('mcvHeader').innerHTML=`<div style="display:flex;align-items:center;gap:14px;margin-bottom:14px;">
+        <div style="width:52px;height:52px;border-radius:50%;background:var(--primary-light);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:1.05rem;color:var(--primary-dark);flex:0 0 auto;">${esc(inic)}</div>
+        <div style="flex:1;min-width:0;"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><span style="font-size:1.25rem;font-weight:800;">${esc(c.nombreCompleto||'(sin nombre)')}</span><span style="font-size:0.7rem;padding:2px 10px;border-radius:20px;background:${estadoBg};color:${estadoCol};font-weight:700;">${esc(estadoLbl)}</span>${vipBadge}</div>${sub?`<div style="font-size:0.85rem;color:var(--text-light);margin-top:2px;">${sub}</div>`:''}</div>
+    </div>`;
+    const porMoneda={};ventas.forEach(v=>{const st=calcCobranzaStatus(v);const m=st.moneda||'USD';if(!porMoneda[m])porMoneda[m]={total:0,n:0};porMoneda[m].total+=st.total;porMoneda[m].n++;});
+    const monPrinc=Object.keys(porMoneda).sort((a,b)=>porMoneda[b].n-porMoneda[a].n)[0]||'USD';
+    const histTotal=porMoneda[monPrinc]?porMoneda[monPrinc].total:0;
+    const nPrinc=porMoneda[monPrinc]?porMoneda[monPrinc].n:0;
+    const ticket=nPrinc?histTotal/nPrinc:0;
+    const fechasIni=ventas.map(v=>v.fechaInicio).filter(Boolean).map(f=>String(f).slice(0,10)).sort();
+    const hoy=new Date().toISOString().slice(0,10);
+    const futuros=fechasIni.filter(f=>f>=hoy);
+    const fFmt=f=>f?new Date(f+'T12:00:00').toLocaleDateString('es-CR',{day:'2-digit',month:'short'}):'—';
+    let proxTxt='—';
+    if(futuros.length){const pf=futuros[0];const pv=ventas.find(v=>String(v.fechaInicio||'').slice(0,10)===pf);proxTxt=pv?(_venta360Label(pv).split(' · ')[0]+' · '+fFmt(pf)):fFmt(pf);}
+    const mcard=(lbl,val)=>`<div style="flex:1;min-width:118px;background:var(--bg);border-radius:10px;padding:10px 14px;"><div style="font-size:0.72rem;color:var(--text-light);">${lbl}</div><div style="font-size:1.15rem;font-weight:800;">${val}</div></div>`;
+    document.getElementById('mcvMetrics').innerHTML=`<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;">${mcard('Viajes',ventas.length)}${mcard('Histórico',fmtMoney(histTotal,monPrinc))}${mcard('Ticket prom.',nPrinc?fmtMoney(ticket,monPrinc):'—')}${mcard('Próximo viaje',proxTxt)}</div>`;
+    const V=v=>v?esc(v):'<span style="color:var(--text-light);">—</span>';
+    const sl=(ic,tx)=>`<div style="font-size:0.8rem;font-weight:700;color:var(--text-light);margin:0 0 6px;">${ic} ${tx}</div>`;
+    const kv=(k,v)=>`<div style="font-size:0.86rem;line-height:1.9;"><span style="color:var(--text-light);">${k}:</span> ${v}</div>`;
+    const origenLbl=(CONTACTO_ORIGENES.find(o=>o.id===c.origen)||{}).label||'';
+    const servicioLbl=(CONTACTO_SERVICIOS.find(o=>o.id===c.servicio)||{}).label||'';
+    const etiquetasChips=(Array.isArray(c.etiquetas)&&c.etiquetas.length)?`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;">${c.etiquetas.map(t=>`<span style="font-size:0.72rem;padding:2px 10px;border-radius:20px;background:var(--primary-light);color:var(--primary-dark);font-weight:600;">${esc(t)}</span>`).join('')}</div>`:'';
+    const tieneInteres=c.destinosTentativos||c.personas||c.fechasTentativas||c.notas;
+    document.getElementById('mcvDatos').innerHTML=`<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+        <div>${sl('&#128222;','Contacto')}${kv('Teléfono',V(c.telefono))}${kv('Email',V(c.email))}${kv('Dirección',V(c.direccion))}${kv('Empresa',V(c.empresa))}</div>
+        <div>${sl('&#127919;','Seguimiento')}${kv('Origen',V(origenLbl))}${kv('Servicio',V(servicioLbl))}${kv('Asignada a',V(asign))}</div>
+    </div>${tieneInteres?`<hr class="wizard-divider">${sl('&#129517;','Lo que busca')}${kv('Destino',V(c.destinosTentativos))}${kv('Personas',V(c.personas))}${kv('Fecha',V(c.fechasTentativas))}${c.notas?`<div style="font-size:0.84rem;margin-top:4px;">${esc(c.notas)}</div>`:''}`:''}${etiquetasChips?`<hr class="wizard-divider">${sl('&#127991;&#65039;','Etiquetas')}${etiquetasChips}`:''}`;
+    let pasaporteLine;
+    if(c.numeroPasaporte||c.vencimientoPasaporte){
+        const docLine='Pasaporte '+esc(c.numeroPasaporte||'—')+(c.nacionalidad?' · '+esc(c.nacionalidad):'');
+        let vencLine='';
+        if(c.vencimientoPasaporte){const iso=String(c.vencimientoPasaporte).slice(0,10);const vd=new Date(iso+'T12:00:00');const dias=isNaN(vd)?null:Math.round((vd-new Date())/86400000);let pill='';if(dias!=null&&dias<0)pill=' <span style="font-size:0.7rem;padding:1px 8px;border-radius:10px;background:#fcebeb;color:#a32d2d;font-weight:700;">&#9888; vencido</span>';else if(dias!=null&&dias<=180)pill=' <span style="font-size:0.7rem;padding:1px 8px;border-radius:10px;background:#fcebeb;color:#a32d2d;font-weight:700;">&#9888; vence pronto</span>';vencLine='Vence '+fmtFechaCorta(iso)+pill;}
+        pasaporteLine=`<div style="font-size:0.86rem;line-height:1.9;">${docLine}${vencLine?'<br>'+vencLine:''}</div>`;
+    }else pasaporteLine='<div style="font-size:0.84rem;color:var(--text-light);">Sin documento cargado.</div>';
+    let nacLine='<span style="color:var(--text-light);">—</span>';
+    if(c.fechaNacimiento){const iso=String(c.fechaNacimiento).slice(0,10);nacLine='Nace '+fmtFechaCorta(iso);const ct=_diasAlCumple(iso);if(ct)nacLine+=' <span style="color:var(--text-light);font-size:0.8rem;">('+ct+')</span>';}
+    const vf=(c.viajeroProgramaAerolinea||c.viajeroProgramaNumero)?(esc(c.viajeroProgramaAerolinea||'')+(c.viajeroProgramaNumero?' ····'+esc(String(c.viajeroProgramaNumero).slice(-3)):'')):'<span style="color:var(--text-light);">—</span>';
+    const acmp=(Array.isArray(c.acompanantes)&&c.acompanantes.length)?c.acompanantes.map(a=>{const ed=_edadDesde(a.fechaNacimiento);const paren=[a.relacion?esc(a.relacion):'',ed!=null?ed:''].filter(x=>x!=='').join(', ');return esc(a.nombre||'')+(paren?' ('+paren+')':'');}).join('<br>'):'<span style="color:var(--text-light);">—</span>';
+    const hayEmerg=c.emergenciaNombre||c.emergenciaTelefono;
+    document.getElementById('mcvViajero').innerHTML=`<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+        <div>${sl('&#128188;','Documento de viaje')}${pasaporteLine}<div style="margin-top:12px;">${sl('&#127874;','Fechas clave')}<div style="font-size:0.86rem;line-height:1.9;">${nacLine}</div></div></div>
+        <div>${sl('&#9992;&#65039;','Viajero frecuente')}<div style="font-size:0.86rem;line-height:1.9;">${vf}</div><div style="margin-top:12px;">${sl('&#128101;','Acompañantes')}<div style="font-size:0.86rem;line-height:1.9;">${acmp}</div></div></div>
+    </div>${hayEmerg?`<hr class="wizard-divider">${sl('&#9937;','Contacto de emergencia')}<div style="font-size:0.86rem;">${esc(c.emergenciaNombre||'')}${c.emergenciaTelefono?' · '+esc(c.emergenciaTelefono):''}</div>`:''}`;
+    const chips=[];
+    if(c.prefAsiento)chips.push('Asiento '+esc(c.prefAsiento));
+    if(c.prefComida)chips.push(esc(c.prefComida));
+    if(c.prefHotel)chips.push('Hotel '+esc(c.prefHotel));
+    if(c.prefAerolinea)chips.push('Aerolínea '+esc(c.prefAerolinea));
+    if(c.prefContacto)chips.push('Contacto por '+({whatsapp:'WhatsApp',llamada:'llamada',email:'email'}[c.prefContacto]||esc(c.prefContacto)));
+    document.getElementById('mcvPrefs').innerHTML=chips.length?(`<div style="display:flex;flex-wrap:wrap;gap:8px;">${chips.map(t=>`<span style="font-size:0.8rem;padding:4px 12px;border-radius:20px;background:var(--primary-light);color:var(--primary-dark);font-weight:600;">${t}</span>`).join('')}</div>`+(c.prefNotas?`<div style="font-size:0.84rem;margin-top:10px;">${esc(c.prefNotas)}</div>`:'')):'<div style="font-size:0.84rem;color:var(--text-light);">Sin preferencias cargadas. Tocá "Editar" para agregarlas.</div>';
+    render360Cliente(id);
+    _bitaVisibles=20;renderBitacoraTimeline(id);
+}
+
+function _openClienteModalLegacy(id){
+    // (Version anterior; ya no se usa. Reemplazada por la vista+formulario de abajo.)
     _pendingVentaForNewCliente=false;
     const modal=document.getElementById('modalCliente');
     const titulo=document.getElementById('modalClienteTitulo');
@@ -11173,10 +11352,16 @@ function guardarCliente(){
         creoVenta=true;
     }
     _pendingVentaForNewCliente=false;
-    saveClientes(clientes);closeModal('modalCliente');
-    if(creoVenta){renderClientesVentas();}
-    else{renderClientes();}
+    saveClientes(clientes);
+    if(creoVenta){renderClientesVentas();}else{renderClientes();}
     updateBadges();
+    // Si era edicion de un contacto existente, volver a la VISTA con los datos nuevos.
+    // Si fue alta nueva (o se creo una venta), cerrar el modal.
+    if(id&&!creoVenta){
+        const c2=getClientes().find(x=>x.id===obj.id);
+        if(c2){document.getElementById('mcId').value=obj.id;_mcMostrarVista(c2);return;}
+    }
+    closeModal('modalCliente');
 }
 
 function nuevoClienteConVenta(){
