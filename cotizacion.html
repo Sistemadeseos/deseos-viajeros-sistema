@@ -2047,22 +2047,25 @@ async function syncDestinos(destObj){
 // para re-subirse. Evita perder datos cuando una carga devuelve resultados parciales.
 function mergeArrayDefensivo(collName,serverItems,localItems,idKey){
     idKey=idKey||'id';
-    if(!Array.isArray(localItems)||localItems.length===0)return {merged:serverItems,recovered:0};
-    // Si server vino vacio pero local tenia datos -> algo sospechoso, preservar TODO local
-    if(serverItems.length===0&&localItems.length>0){
-        console.warn('[FS] '+collName+': server vino vacio pero local tiene '+localItems.length+' items. Preservando local.');
-        return {merged:localItems.slice(),recovered:localItems.length};
+    serverItems=Array.isArray(serverItems)?serverItems:[];
+    localItems=Array.isArray(localItems)?localItems:[];
+    if(localItems.length===0)return {merged:serverItems.slice(),recovered:0};
+    // Si server vino vacio pero local tenia datos -> algo sospechoso, preservar TODO local.
+    if(serverItems.length===0)return {merged:localItems.slice(),recovered:localItems.length};
+    // UNION POR ID (no por cantidad). Bug historico: se comparaba solo la CANTIDAD de items y,
+    // si el server tenia IGUAL o MAS que la copia local, se descartaban (sin re-subir) los items
+    // que existian SOLO localmente. Con una lista compartida entre varias usuarias (p.ej. horas
+    // extra) el server casi siempre tiene >= items, asi que un movimiento creado en una compu que
+    // no alcanzo a subir quedaba atascado ahi y nunca llegaba a las demas. Ahora conservamos todo
+    // lo del server + lo local que el server no tenga, y marcamos esos faltantes como "recovered"
+    // para que la capa de sync los vuelva a subir. Respeta la regla: nunca perder datos en silencio.
+    const serverIds=new Set(serverItems.map(it=>String(it[idKey])));
+    const faltantes=localItems.filter(it=>!serverIds.has(String(it[idKey])));
+    if(faltantes.length>0){
+        console.warn('[FS] '+collName+': '+faltantes.length+' item(s) locales no estaban en el server; se preservan y re-suben.');
+        return {merged:serverItems.concat(faltantes),recovered:faltantes.length};
     }
-    // Si server tiene menos items que local, agregamos los faltantes desde local
-    if(serverItems.length<localItems.length){
-        const serverIds=new Set(serverItems.map(it=>String(it[idKey])));
-        const faltantes=localItems.filter(it=>!serverIds.has(String(it[idKey])));
-        if(faltantes.length>0){
-            console.warn('[FS] '+collName+': server tiene '+serverItems.length+' items, local '+localItems.length+'. Preservando '+faltantes.length+' items faltantes.');
-            return {merged:serverItems.concat(faltantes),recovered:faltantes.length};
-        }
-    }
-    return {merged:serverItems,recovered:0};
+    return {merged:serverItems.slice(),recovered:0};
 }
 
 async function loadAllFromFirestore(){
