@@ -1414,6 +1414,7 @@ onAuthStateChanged(fbAuth, (user) => {
     <div class="mc-pane active" data-mcpane="datos">
     <p style="font-size:0.7rem;color:var(--text-light);text-transform:uppercase;font-weight:700;letter-spacing:1px;margin-bottom:4px;">Estado del contacto</p>
     <div class="pipeline-bar" id="mcPipelineBar"></div>
+    <div class="form-group"><label>Categor&iacute;a de cliente</label><select id="mcCategoria"><option value="">-- Sin categor&iacute;a --</option><option value="diamante">Diamante</option><option value="platino">Platino</option><option value="oro">Oro</option><option value="plata">Plata</option><option value="bronce">Bronce</option></select></div>
 
     <!-- Formulario simple -->
     <div class="form-group"><label>Nombre completo *</label><input type="text" id="mcNombre" placeholder="Nombre completo del contacto"></div>
@@ -1751,6 +1752,14 @@ const defaultAlertas=['A partir del 11 de enero 2025 es obligatoria la vacuna de
 const CONTACTO_ESTADOS=[
     {id:'nuevo',label:'Nuevo'},
     {id:'cotizado',label:'Cotizado'}
+];
+// Categoria/nivel de cliente (fidelidad). id guardado en cliente.categoria.
+const CLIENTE_CATEGORIAS=[
+    {id:'diamante',label:'Diamante',bg:'#e0f7fa',color:'#00838f'},
+    {id:'platino', label:'Platino', bg:'#eceff1',color:'#455a64'},
+    {id:'oro',     label:'Oro',     bg:'#fff3d6',color:'#a67c00'},
+    {id:'plata',   label:'Plata',   bg:'#eef1f4',color:'#607d8b'},
+    {id:'bronce',  label:'Bronce',  bg:'#f3e6da',color:'#8d5524'}
 ];
 // Normaliza estados viejos (contactado, negociaci\u00f3n, cliente, perdido) a los 2 vigentes, para
 // que los contactos ya guardados no queden "colgados" al mostrarse.
@@ -10977,9 +10986,10 @@ function openClienteModal(id){
 function _mcLlenarFormulario(c){
     const usuarioEmail=(window.currentUser&&window.currentUser.email)||'';
     const g=fid=>document.getElementById(fid);
-    const simples=['mcNombre','mcNumDoc','mcNacionalidad','mcFechaNac','mcTelefono','mcEmail','mcDireccion','mcEmpresa','mcPasaporte','mcPasaporteVenc','mcVFAerolinea','mcVFNumero','mcNotas','mcNecesidadNotas','mcDestinosTentativos','mcFechasTentativas','mcPersonas','mcEmergNombre','mcEmergTelefono','mcPrefAsiento','mcPrefContacto','mcPrefComida','mcPrefHotel','mcPrefAerolinea','mcPrefNotas'];
+    const simples=['mcNombre','mcNumDoc','mcNacionalidad','mcFechaNac','mcTelefono','mcEmail','mcDireccion','mcEmpresa','mcPasaporte','mcPasaporteVenc','mcVFAerolinea','mcVFNumero','mcNotas','mcNecesidadNotas','mcDestinosTentativos','mcFechasTentativas','mcPersonas','mcEmergNombre','mcEmergTelefono','mcPrefAsiento','mcPrefContacto','mcPrefComida','mcPrefHotel','mcPrefAerolinea','mcPrefNotas','mcCategoria'];
     if(c){
         g('mcNombre').value=c.nombreCompleto||'';
+        g('mcCategoria').value=c.categoria||'';
         g('mcTipoDoc').value=c.tipoDocumento||'cedula';
         g('mcNumDoc').value=c.numeroDocumento||'';
         g('mcNacionalidad').value=c.nacionalidad||'';
@@ -11080,11 +11090,13 @@ function renderClienteView(c){
     const estadoBg=esCliente?'#e1f5ee':'var(--primary-light)',estadoCol=esCliente?'#0f6e56':'var(--primary-dark)';
     const esVip=Array.isArray(c.etiquetas)&&c.etiquetas.some(t=>/vip/i.test(t));
     const vipBadge=esVip?'<span style="font-size:0.7rem;padding:2px 10px;border-radius:20px;background:#faeeda;color:#854f0b;font-weight:700;">&#9733; VIP</span>':'';
+    const _cat=CLIENTE_CATEGORIAS.find(x=>x.id===c.categoria);
+    const catBadge=_cat?`<span style="font-size:0.7rem;padding:2px 10px;border-radius:20px;background:${_cat.bg};color:${_cat.color};font-weight:700;">&#9670; ${esc(_cat.label)}</span>`:'';
     const desde=String(c.fechaCreacion||c.fechaCaptura||'').slice(0,4);
     const sub=[desde?(esCliente?'Cliente desde ':'Contacto desde ')+desde:'',asign?'asignada a '+esc(asign):''].filter(Boolean).join(' · ');
     document.getElementById('mcvHeader').innerHTML=`<div style="display:flex;align-items:center;gap:14px;margin-bottom:14px;">
         <div style="width:52px;height:52px;border-radius:50%;background:var(--primary-light);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:1.05rem;color:var(--primary-dark);flex:0 0 auto;">${esc(inic)}</div>
-        <div style="flex:1;min-width:0;"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><span style="font-size:1.25rem;font-weight:800;">${esc(c.nombreCompleto||'(sin nombre)')}</span><span style="font-size:0.7rem;padding:2px 10px;border-radius:20px;background:${estadoBg};color:${estadoCol};font-weight:700;">${esc(estadoLbl)}</span>${vipBadge}</div>${sub?`<div style="font-size:0.85rem;color:var(--text-light);margin-top:2px;">${sub}</div>`:''}</div>
+        <div style="flex:1;min-width:0;"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><span style="font-size:1.25rem;font-weight:800;">${esc(c.nombreCompleto||'(sin nombre)')}</span><span style="font-size:0.7rem;padding:2px 10px;border-radius:20px;background:${estadoBg};color:${estadoCol};font-weight:700;">${esc(estadoLbl)}</span>${catBadge}${vipBadge}</div>${sub?`<div style="font-size:0.85rem;color:var(--text-light);margin-top:2px;">${sub}</div>`:''}</div>
     </div>`;
     const porMoneda={};ventas.forEach(v=>{const st=calcCobranzaStatus(v);const m=st.moneda||'USD';if(!porMoneda[m])porMoneda[m]={total:0,n:0};porMoneda[m].total+=st.total;porMoneda[m].n++;});
     const monPrinc=Object.keys(porMoneda).sort((a,b)=>porMoneda[b].n-porMoneda[a].n)[0]||'USD';
@@ -11284,6 +11296,7 @@ function guardarCliente(){
         notas:document.getElementById('mcNotas').value,
         etiquetas:_mcEtiquetas.slice(),
         estado:_estadoActualModal||'nuevo',
+        categoria:document.getElementById('mcCategoria').value||'',
         origen:document.getElementById('mcOrigen').value||'',
         servicio:document.getElementById('mcServicio').value||'',
         urgencia:document.getElementById('mcUrgencia').value||'',
