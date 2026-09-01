@@ -7995,19 +7995,22 @@ const addEncargado=name=>{
 encargadosCfg.forEach(addEncargado);
 hist.forEach(h=>{if(h.data&&h.data.encargado)addEncargado(h.data.encargado);});
 const encList=Object.values(encByNorm).sort((a,b)=>a.localeCompare(b));
-// Determinar el valor a preservar:
-//   1) Lo que ya estaba seleccionado en este render.
-//   2) Lo que la usuaria eligio anteriormente (localStorage).
-//   3) Default: el nombre del usuario actualmente logueado.
-let curE=encSel.value;
-if(!curE){try{curE=localStorage.getItem('dv_historial_filter_encargado')||'';}catch(e){}}
+// Distinguimos tres casos en localStorage (mismo criterio que el filtro de Clientes):
+//   null = nunca eligio  -> arranca filtrando por el usuario actual (comodidad).
+//   ''   = eligio "Todos" -> se RESPETA y muestra a todos (antes se ignoraba: ese era el bug).
+//   'X'  = eligio a X     -> filtra por X.
+let storedE=null;
+try{storedE=localStorage.getItem('dv_historial_filter_encargado');}catch(e){}
 encSel.innerHTML='<option value="">Todos los encargados</option>'+encList.map(e=>`<option value="${esc(e)}">${esc(e)}</option>`).join('');
-if(!curE){
+let curE;
+if(storedE===null){
     const myEmail=(window.currentUser&&window.currentUser.email)||'';
     const myName=myEmail?(matchEncargadoDesdeEmail(myEmail,encargadosCfg)||''):'';
-    if(myName&&encList.includes(myName))curE=myName;
+    curE=(myName&&encList.includes(myName))?myName:'';
+}else{
+    curE=storedE; // '' = Todos, o un nombre concreto
 }
-if(curE&&encList.includes(curE))encSel.value=curE;
+encSel.value=(curE&&encList.includes(curE))?curE:'';
 const filterE=encSel.value;
 const filterENorm=normalizarParaMatch(filterE);
 const filtered=hist.filter(h=>{const d=h.data;const text=[d.destino,d.clienteNombre,d.empresaNombre,d.empresaContacto,d.formato,d.encargado].join(' ').toLowerCase();const matchSearch=!search||text.includes(search);const matchFilter=!filterA||(filterA==='aceptada'&&h.aceptada)||(filterA==='pendiente'&&!h.aceptada);const matchEnc=!filterE||normalizarParaMatch(d.encargado||'')===filterENorm;return matchSearch&&matchFilter&&matchEnc;});
