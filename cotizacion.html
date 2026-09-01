@@ -10502,6 +10502,7 @@ function diagnosticoVentasHuerfanas(){
 function abrirDiagnosticoVentas(){
     const overlay=document.getElementById('modalDiagnostico');
     if(!overlay)return;
+    const puedeEditar=tienePermiso('ventas.crear_editar');
     const d=diagnosticoVentasHuerfanas();
     const nH=d.huerfanas.length;
     let body;
@@ -10517,24 +10518,42 @@ function abrirDiagnosticoVentas(){
         const sins=d.huerfanas.filter(x=>x.estado==='sin').length;
         const chip=(n,txt,bg,col)=>`<div style="flex:1;background:${bg};border-radius:8px;padding:8px;text-align:center;"><div style="font-size:1.3rem;font-weight:700;color:${col};">${n}</div><div style="font-size:0.66rem;color:${col};text-transform:uppercase;letter-spacing:.4px;">${txt}</div></div>`;
         const rowsHtml=d.huerfanas.map(x=>{
-            let sug,scol;
-            if(x.estado==='clara'){sug='&rarr; '+esc(x.matches[0].nombre||'(sin nombre)')+' <span style="color:var(--text-light);">('+esc(x.matchLabel||'coincide')+')</span>';scol='#0f6e56';}
-            else if(x.estado==='ambigua'){sug=x.matches.length+' posibles coincidencias (habr&iacute;a que elegir cu&aacute;l)';scol='#854f0b';}
-            else{sug='Sin coincidencia &mdash; habr&iacute;a que crear el contacto';scol='var(--text-light)';}
+            const vid=esc(x.ventaId);
+            let sug,scol,accion='';
+            if(x.estado==='clara'){
+                sug='&rarr; '+esc(x.matches[0].nombre||'(sin nombre)')+' <span style="color:var(--text-light);">('+esc(x.matchLabel||'coincide')+')</span>';scol='#0f6e56';
+                if(puedeEditar)accion=`<button class="btn btn-sm btn-success" style="padding:3px 12px;" onclick="_dvVincular('${vid}','${esc(x.matches[0].id)}')">Vincular</button>`;
+            }else if(x.estado==='ambigua'){
+                sug='Hay '+x.matches.length+' contactos con ese nombre. Eleg&iacute; cu&aacute;l:';scol='#854f0b';
+                if(puedeEditar){
+                    const opts=x.matches.map(m=>`<option value="${esc(m.id)}">${esc(m.nombre||'(sin nombre)')}${m.email?' · '+esc(m.email):''}</option>`).join('');
+                    accion=`<div style="display:flex;gap:6px;margin-top:2px;"><select id="dvSel_${vid}" style="flex:1;font-size:0.78rem;"><option value="">Elegir contacto&hellip;</option>${opts}</select><button class="btn btn-sm btn-success" style="padding:3px 12px;" onclick="_dvVincularSel('${vid}')">Vincular</button></div>`;
+                }
+            }else{
+                sug='Sin coincidencia.';scol='var(--text-light)';
+                if(puedeEditar){
+                    const nom=(x.clienteNombre||'').trim();
+                    accion=nom?`<button class="btn btn-sm btn-accent" style="padding:3px 12px;" onclick="_dvCrearYVincular('${vid}')">Crear contacto y vincular</button>`
+                              :`<span style="font-size:0.72rem;color:var(--text-light);">Sin nombre: asign&aacute; el contacto abriendo la venta.</span>`;
+                }
+            }
             return`<div style="padding:8px 10px;border:1px solid var(--border-color,#e5e9ee);border-radius:8px;margin-bottom:6px;">
                 <div style="font-size:0.84rem;font-weight:600;">${esc(x.label)}</div>
                 <div style="font-size:0.74rem;color:var(--text-light);">A nombre de: ${esc(x.clienteNombre||'(sin nombre)')} &middot; ${x.razon==='sin_id'?'sin cliente asignado':'el cliente fue borrado'}</div>
                 <div style="font-size:0.76rem;color:${scol};margin-top:3px;">${sug}</div>
+                ${accion?`<div style="margin-top:6px;">${accion}</div>`:''}
             </div>`;
         }).join('');
+        const bulk=(puedeEditar&&claras>0)?`<div style="margin-bottom:10px;"><button class="btn btn-sm btn-success" onclick="_dvVincularTodasClaras()">&#9889; Vincular las ${claras} claras de una vez</button></div>`:'';
         body=`<p style="margin:0 0 10px;font-size:0.88rem;">Encontr&eacute; <strong>${nH}</strong> ${nH===1?'venta que no est&aacute; vinculada':'ventas que no est&aacute;n vinculadas'} a ning&uacute;n cliente (de ${d.total} en total). No aparecen en la ficha del cliente ni en su historia comercial.</p>
         <div style="display:flex;gap:6px;margin-bottom:12px;">
             ${chip(claras,'coincidencia clara','#e1f5ee','#0f6e56')}
             ${chip(ambiguas,'a revisar','#faeeda','#854f0b')}
             ${chip(sins,'sin coincidencia','#f1efe8','#5f5e5a')}
         </div>
-        <div style="max-height:320px;overflow-y:auto;">${rowsHtml}</div>
-        <p style="font-size:0.78rem;color:var(--text-light);margin:12px 0 0;">Esto es solo un <strong>diagn&oacute;stico</strong>: no se modific&oacute; nada. Con este resultado decidimos si activo la re-vinculaci&oacute;n (con confirmaci&oacute;n) o si conviene arreglarlas a mano.</p>`;
+        ${bulk}
+        <div style="max-height:340px;overflow-y:auto;">${rowsHtml}</div>
+        <p style="font-size:0.78rem;color:var(--text-light);margin:12px 0 0;">${puedeEditar?'Al vincular, la venta empieza a aparecer en la ficha del cliente y en su historia. Es reversible: pod&eacute;s reasignarla abriendo la venta.':'No ten&eacute;s permiso para editar ventas: esto es solo lectura.'}</p>`;
     }
     overlay.innerHTML=`<div class="modal" style="max-width:560px;">
         <div class="modal-header"><h3>&#128269; Revisi&oacute;n de clientes en ventas</h3><button class="modal-close" onclick="closeModal('modalDiagnostico')">&times;</button></div>
@@ -10542,6 +10561,71 @@ function abrirDiagnosticoVentas(){
         <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modalDiagnostico')">Cerrar</button></div>
     </div>`;
     overlay.classList.add('open');
+}
+
+// --- Paso 2: re-vinculación de ventas huérfanas (con confirmación, gateado por permiso) ---
+function _dvAplicarVinculo(ventas,ventaId,cli){
+    const v=ventas.find(x=>x.id===ventaId);
+    if(!v)return false;
+    v.clienteId=cli.id;
+    v.clienteNombre=cli.nombreCompleto||v.clienteNombre||'';
+    v._lastModifiedAt=Date.now();
+    return true;
+}
+function _dvVincular(ventaId,clienteId){
+    if(!exigirPermiso('ventas.crear_editar','vincular ventas'))return;
+    const cli=getClientes().find(c=>c.id===clienteId);
+    if(!cli){alert('Ese contacto ya no existe.');return;}
+    const ventas=getVentas();
+    if(!_dvAplicarVinculo(ventas,ventaId,cli)){alert('No se encontró la venta.');return;}
+    saveVentas(ventas);updateBadges();abrirDiagnosticoVentas();
+}
+function _dvVincularSel(ventaId){
+    const sel=document.getElementById('dvSel_'+ventaId);
+    const cid=sel?sel.value:'';
+    if(!cid){alert('Elegí a cuál contacto vincular la venta.');return;}
+    _dvVincular(ventaId,cid);
+}
+function _dvCrearYVincular(ventaId){
+    if(!exigirPermiso('ventas.crear_editar','vincular ventas'))return;
+    const ventas=getVentas();
+    const v=ventas.find(x=>x.id===ventaId);
+    if(!v){alert('No se encontró la venta.');return;}
+    const nombre=(v.clienteNombre||'').trim();
+    if(!nombre){alert('Esta venta no tiene nombre de cliente. Abrila desde Ventas y asigná el contacto a mano.');return;}
+    if(!confirm('Crear un contacto nuevo llamado "'+nombre+'" y vincularle esta venta?'))return;
+    const clientes=getClientes();
+    const ahora=new Date().toISOString();
+    const usuarioEmail=(window.currentUser&&window.currentUser.email)||'';
+    const nuevo={
+        id:Date.now().toString(),nombreCompleto:nombre,tipoDocumento:'cedula',numeroDocumento:'',nacionalidad:'',
+        fechaNacimiento:'',telefono:'',email:'',direccion:'',empresa:'',
+        numeroPasaporte:'',vencimientoPasaporte:'',viajeroProgramaAerolinea:'',viajeroProgramaNumero:'',notas:'',
+        estado:'cliente',origen:'',asignadoA:matchEncargadoDesdeEmail(usuarioEmail,cfgGet().encargados)||usuarioEmail,
+        creadoPor:usuarioEmail,fechaCaptura:ahora,fechaCreacion:ahora,fechaActualizacion:ahora,
+        bitacora:[makeBitacoraEntry('captura','Contacto creado al re-vincular una venta',{automatico:true})]
+    };
+    clientes.unshift(nuevo);saveClientes(clientes);
+    _dvAplicarVinculo(ventas,ventaId,nuevo);
+    saveVentas(ventas);updateBadges();abrirDiagnosticoVentas();
+}
+function _dvVincularTodasClaras(){
+    if(!exigirPermiso('ventas.crear_editar','vincular ventas'))return;
+    const d=diagnosticoVentasHuerfanas();
+    const claras=d.huerfanas.filter(x=>x.estado==='clara');
+    if(!claras.length){alert('No hay coincidencias claras para vincular.');return;}
+    if(!confirm('Vincular automáticamente '+claras.length+' venta(s) con coincidencia clara a su cliente?'))return;
+    const ventas=getVentas();
+    const clientes=getClientes();
+    let n=0;
+    claras.forEach(x=>{
+        const cli=clientes.find(c=>c.id===x.matches[0].id);
+        if(cli&&_dvAplicarVinculo(ventas,x.ventaId,cli))n++;
+    });
+    if(n>0)saveVentas(ventas);
+    updateBadges();
+    alert('Listo: '+n+' venta(s) vinculada(s) a su cliente.');
+    abrirDiagnosticoVentas();
 }
 
 // Abre una cotizacion del cliente en modo solo-lectura (cierra la ficha primero, porque navega al editor)
