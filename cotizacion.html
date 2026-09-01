@@ -9840,26 +9840,28 @@ function renderListadoContactos(){
         const m=matchEncargadoDesdeEmail(email,encargados);
         return m||email;
     };
-    // Poblar el select de creador (quien ingreso), mostrando nombre del usuario
+    // Poblar el select de creador (quien ingreso). Distinguimos tres casos en localStorage:
+    //   null  = nunca eligio  -> arranca filtrando por el usuario actual (comodidad).
+    //   ''    = eligio "Todos" -> se RESPETA y muestra a todos (antes se ignoraba: ese era el bug).
+    //   'X'   = eligio a X     -> filtra por X.
     {
         const sel=document.getElementById('clientesFilterCreador');
         if(sel){
-            // Determinar el valor a preservar: prioridad
-            //   1) Lo que ya estaba seleccionado en este render (cur).
-            //   2) Lo que la usuaria eligio anteriormente (localStorage).
-            //   3) Default: el nombre del usuario actualmente logueado.
-            let cur=sel.value;
-            if(!cur){try{cur=localStorage.getItem('dv_contactos_filter_creador')||'';}catch(e){}}
+            let stored=null;
+            try{stored=localStorage.getItem('dv_contactos_filter_creador');}catch(e){}
             const setU=new Set();base.forEach(c=>{const u=creadorNombreDe(c);if(u)setU.add(u);});
             const lista=Array.from(setU).sort((a,b)=>a.localeCompare(b));
             sel.innerHTML='<option value="">Todos los que ingresaron</option>'+lista.map(u=>`<option value="${esc(u)}">${esc(u)}</option>`).join('');
-            // Si no hay preferencia previa, intentar arrancar filtrando por el usuario actual
-            if(!cur){
+            let cur;
+            if(stored===null){
+                // Sin preferencia guardada: arrancar por el usuario actual (si esta en la lista).
                 const myEmail=(window.currentUser&&window.currentUser.email)||'';
                 const myName=myEmail?(matchEncargadoDesdeEmail(myEmail,encargados)||myEmail):'';
-                if(myName&&lista.includes(myName))cur=myName;
+                cur=(myName&&lista.includes(myName))?myName:'';
+            }else{
+                cur=stored; // '' = Todos, o un nombre concreto elegido por la usuaria
             }
-            if(cur&&lista.includes(cur))sel.value=cur;
+            sel.value=(cur&&lista.includes(cur))?cur:'';
         }
     }
     const filterCreador=document.getElementById('clientesFilterCreador')?.value||'';
