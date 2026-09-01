@@ -9969,12 +9969,14 @@ function renderListadoContactos(){
         const numVentas=ventas.filter(v=>v.clienteId===c.id).length;
         const esCliente=idsConVenta.has(c.id);
         const tipoChip=esCliente?'<span class="lt-badge" style="background:#e1f5ee;color:#0f6e56;">Cliente</span>':'<span class="lt-badge" style="background:var(--primary-light);color:var(--primary-dark);">Contacto</span>';
+        const _cat=CLIENTE_CATEGORIAS.find(x=>x.id===c.categoria);
+        const catChip=_cat?`<span class="lt-badge" style="background:${_cat.bg};color:${_cat.color};">&#9670; ${esc(_cat.label)}</span>`:'';
         const estado=_estadoContactoNorm(c.estado||'nuevo');
         const estadoBadge=`<span class="estado-badge st-${estado}">${esc(estadoLabels[estado]||estado)}</span>`;
         const origenTxt=c.origen&&origenLabels[c.origen]?esc(origenLabels[c.origen]):'<span style="color:var(--text-light);">-</span>';
         const etiquetasHtml=Array.isArray(c.etiquetas)&&c.etiquetas.length?`<div style="margin-top:3px;display:flex;flex-wrap:wrap;gap:3px;">${c.etiquetas.map(t=>`<span style="font-size:0.62rem;padding:1px 7px;border-radius:10px;background:var(--primary-light);color:var(--primary-dark);font-weight:600;">${esc(t)}</span>`).join('')}</div>`:'';
         return`<tr>
-        <td><div class="lt-nombre"><span class="cliente-link" onclick="openClienteModal('${c.id}')">${esc(c.nombreCompleto||'-')}</span> ${tipoChip}</div>${c.asignadoA?`<div class="lt-secondary">Asignado: ${esc(_asignadoNombre(c.asignadoA))}</div>`:''}${etiquetasHtml}</td>
+        <td><div class="lt-nombre"><span class="cliente-link" onclick="openClienteModal('${c.id}')">${esc(c.nombreCompleto||'-')}</span> ${tipoChip}${catChip}</div>${c.asignadoA?`<div class="lt-secondary">Asignado: ${esc(_asignadoNombre(c.asignadoA))}</div>`:''}${etiquetasHtml}</td>
         <td>${estadoBadge}</td>
         <td>${origenTxt}</td>
         <td>${c.email?esc(c.email):'<span style="color:var(--text-light);">-</span>'}</td>
