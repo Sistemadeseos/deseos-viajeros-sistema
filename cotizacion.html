@@ -5103,7 +5103,7 @@ function guardarNotifNueva(){
     alert('Enviado. Le va a aparecer a esa persona la próxima vez que entre o recargue el sistema.');
 }
 // Anuncio de novedades: se muestra una sola vez por navegador (clave dvAnuncioVisto, no se migra ni se borra con la caché).
-const _ANUNCIO_ID='ficha-crm-2026-09';
+const _ANUNCIO_ID='ficha-crm-2026-09b';
 function mostrarAnuncioNotif(){
     try{if(localStorage.getItem('dvAnuncioVisto')===_ANUNCIO_ID)return;}catch(e){}
     const overlay=document.getElementById('modalAnuncio');
@@ -5127,6 +5127,10 @@ function mostrarAnuncioNotif(){
 
             <div style="background:var(--bg);border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:0.84rem;">
                 💡 La categoría se elige en <strong>Editar &rarr; pestaña Datos</strong>. En la lista de <strong>Clientes</strong> tenés arriba el filtro por categoría.
+            </div>
+
+            <div style="background:var(--primary-light);border-radius:8px;padding:11px 13px;margin-bottom:12px;font-size:0.86rem;color:var(--primary-dark);">
+                <strong>&#128203; Un pedido importante:</strong> completá la <strong>mayor cantidad de datos posible</strong> de cada cliente —pasaporte, cumpleaños, acompañantes, preferencias, categoría, notas…—. Cuanto mejor conozcamos a nuestros clientes, mejor los atendemos, más fácil les cotizamos y más confianza generamos. ¡Cada dato suma! &#10024;
             </div>
 
             <p style="font-size:0.82rem;color:var(--text-light);margin:0;">Cualquier duda, consultá con Xavier o María José. 💜</p>
