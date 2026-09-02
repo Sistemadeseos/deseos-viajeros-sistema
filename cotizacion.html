@@ -1250,7 +1250,7 @@ onAuthStateChanged(fbAuth, (user) => {
 
 <!-- VIEW: CLIENTES Y CONTACTOS (unificado, con filtro) -->
 <div class="app-view view-list" id="viewClientes">
-    <div class="list-search"><div class="cal-seg" id="clientesFiltroSeg"><button class="active" data-ctf="todos" onclick="setClientesFiltro('todos')">Todos</button><button data-ctf="contactos" onclick="setClientesFiltro('contactos')">Contactos</button><button data-ctf="clientes" onclick="setClientesFiltro('clientes')">Clientes</button></div><input type="text" id="clientesSearch" placeholder="Buscar por nombre, email, documento..." oninput="renderClientes()"><select id="clientesFilterCreador" onchange="onContactosFilterCreadorChange()"><option value="">Todos los que ingresaron</option></select></div>
+    <div class="list-search"><div class="cal-seg" id="clientesFiltroSeg"><button class="active" data-ctf="todos" onclick="setClientesFiltro('todos')">Todos</button><button data-ctf="contactos" onclick="setClientesFiltro('contactos')">Contactos</button><button data-ctf="clientes" onclick="setClientesFiltro('clientes')">Clientes</button></div><input type="text" id="clientesSearch" placeholder="Buscar por nombre, email, documento..." oninput="renderClientes()"><select id="clientesFilterCreador" onchange="onContactosFilterCreadorChange()"><option value="">Todos los que ingresaron</option></select><select id="clientesFilterCategoria" onchange="renderClientes()"><option value="">Todas las categor&iacute;as</option><option value="diamante">Diamante</option><option value="platino">Platino</option><option value="oro">Oro</option><option value="plata">Plata</option><option value="bronce">Bronce</option><option value="__sin">Sin categor&iacute;a</option></select></div>
     <div class="list-view" id="clientesGrid"></div>
 </div>
 
@@ -9955,7 +9955,8 @@ function renderListadoContactos(){
         }
     }
     const filterCreador=document.getElementById('clientesFilterCreador')?.value||'';
-    const filtered=base.filter(c=>{const text=[c.nombreCompleto,c.email,c.telefono,c.numeroDocumento,c.empresa,c.estado,c.origen,(c.etiquetas||[]).join(' ')].join(' ').toLowerCase();const matchSearch=!search||text.includes(search);const matchCre=!filterCreador||creadorNombreDe(c)===filterCreador;return matchSearch&&matchCre;});
+    const filterCat=document.getElementById('clientesFilterCategoria')?.value||'';
+    const filtered=base.filter(c=>{const text=[c.nombreCompleto,c.email,c.telefono,c.numeroDocumento,c.empresa,c.estado,c.origen,(c.etiquetas||[]).join(' ')].join(' ').toLowerCase();const matchSearch=!search||text.includes(search);const matchCre=!filterCreador||creadorNombreDe(c)===filterCreador;const matchCat=!filterCat||(filterCat==='__sin'?!c.categoria:c.categoria===filterCat);return matchSearch&&matchCre&&matchCat;});
     if(!filtered.length){
         const titulo=search?'Sin resultados':(tipo==='clientes'?'Sin clientes':(tipo==='contactos'?'Sin contactos':'Sin personas'));
         const subt=tipo==='clientes'?'Una persona pasa a Cliente cuando se le registra una venta.':'Los contactos se crean al guardar cotizaciones o manualmente.';
