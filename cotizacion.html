@@ -7713,8 +7713,9 @@ populatePaisSelect();if(d.pais){document.getElementById('paisSelect').value=d.pa
 (function(){
     const fi=document.getElementById('fechaInicio');const ff=document.getElementById('fechaFin');
     const fiIso=normalizeFechaIso(d.fechaInicio||'');const ffIso=normalizeFechaIso(d.fechaFin||'');
-    fi.value=fiIso?isoToDmy(fiIso):'';
-    ff.value=ffIso?isoToDmy(ffIso):'';
+    // Inputs nativos type=date: el valor debe ir en ISO (AAAA-MM-DD), no en dd/mm/aaaa.
+    fi.value=fiIso||'';
+    ff.value=ffIso||'';
     // Sincronizar estado interno de flatpickr para que muestre el rango destacado en el calendario
     if(_fpFechaViaje){
         try{
@@ -11423,21 +11424,15 @@ function attachFlatpickrSingle(inp){
 }
 // Inicializa el rango de fechas del viaje en el editor: un click en fechaInicio abre el calendario y un segundo click setea fechaFin (rangePlugin de flatpickr).
 function setupDateRangePicker(){
-    if(typeof flatpickr==='undefined'||typeof rangePlugin==='undefined')return; // CDN no disponible, fallback al input nativo
+    // Fechas del viaje: inputs NATIVOS (type=date). Antes se usaba flatpickr con rangePlugin,
+    // pero al TIPEAR las fechas (en vez de elegirlas) el valor se reformateaba a dd/mm/aaaa y el
+    // input type=date lo rechazaba, borrando la fecha. Los inputs nativos son confiables, no
+    // dependen de internet y aceptan el tipeo sin borrarse.
     const fi=document.getElementById('fechaInicio');
     const ff=document.getElementById('fechaFin');
-    if(!fi||!ff)return;
-    if(_fpFechaViaje){try{_fpFechaViaje.destroy();}catch(e){}}
-    // Cambiar a type=text para que flatpickr controle el formato y popup
-    fi.setAttribute('type','text');ff.setAttribute('type','text');
-    fi.setAttribute('placeholder','dd/mm/aaaa');ff.setAttribute('placeholder','dd/mm/aaaa');
-    _fpFechaViaje=flatpickr(fi,{
-        locale:'es',
-        dateFormat:'d/m/Y',
-        allowInput:true,
-        plugins:[new rangePlugin({input:'#fechaFin'})],
-        onChange:function(){updatePreview();}
-    });
+    if(_fpFechaViaje){try{_fpFechaViaje.destroy();}catch(e){}_fpFechaViaje=null;}
+    if(fi)fi.setAttribute('type','date');
+    if(ff)ff.setAttribute('type','date');
 }
 function syncFechaViajePicker(){
     if(!_fpFechaViaje)return;
