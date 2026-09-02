@@ -11424,15 +11424,34 @@ function attachFlatpickrSingle(inp){
 }
 // Inicializa el rango de fechas del viaje en el editor: un click en fechaInicio abre el calendario y un segundo click setea fechaFin (rangePlugin de flatpickr).
 function setupDateRangePicker(){
-    // Fechas del viaje: inputs NATIVOS (type=date). Antes se usaba flatpickr con rangePlugin,
-    // pero al TIPEAR las fechas (en vez de elegirlas) el valor se reformateaba a dd/mm/aaaa y el
-    // input type=date lo rechazaba, borrando la fecha. Los inputs nativos son confiables, no
-    // dependen de internet y aceptan el tipeo sin borrarse.
+    // Fechas del viaje: calendario de RANGO (flatpickr). Se elige inicio y fin en un solo
+    // calendario y se llenan ambas casillas. Clave: allowInput:false -> solo se elige del
+    // calendario, NO se tipea. Antes el borrado de fechas venia de tipear el rango manualmente
+    // (rangePlugin + tipeo no se lleva bien); al no permitir tipear, se soluciona.
+    // Si flatpickr no carga (sin internet), se usan inputs nativos type=date como respaldo.
     const fi=document.getElementById('fechaInicio');
     const ff=document.getElementById('fechaFin');
+    if(!fi||!ff)return;
     if(_fpFechaViaje){try{_fpFechaViaje.destroy();}catch(e){}_fpFechaViaje=null;}
-    if(fi)fi.setAttribute('type','date');
-    if(ff)ff.setAttribute('type','date');
+    if(typeof flatpickr==='undefined'||typeof rangePlugin==='undefined'){
+        fi.setAttribute('type','date');ff.setAttribute('type','date');
+        return;
+    }
+    fi.setAttribute('type','text');ff.setAttribute('type','text');
+    fi.setAttribute('placeholder','dd/mm/aaaa');ff.setAttribute('placeholder','dd/mm/aaaa');
+    fi.setAttribute('autocomplete','off');ff.setAttribute('autocomplete','off');
+    try{
+        _fpFechaViaje=flatpickr(fi,{
+            locale:'es',
+            dateFormat:'d/m/Y',
+            allowInput:false,
+            plugins:[new rangePlugin({input:'#fechaFin'})],
+            onChange:function(){updatePreview();}
+        });
+    }catch(e){
+        console.warn('[flatpickr] no se pudo iniciar, se usan fechas nativas:',e);
+        fi.setAttribute('type','date');ff.setAttribute('type','date');_fpFechaViaje=null;
+    }
 }
 function syncFechaViajePicker(){
     if(!_fpFechaViaje)return;
