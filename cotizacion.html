@@ -4987,7 +4987,7 @@ function crearNotificacion(opts){
     const arr=getNotificaciones().map(x=>Object.assign({},x));
     arr.push({id:newRrhhId(),tipo:opts.tipo==='tarea'?'tarea':'info',titulo:opts.titulo||'',detalle:opts.detalle||'',
         paraEmail:_normEmail(opts.paraEmail||''),paraPermiso:opts.paraPermiso||'',estado:'pendiente',
-        origen:opts.origen||'',refId:opts.refId||'',creadaTs:Date.now(),creadaPor:_notifEmailActual()});
+        origen:opts.origen||'',refId:opts.refId||'',limpiaSiCerrada:!!opts.limpiaSiCerrada,creadaTs:Date.now(),creadaPor:_notifEmailActual()});
     saveNotificaciones(arr);
     renderNotifBell();
 }
@@ -5007,18 +5007,80 @@ function misNotificaciones(){
     });
 }
 function _notifPendientesCount(){return getNotificaciones().filter(n=>_notifEsParaMi(n)&&n.estado==='pendiente').length;}
+// Marca como resueltas (NO las borra) las notificaciones que ya perdieron sentido:
+//  - Regla 1: avisos de tarea que piden una acción (nueva/reasignada/permiso por aprobar) cuya
+//    tarea ya se cerró o ya no existe. Cubre el "Permiso por aprobar": si una aprobadora lo
+//    resuelve, se limpia solo también para la otra.
+//  - Regla 3: "Viaje próximo" cuando el viaje ya salió o la venta se canceló/borró.
+// Corre al pintar la campana (al entrar) y al abrir el panel. Guarda solo si cambió algo.
+// No se borra nada de la colección: como la sync no es en vivo, borrar de golpe puede hacer
+// que un ítem "reviva" en otra compu que aún no refrescó. Marcar resuelto sí sincroniza limpio.
+function _limpiarNotifObsoletas(){
+    const arr=getNotificaciones();
+    if(!arr.length)return false;
+    let tById,vById;
+    try{tById=new Map(getTareas().map(t=>[String(t.id),t]));}catch(e){tById=new Map();}
+    try{vById=new Map(getVentas().map(v=>[String(v.id),v]));}catch(e){vById=new Map();}
+    const hoy=new Date();hoy.setHours(0,0,0,0);
+    let cambio=false;
+    const out=arr.map(x=>Object.assign({},x));
+    out.forEach(n=>{
+        if(n.estado!=='pendiente')return;
+        // Regla 1: aviso accionable de una tarea ya cerrada (o inexistente).
+        if(n.limpiaSiCerrada&&n.origen==='tarea'&&n.refId){
+            const t=tById.get(String(n.refId));
+            if(!t||!_tareaAbierta(t)){n.estado='leida';n.resueltaPor='sistema';n.resueltaTs=Date.now();cambio=true;return;}
+        }
+        // Regla 3: "Viaje próximo" pasado o con venta cancelada/borrada.
+        if(n.origen==='viaje'&&n.refId){
+            const v=vById.get(String(n.refId));
+            let obsoleta=false;
+            if(!v||v.estado==='cancelada')obsoleta=true;
+            else if(v.fechaInicio){const fi=new Date(v.fechaInicio+'T12:00:00');if(!isNaN(fi)&&fi<hoy)obsoleta=true;}
+            if(obsoleta){n.estado='hecha';n.resueltaPor='sistema';n.resueltaTs=Date.now();cambio=true;}
+        }
+    });
+    if(cambio)saveNotificaciones(out);
+    return cambio;
+}
+// Regla 2: al ver la campana, los avisos informativos (ℹ️) propios se marcan leídos para que no
+// se acumulen. Los 📋 "Viaje próximo" (tipo tarea) NO se tocan: siguen hasta marcarlos hechos.
+// Se llama al CERRAR el panel (ya los viste mientras estaba abierto).
+function _marcarNotifInfoVistas(){
+    const arr=getNotificaciones().map(x=>Object.assign({},x));
+    const yo=_notifEmailActual();
+    let cambio=false;
+    arr.forEach(n=>{
+        if(n.estado==='pendiente'&&n.tipo==='info'&&_notifEsParaMi(n)){
+            n.estado='leida';n.resueltaPor=yo;n.resueltaTs=Date.now();cambio=true;
+        }
+    });
+    if(cambio){saveNotificaciones(arr);renderNotifBell();}
+    return cambio;
+}
 function renderNotifBell(){
     const wrap=document.getElementById('notifBellWrap');
     if(!wrap)return;
     if(!window.currentUser){wrap.innerHTML='';return;}
+    try{_limpiarNotifObsoletas();}catch(e){console.error('[notif limpieza]',e);}
     const n=_notifPendientesCount();
     wrap.innerHTML=`<button onclick="openNotifPanel()" title="Notificaciones" style="position:relative;background:none;border:none;cursor:pointer;font-size:1.35rem;line-height:1;padding:4px 6px;">&#128276;${n>0?`<span style="position:absolute;top:-1px;right:-1px;background:var(--danger);color:#fff;border-radius:10px;font-size:0.6rem;font-weight:700;min-width:16px;height:16px;line-height:16px;padding:0 4px;text-align:center;">${n>99?'99+':n}</span>`:''}</button>`;
 }
 function _notifFecha(ts){try{return fmtFechaCorta(new Date(num(ts)).toISOString().slice(0,10));}catch(e){return '';}}
+let _notifVerResueltas=false;
+function toggleNotifResueltas(){_notifVerResueltas=!_notifVerResueltas;openNotifPanel();}
+// Al cerrar el panel: los avisos informativos ya vistos se marcan leídos (Regla 2).
+function cerrarNotifPanel(){
+    try{_marcarNotifInfoVistas();}catch(e){console.error('[notif vistas]',e);}
+    closeModal('modalNotif');
+}
 function openNotifPanel(){
     try{generarNotificacionesViajesProximos();}catch(e){console.error('[notif viajes]',e);}
+    try{_limpiarNotifObsoletas();}catch(e){console.error('[notif limpieza]',e);}
     const overlay=document.getElementById('modalNotif');
-    const lista=misNotificaciones();
+    const todas=misNotificaciones();
+    const pend=todas.filter(n=>n.estado==='pendiente');
+    const resu=todas.filter(n=>n.estado!=='pendiente');
     const item=n=>{
         const esTarea=n.tipo==='tarea';
         const resuelta=n.estado!=='pendiente';
@@ -5040,15 +5102,17 @@ function openNotifPanel(){
         </div>`;
     };
     overlay.innerHTML=`<div class="modal" style="max-width:520px;">
-        <div class="modal-header"><h3>&#128276; Notificaciones</h3><button class="modal-close" onclick="closeModal('modalNotif')">&times;</button></div>
+        <div class="modal-header"><h3>&#128276; Notificaciones</h3><button class="modal-close" onclick="cerrarNotifPanel()">&times;</button></div>
         <div class="modal-body">
             <div style="margin-bottom:10px;display:flex;gap:6px;flex-wrap:wrap;">
                 <button class="btn btn-sm btn-accent" onclick="openNotifNueva()">+ Nuevo aviso</button>
-                <button class="btn btn-sm btn-outline" onclick="closeModal('modalNotif');nav('tareas');">&#9989; Ir a Tareas</button>
+                <button class="btn btn-sm btn-outline" onclick="cerrarNotifPanel();nav('tareas');">&#9989; Ir a Tareas</button>
             </div>
-            ${lista.length?lista.map(item).join(''):`<p style="font-size:0.84rem;color:var(--text-light);font-style:italic;text-align:center;padding:16px;">No tenés notificaciones.</p>`}
+            ${pend.length?pend.map(item).join(''):`<p style="font-size:0.84rem;color:var(--text-light);font-style:italic;text-align:center;padding:16px;">No tenés notificaciones pendientes. &#127881;</p>`}
+            ${resu.length?`<div style="text-align:center;margin-top:6px;"><button class="btn btn-sm btn-ghost" style="font-size:0.74rem;padding:3px 10px;" onclick="toggleNotifResueltas()">${_notifVerResueltas?'&#9652; Ocultar resueltas':'&#9662; Ver resueltas ('+resu.length+')'}</button></div>`:''}
+            ${_notifVerResueltas&&resu.length?`<div style="margin-top:8px;">${resu.map(item).join('')}</div>`:''}
         </div>
-        <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modalNotif')">Cerrar</button></div>
+        <div class="modal-footer"><button class="btn btn-ghost" onclick="cerrarNotifPanel()">Cerrar</button></div>
     </div>`;
     overlay.classList.add('open');
 }
@@ -5543,7 +5607,7 @@ function crearTarea(opts){
     saveTareas(arr);
     // Aviso en la campana si se la asigné a otra persona.
     if(opts.avisar!==false&&resp&&resp!==yo){
-        crearNotificacion({tipo:'info',titulo:'Nueva tarea asignada',
+        crearNotificacion({tipo:'info',limpiaSiCerrada:true,titulo:'Nueva tarea asignada',
             detalle:t.titulo+(t.vence?' — vence el '+fmtFechaCorta(t.vence):'')+'. Miralá en la sección Tareas.',
             paraEmail:resp,origen:'tarea',refId:t.id});
     }
@@ -5696,7 +5760,7 @@ function guardarTarea(){
             t.responsableEmail=resp;t.responsableNombre=_nombreDeEmail(resp);
             _tareaLog(t,'Reasignó la tarea a '+t.responsableNombre);
             if(resp&&resp!==_tareaEmailActual()){
-                crearNotificacion({tipo:'info',titulo:'Te reasignaron una tarea',
+                crearNotificacion({tipo:'info',limpiaSiCerrada:true,titulo:'Te reasignaron una tarea',
                     detalle:t.titulo+(t.vence?' — vence el '+fmtFechaCorta(t.vence):'')+'. Miralá en la sección Tareas.',
                     paraEmail:resp,origen:'tarea',refId:t.id});
             }
@@ -5850,7 +5914,7 @@ function _crearAprobacionRRHH(refTipo,refId,titulo,detalle,solicitanteEmail){
     const yo=_tareaEmailActual();
     APROBADORES_RRHH.forEach(em=>{
         if(_normEmail(em)===yo||_normEmail(em)===_normEmail(solicitanteEmail))return;
-        crearNotificacion({tipo:'info',titulo:titulo,detalle:detalle+' Resolvela en la sección Tareas.',paraEmail:em,origen:'tarea',refId:t.id});
+        crearNotificacion({tipo:'info',limpiaSiCerrada:true,titulo:titulo,detalle:detalle+' Resolvela en la sección Tareas.',paraEmail:em,origen:'tarea',refId:t.id});
     });
     return t;
 }
