@@ -5340,6 +5340,13 @@ function _calEventos(desde,hasta){
             if(!c)return;
             if(c.fechaNacimiento){const iso=_ocurrenciaEnRango(c.fechaNacimiento,desde,hasta);if(iso)out.push({fecha:iso,hora:'',titulo:'🎂 Cumple '+(c.nombreCompleto||''),color:'#e91e63',tipo:'cliente',kind:'cliente',refId:c.id});}
             if(c.vencimientoPasaporte){const vp=String(c.vencimientoPasaporte).slice(0,10);if(vp>=desde&&vp<=hasta)out.push({fecha:vp,hora:'',titulo:'Pasaporte vence · '+(c.nombreCompleto||''),color:'#c0392b',tipo:'cliente',kind:'cliente',refId:c.id});}
+            // Acompañantes del contacto: sus cumpleaños y vencimientos de pasaporte también se agendan
+            (Array.isArray(c.acompanantes)?c.acompanantes:[]).forEach(a=>{
+                if(!a)return;const nomA=String(a.nombre||'').trim();if(!nomA)return;
+                const suf=' ('+(a.relacion?a.relacion+' de ':'acompaña a ')+(c.nombreCompleto||'')+')';
+                if(a.fechaNacimiento){const iso=_ocurrenciaEnRango(a.fechaNacimiento,desde,hasta);if(iso)out.push({fecha:iso,hora:'',titulo:'🎂 Cumple '+nomA+suf,color:'#e91e63',tipo:'cliente',kind:'cliente',refId:c.id});}
+                if(a.vencimientoPasaporte){const vp=String(a.vencimientoPasaporte).slice(0,10);if(vp>=desde&&vp<=hasta)out.push({fecha:vp,hora:'',titulo:'Pasaporte vence · '+nomA+suf,color:'#c0392b',tipo:'cliente',kind:'cliente',refId:c.id});}
+            });
         });
     }
     out.sort((a,b)=>String(a.fecha).localeCompare(b.fecha)||String(a.hora||'99').localeCompare(String(b.hora||'99')));
@@ -11012,19 +11019,85 @@ function mcSwitchTab(name){
     document.querySelectorAll('#modalCliente .mc-tab').forEach(t=>t.classList.toggle('active',t.dataset.mctab===name));
     document.querySelectorAll('#modalCliente .mc-pane').forEach(p=>p.classList.toggle('active',p.dataset.mcpane===name));
 }
+// Campos que se guardan por acompañante (los 3 primeros son los históricos; el resto se agregó después)
+const _MC_ACOMP_CAMPOS=['nombre','relacion','fechaNacimiento','sexo','tipoDoc','numeroDoc','nacionalidad','numeroPasaporte','vencimientoPasaporte','telefono','email','vfAerolinea','vfNumero','notas'];
+const _MC_ACOMP_EXTRAS=_MC_ACOMP_CAMPOS.slice(3);
+function _mcAcompLimpio(a){const o={};_MC_ACOMP_CAMPOS.forEach(k=>{o[k]=String((a&&a[k])||'').trim();});return o;}
+function _mcAcompPassPill(venc){
+    if(!venc)return '';
+    const iso=String(venc).slice(0,10);const v=new Date(iso+'T12:00:00');if(isNaN(v))return '';
+    const dias=Math.round((v-new Date())/86400000);
+    if(dias<0)return '<span style="font-size:0.68rem;padding:1px 7px;border-radius:10px;background:#fcebeb;color:#a32d2d;font-weight:700;white-space:nowrap;">&#9888; pasaporte vencido</span>';
+    if(dias<=180)return '<span style="font-size:0.68rem;padding:1px 7px;border-radius:10px;background:#faeeda;color:#854f0b;font-weight:700;white-space:nowrap;">&#9888; pasaporte vence en '+dias+' d&iacute;as</span>';
+    return '';
+}
+function _mcAcompExtrasCount(a){return _MC_ACOMP_EXTRAS.filter(k=>String((a&&a[k])||'').trim()).length;}
+// Actualiza solo la edad y el aviso de pasaporte de una tarjeta, sin redibujar todo (para no perder el foco al tipear)
+function _mcAcompRefresh(i){
+    const a=_mcAcompanantes[i];if(!a)return;
+    const e=document.getElementById('mcAcEdad_'+i);if(e){const ed=_edadDesde(a.fechaNacimiento);e.innerHTML=ed!=null?' &middot; '+ed+' a&ntilde;os':'';}
+    const p=document.getElementById('mcAcPill_'+i);if(p)p.innerHTML=_mcAcompPassPill(a.vencimientoPasaporte);
+}
 function _mcRenderAcompanantes(){
     const cont=document.getElementById('mcAcompanantesList');
     if(!cont)return;
     if(!_mcAcompanantes.length){cont.innerHTML='<div style="font-size:0.74rem;color:var(--text-light);padding:2px 0 8px;">Sin acompañantes cargados.</div>';return;}
-    cont.innerHTML=_mcAcompanantes.map((a,i)=>`<div class="form-row" style="gap:6px;margin-bottom:6px;align-items:flex-end;">
-        <div class="form-group" style="margin:0;"><input type="text" placeholder="Nombre" value="${esc(a.nombre||'')}" oninput="_mcAcompanantes[${i}].nombre=this.value"></div>
-        <div class="form-group" style="margin:0;"><input type="text" placeholder="Parentesco (esposo, hija…)" value="${esc(a.relacion||'')}" oninput="_mcAcompanantes[${i}].relacion=this.value"></div>
-        <div class="form-group" style="margin:0;"><input type="date" title="Fecha de nacimiento" value="${esc(a.fechaNacimiento||'')}" oninput="_mcAcompanantes[${i}].fechaNacimiento=this.value"></div>
-        <button type="button" class="btn btn-sm btn-danger" style="flex:0 0 auto;" onclick="_mcDelAcompanante(${i})" title="Quitar">&times;</button>
-    </div>`).join('');
+    const lbl=t=>`<label style="font-size:0.66rem;">${t}</label>`;
+    const sel=(i,k,opts)=>`<select onchange="_mcAcompanantes[${i}].${k}=this.value"><option value="">&mdash;</option>${opts.map(o=>`<option value="${o[0]}"${(_mcAcompanantes[i][k]||'')===o[0]?' selected':''}>${o[1]}</option>`).join('')}</select>`;
+    cont.innerHTML=_mcAcompanantes.map((a,i)=>{
+        const ed=_edadDesde(a.fechaNacimiento);
+        const extras=_mcAcompExtrasCount(a);
+        const open=!!a._open;
+        return `<div style="border:1px solid var(--border);border-radius:8px;padding:8px 10px 6px;margin-bottom:8px;background:#fafbfc;">
+        <div class="form-row" style="gap:6px;align-items:flex-end;">
+            <div class="form-group" style="margin:0;flex:1.6;">${lbl('Nombre completo (como en el pasaporte)')}<input type="text" placeholder="Nombre y apellidos" value="${esc(a.nombre||'')}" oninput="_mcAcompanantes[${i}].nombre=this.value"></div>
+            <div class="form-group" style="margin:0;">${lbl('Parentesco')}<input type="text" placeholder="Esposo, hija, amiga…" value="${esc(a.relacion||'')}" oninput="_mcAcompanantes[${i}].relacion=this.value"></div>
+            <div class="form-group" style="margin:0;">${lbl('Fecha de nacimiento<span id="mcAcEdad_'+i+'">'+(ed!=null?' &middot; '+ed+' a&ntilde;os':'')+'</span>')}<input type="date" value="${esc(a.fechaNacimiento||'')}" oninput="_mcAcompanantes[${i}].fechaNacimiento=this.value;_mcAcompRefresh(${i})"></div>
+            <button type="button" class="btn btn-sm btn-danger" style="flex:0 0 auto;" onclick="_mcDelAcompanante(${i})" title="Quitar acompa&ntilde;ante">&times;</button>
+        </div>
+        <div style="display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-top:6px;">
+            <button type="button" class="btn btn-sm btn-ghost" style="padding:2px 8px;font-size:0.72rem;" onclick="_mcToggleAcomp(${i})">${open?'&#9662; Ocultar datos':'&#9656; M&aacute;s datos'}${(!open&&extras)?' ('+extras+' cargado'+(extras===1?'':'s')+')':''}</button>
+            <span id="mcAcPill_${i}">${_mcAcompPassPill(a.vencimientoPasaporte)}</span>
+        </div>
+        <div style="display:${open?'block':'none'};padding-top:8px;">
+            <div class="form-row" style="gap:6px;">
+                <div class="form-group" style="margin:0;flex:0.7;">${lbl('Sexo')}${sel(i,'sexo',[['F','Femenino'],['M','Masculino']])}</div>
+                <div class="form-group" style="margin:0;flex:0.8;">${lbl('Tipo documento')}${sel(i,'tipoDoc',[['cedula','C&eacute;dula'],['pasaporte','Pasaporte'],['otro','Otro']])}</div>
+                <div class="form-group" style="margin:0;">${lbl('N&uacute;mero documento')}<input type="text" value="${esc(a.numeroDoc||'')}" oninput="_mcAcompanantes[${i}].numeroDoc=this.value"></div>
+                <div class="form-group" style="margin:0;">${lbl('Nacionalidad')}<input type="text" value="${esc(a.nacionalidad||'')}" oninput="_mcAcompanantes[${i}].nacionalidad=this.value"></div>
+            </div>
+            <div class="form-row" style="gap:6px;margin-top:6px;">
+                <div class="form-group" style="margin:0;">${lbl('N&ordm; pasaporte')}<input type="text" value="${esc(a.numeroPasaporte||'')}" oninput="_mcAcompanantes[${i}].numeroPasaporte=this.value"></div>
+                <div class="form-group" style="margin:0;">${lbl('Vencimiento pasaporte')}<input type="date" value="${esc(a.vencimientoPasaporte||'')}" oninput="_mcAcompanantes[${i}].vencimientoPasaporte=this.value;_mcAcompRefresh(${i})"></div>
+                <div class="form-group" style="margin:0;">${lbl('Tel&eacute;fono')}<input type="text" placeholder="8888-8888" value="${esc(a.telefono||'')}" oninput="_mcAcompanantes[${i}].telefono=this.value"></div>
+                <div class="form-group" style="margin:0;">${lbl('Email')}<input type="email" placeholder="correo@ejemplo.com" value="${esc(a.email||'')}" oninput="_mcAcompanantes[${i}].email=this.value"></div>
+            </div>
+            <div class="form-row" style="gap:6px;margin-top:6px;">
+                <div class="form-group" style="margin:0;">${lbl('Programa viajero - Aerol&iacute;nea')}<input type="text" value="${esc(a.vfAerolinea||'')}" oninput="_mcAcompanantes[${i}].vfAerolinea=this.value"></div>
+                <div class="form-group" style="margin:0;">${lbl('N&ordm; viajero frecuente')}<input type="text" value="${esc(a.vfNumero||'')}" oninput="_mcAcompanantes[${i}].vfNumero=this.value"></div>
+                <div class="form-group" style="margin:0;flex:2;">${lbl('Dieta / alergias / necesidades especiales')}<input type="text" placeholder="Ej: cel&iacute;aca, silla de ruedas, medicaci&oacute;n, menor viaja sin ambos padres" value="${esc(a.notas||'')}" oninput="_mcAcompanantes[${i}].notas=this.value"></div>
+            </div>
+        </div>
+    </div>`;}).join('');
 }
-function _mcAddAcompanante(){_mcAcompanantes.push({nombre:'',relacion:'',fechaNacimiento:''});_mcRenderAcompanantes();}
+function _mcAddAcompanante(){_mcAcompanantes.push({nombre:'',relacion:'',fechaNacimiento:'',_open:true});_mcRenderAcompanantes();}
 function _mcDelAcompanante(i){_mcAcompanantes.splice(i,1);_mcRenderAcompanantes();}
+function _mcToggleAcomp(i){if(_mcAcompanantes[i])_mcAcompanantes[i]._open=!_mcAcompanantes[i]._open;_mcRenderAcompanantes();}
+// Resumen de un acompañante para la ficha (vista de solo lectura)
+function _acompDetalleHtml(a){
+    if(!a)return '';
+    const ed=_edadDesde(a.fechaNacimiento);
+    const paren=[a.relacion?esc(a.relacion):'',ed!=null?ed+' a&ntilde;os':''].filter(Boolean).join(', ');
+    const det=[];
+    if(a.numeroDoc)det.push((a.tipoDoc==='pasaporte'?'Pasaporte ':a.tipoDoc==='cedula'?'C&eacute;dula ':'Doc. ')+esc(a.numeroDoc));
+    if(a.nacionalidad)det.push(esc(a.nacionalidad));
+    if(a.numeroPasaporte||a.vencimientoPasaporte){let s='Pasaporte '+esc(a.numeroPasaporte||'&mdash;');if(a.vencimientoPasaporte){s+=' vence '+fmtFechaCorta(String(a.vencimientoPasaporte).slice(0,10));const pill=_mcAcompPassPill(a.vencimientoPasaporte);if(pill)s+=' '+pill;}det.push(s);}
+    if(a.telefono)det.push('Tel: '+esc(a.telefono));
+    if(a.email)det.push(esc(a.email));
+    if(a.vfAerolinea||a.vfNumero)det.push('VF '+esc(a.vfAerolinea||'')+(a.vfNumero?' &middot;&middot;&middot;&middot;'+esc(String(a.vfNumero).slice(-3)):''));
+    if(a.notas)det.push('&#9888; '+esc(a.notas));
+    return `<div style="margin-bottom:6px;"><div>${esc(a.nombre||'')}${paren?' <span style="color:var(--text-light);">('+paren+')</span>':''}</div>${det.length?`<div style="font-size:0.76rem;color:var(--text-light);line-height:1.6;">${det.join(' &middot; ')}</div>`:''}</div>`;
+}
 function _mcRenderPasaporteAlerta(venc){
     const el=document.getElementById('mcPasaporteAlerta');
     if(!el)return;
@@ -11204,7 +11277,7 @@ function renderClienteView(c){
     let nacLine='<span style="color:var(--text-light);">—</span>';
     if(c.fechaNacimiento){const iso=String(c.fechaNacimiento).slice(0,10);nacLine='Nace '+fmtFechaCorta(iso);const ct=_diasAlCumple(iso);if(ct)nacLine+=' <span style="color:var(--text-light);font-size:0.8rem;">('+ct+')</span>';}
     const vf=(c.viajeroProgramaAerolinea||c.viajeroProgramaNumero)?(esc(c.viajeroProgramaAerolinea||'')+(c.viajeroProgramaNumero?' ····'+esc(String(c.viajeroProgramaNumero).slice(-3)):'')):'<span style="color:var(--text-light);">—</span>';
-    const acmp=(Array.isArray(c.acompanantes)&&c.acompanantes.length)?c.acompanantes.map(a=>{const ed=_edadDesde(a.fechaNacimiento);const paren=[a.relacion?esc(a.relacion):'',ed!=null?ed:''].filter(x=>x!=='').join(', ');return esc(a.nombre||'')+(paren?' ('+paren+')':'');}).join('<br>'):'<span style="color:var(--text-light);">—</span>';
+    const acmp=(Array.isArray(c.acompanantes)&&c.acompanantes.length)?c.acompanantes.map(_acompDetalleHtml).join(''):'<span style="color:var(--text-light);">—</span>';
     const hayEmerg=c.emergenciaNombre||c.emergenciaTelefono;
     document.getElementById('mcvViajero').innerHTML=`<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
         <div>${sl('&#128188;','Documento de viaje')}${pasaporteLine}<div style="margin-top:12px;">${sl('&#127874;','Fechas clave')}<div style="font-size:0.86rem;line-height:1.9;">${nacLine}</div></div></div>
@@ -11378,7 +11451,7 @@ function guardarCliente(){
         personas:(document.getElementById('mcPersonas')||{}).value||'',
         emergenciaNombre:document.getElementById('mcEmergNombre').value||'',
         emergenciaTelefono:document.getElementById('mcEmergTelefono').value||'',
-        acompanantes:_mcAcompanantes.filter(a=>(a.nombre||'').trim()).map(a=>({nombre:(a.nombre||'').trim(),relacion:(a.relacion||'').trim(),fechaNacimiento:a.fechaNacimiento||''})),
+        acompanantes:_mcAcompanantes.filter(a=>(a.nombre||'').trim()).map(_mcAcompLimpio),
         prefAsiento:document.getElementById('mcPrefAsiento').value||'',
         prefContacto:document.getElementById('mcPrefContacto').value||'',
         prefComida:document.getElementById('mcPrefComida').value||'',
