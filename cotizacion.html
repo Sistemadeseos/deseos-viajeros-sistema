@@ -1250,7 +1250,7 @@ onAuthStateChanged(fbAuth, (user) => {
 
 <!-- VIEW: CLIENTES Y CONTACTOS (unificado, con filtro) -->
 <div class="app-view view-list" id="viewClientes">
-    <div class="list-search"><div class="cal-seg" id="clientesFiltroSeg"><button class="active" data-ctf="todos" onclick="setClientesFiltro('todos')">Todos</button><button data-ctf="contactos" onclick="setClientesFiltro('contactos')">Contactos</button><button data-ctf="clientes" onclick="setClientesFiltro('clientes')">Clientes</button></div><input type="text" id="clientesSearch" placeholder="Buscar por nombre, email, documento..." oninput="renderClientes()"><select id="clientesFilterCreador" onchange="onContactosFilterCreadorChange()"><option value="">Todos los que ingresaron</option></select><select id="clientesFilterCategoria" onchange="renderClientes()"><option value="">Todas las categor&iacute;as</option><option value="diamante">Diamante</option><option value="platino">Platino</option><option value="oro">Oro</option><option value="plata">Plata</option><option value="bronce">Bronce</option><option value="__sin">Sin categor&iacute;a</option></select></div>
+    <div class="list-search"><div class="cal-seg" id="clientesFiltroSeg"><button class="active" data-ctf="todos" onclick="setClientesFiltro('todos')">Todos</button><button data-ctf="contactos" onclick="setClientesFiltro('contactos')">Contactos</button><button data-ctf="clientes" onclick="setClientesFiltro('clientes')">Clientes</button><button data-ctf="acompanantes" onclick="setClientesFiltro('acompanantes')">Acompa&ntilde;antes</button></div><input type="text" id="clientesSearch" placeholder="Buscar por nombre, email, documento..." oninput="renderClientes()"><select id="clientesFilterCreador" onchange="onContactosFilterCreadorChange()"><option value="">Todos los que ingresaron</option></select><select id="clientesFilterCategoria" onchange="renderClientes()"><option value="">Todas las categor&iacute;as</option><option value="diamante">Diamante</option><option value="platino">Platino</option><option value="oro">Oro</option><option value="plata">Plata</option><option value="bronce">Bronce</option><option value="__sin">Sin categor&iacute;a</option></select></div>
     <div class="list-view" id="clientesGrid"></div>
 </div>
 
@@ -9976,7 +9976,7 @@ function autoCreateCliente(data){
 }
 
 // Renderiza la tabla de contactos. mode='contactos' (sin ventas) | 'clientes' (con al menos una venta).
-let _clientesFiltroTipo='todos'; // 'todos' | 'contactos' | 'clientes'
+let _clientesFiltroTipo='todos'; // 'todos' | 'contactos' | 'clientes' | 'acompanantes'
 function setClientesFiltro(t){
     _clientesFiltroTipo=t;
     const seg=document.getElementById('clientesFiltroSeg');
@@ -10032,7 +10032,10 @@ function renderListadoContactos(){
     }
     const filterCreador=document.getElementById('clientesFilterCreador')?.value||'';
     const filterCat=document.getElementById('clientesFilterCategoria')?.value||'';
-    const filtered=base.filter(c=>{const text=[c.nombreCompleto,c.email,c.telefono,c.numeroDocumento,c.empresa,c.estado,c.origen,(c.etiquetas||[]).join(' ')].join(' ').toLowerCase();const matchSearch=!search||text.includes(search);const matchCre=!filterCreador||creadorNombreDe(c)===filterCreador;const matchCat=!filterCat||(filterCat==='__sin'?!c.categoria:c.categoria===filterCat);return matchSearch&&matchCre&&matchCat;});
+    if(tipo==='acompanantes'){_renderListadoAcompanantes(clientes,search,filterCreador,filterCat,creadorNombreDe,grid);return;}
+    // Acompañantes que coinciden con la búsqueda (para encontrar al titular buscando por el nombre del acompañante)
+    const acompMatch=c=>!search?[]:(Array.isArray(c.acompanantes)?c.acompanantes:[]).filter(a=>a&&String(a.nombre||'').toLowerCase().includes(search));
+    const filtered=base.filter(c=>{const text=[c.nombreCompleto,c.email,c.telefono,c.numeroDocumento,c.empresa,c.estado,c.origen,(c.etiquetas||[]).join(' ')].join(' ').toLowerCase();const matchSearch=!search||text.includes(search)||acompMatch(c).length>0;const matchCre=!filterCreador||creadorNombreDe(c)===filterCreador;const matchCat=!filterCat||(filterCat==='__sin'?!c.categoria:c.categoria===filterCat);return matchSearch&&matchCre&&matchCat;});
     if(!filtered.length){
         const titulo=search?'Sin resultados':(tipo==='clientes'?'Sin clientes':(tipo==='contactos'?'Sin contactos':'Sin personas'));
         const subt=tipo==='clientes'?'Una persona pasa a Cliente cuando se le registra una venta.':'Los contactos se crean al guardar cotizaciones o manualmente.';
@@ -10052,8 +10055,9 @@ function renderListadoContactos(){
         const estadoBadge=`<span class="estado-badge st-${estado}">${esc(estadoLabels[estado]||estado)}</span>`;
         const origenTxt=c.origen&&origenLabels[c.origen]?esc(origenLabels[c.origen]):'<span style="color:var(--text-light);">-</span>';
         const etiquetasHtml=Array.isArray(c.etiquetas)&&c.etiquetas.length?`<div style="margin-top:3px;display:flex;flex-wrap:wrap;gap:3px;">${c.etiquetas.map(t=>`<span style="font-size:0.62rem;padding:1px 7px;border-radius:10px;background:var(--primary-light);color:var(--primary-dark);font-weight:600;">${esc(t)}</span>`).join('')}</div>`:'';
+        const acompHtml=acompMatch(c).map(a=>`<div class="lt-secondary">&#128101; Acompa&ntilde;ante: <span class="cliente-link" onclick="openClienteModalTab('${c.id}','viajero')">${esc(a.nombre)}</span>${a.relacion?' ('+esc(a.relacion)+')':''}</div>`).join('');
         return`<tr>
-        <td><div class="lt-nombre"><span class="cliente-link" onclick="openClienteModal('${c.id}')">${esc(c.nombreCompleto||'-')}</span> ${tipoChip}${catChip}</div>${c.asignadoA?`<div class="lt-secondary">Asignado: ${esc(_asignadoNombre(c.asignadoA))}</div>`:''}${etiquetasHtml}</td>
+        <td><div class="lt-nombre"><span class="cliente-link" onclick="openClienteModal('${c.id}')">${esc(c.nombreCompleto||'-')}</span> ${tipoChip}${catChip}</div>${c.asignadoA?`<div class="lt-secondary">Asignado: ${esc(_asignadoNombre(c.asignadoA))}</div>`:''}${acompHtml}${etiquetasHtml}</td>
         <td>${estadoBadge}</td>
         <td>${origenTxt}</td>
         <td>${c.email?esc(c.email):'<span style="color:var(--text-light);">-</span>'}</td>
@@ -10077,6 +10081,54 @@ function renderListadoContactos(){
         <tbody>${rows}</tbody>
     </table>`;
 }
+// Pestaña "Acompañantes" de la lista: junta los acompañantes cargados en todas las fichas (no son contactos propios).
+function _renderListadoAcompanantes(clientes,search,filterCreador,filterCat,creadorNombreDe,grid){
+    const rows=[];
+    clientes.forEach(c=>{
+        if(!c||!Array.isArray(c.acompanantes)||!c.acompanantes.length)return;
+        if(filterCreador&&creadorNombreDe(c)!==filterCreador)return;
+        if(filterCat&&(filterCat==='__sin'?!!c.categoria:c.categoria!==filterCat))return;
+        c.acompanantes.forEach(a=>{
+            if(!a||!String(a.nombre||'').trim())return;
+            const text=[a.nombre,a.relacion,a.numeroDoc,a.numeroPasaporte,a.email,a.telefono,a.nacionalidad,c.nombreCompleto].join(' ').toLowerCase();
+            if(search&&!text.includes(search))return;
+            rows.push({a,c});
+        });
+    });
+    rows.sort((x,y)=>String(x.a.nombre||'').localeCompare(String(y.a.nombre||''),'es'));
+    if(!rows.length){
+        grid.innerHTML=`<div class="grid-empty"><h3>${search?'Sin resultados':'Sin acompañantes'}</h3><p>Los acompañantes se cargan desde la ficha de cada cliente: Editar &rarr; pestaña Viajero &rarr; Acompañantes / grupo familiar.</p></div>`;return;
+    }
+    const dash='<span style="color:var(--text-light);">-</span>';
+    const html=rows.map(({a,c})=>{
+        const ed=_edadDesde(a.fechaNacimiento);
+        const pill=_mcAcompPassPill(a.vencimientoPasaporte);
+        const docTxt=a.numeroDoc?((a.tipoDoc==='pasaporte'?'Pas. ':a.tipoDoc==='cedula'?'C&eacute;d. ':'')+esc(a.numeroDoc)):dash;
+        return `<tr>
+        <td><div class="lt-nombre"><span class="cliente-link" onclick="openClienteModalTab('${c.id}','viajero')">${esc(a.nombre)}</span></div>${a.relacion?`<div class="lt-secondary">${esc(a.relacion)}</div>`:''}${a.notas?`<div class="lt-secondary">&#9888; ${esc(a.notas)}</div>`:''}</td>
+        <td><span class="cliente-link" onclick="openClienteModal('${c.id}')">${esc(c.nombreCompleto||'-')}</span></td>
+        <td>${ed!=null?ed+' a&ntilde;os':dash}${a.fechaNacimiento?`<div class="lt-secondary">${esc(fmtFechaCorta(String(a.fechaNacimiento).slice(0,10)))}</div>`:''}</td>
+        <td>${docTxt}${a.nacionalidad?`<div class="lt-secondary">${esc(a.nacionalidad)}</div>`:''}</td>
+        <td>${a.numeroPasaporte?esc(a.numeroPasaporte):dash}${a.vencimientoPasaporte?`<div class="lt-secondary">vence ${esc(fmtFechaCorta(String(a.vencimientoPasaporte).slice(0,10)))}${pill?' '+pill:''}</div>`:''}</td>
+        <td>${a.telefono?esc(a.telefono):dash}${a.email?`<div class="lt-secondary">${esc(a.email)}</div>`:''}</td>
+        <td><div class="lt-actions"><button class="btn btn-sm btn-primary" onclick="openClienteModalTab('${c.id}','viajero')">Ver ficha</button></div></td>
+        </tr>`;
+    }).join('');
+    grid.innerHTML=`<table class="list-table">
+        <thead><tr>
+            <th>Acompa&ntilde;ante</th>
+            <th>Acompa&ntilde;a a</th>
+            <th>Edad</th>
+            <th>Documento</th>
+            <th>Pasaporte</th>
+            <th>Contacto</th>
+            <th>Acciones</th>
+        </tr></thead>
+        <tbody>${html}</tbody>
+    </table>`;
+}
+// Abre la ficha de un contacto directamente en una pestaña de la vista (datos | actividad | viajero | prefs)
+function openClienteModalTab(id,tab){openClienteModal(id);if(tab)mcvSwitchTab(tab);}
 function renderClientes(){renderListadoContactos();}
 function renderClientesVentas(){renderListadoContactos();}
 
