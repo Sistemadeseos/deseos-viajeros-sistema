@@ -2805,7 +2805,7 @@ function updateBadges(){
     const contactosCount=c.filter(x=>!idsConVenta.has(x.id)).length;
     const clientesCount=c.filter(x=>idsConVenta.has(x.id)).length;
     const bh=document.getElementById('badgeHistorial'),bv=document.getElementById('badgeVentas'),bc=document.getElementById('badgeClientes'),bcv=document.getElementById('badgeClientesVentas');
-    bh.textContent=h.length||'';bv.textContent=v.length||'';bc.textContent=c.length||'';if(bcv)bcv.textContent=clientesCount||'';
+    bh.textContent=h.length||'';bv.textContent=v.length||'';bc.textContent=c.filter(x=>!_esContactoAcomp(x)).length||'';if(bcv)bcv.textContent=clientesCount||'';
     const bt=document.getElementById('badgeTareas');
     if(bt){try{bt.textContent=_tareasPendientesCount()||'';}catch(e){bt.textContent='';}}
 }
@@ -9991,7 +9991,7 @@ function renderListadoContactos(){
     const grid=document.getElementById('clientesGrid');
     if(!grid)return;
     const search=(document.getElementById('clientesSearch')?.value||'').toLowerCase();
-    const base=clientes.filter(c=>{if(tipo==='contactos')return !idsConVenta.has(c.id);if(tipo==='clientes')return idsConVenta.has(c.id);return true;});
+    const base=clientes.filter(c=>{if(_esContactoAcomp(c))return false;if(tipo==='contactos')return !idsConVenta.has(c.id);if(tipo==='clientes')return idsConVenta.has(c.id);return true;});
     // Helper para obtener quien creo el contacto (con fallback a bitacora vieja o asignadoA)
     const creadorEmailDe=c=>{
         if(c.creadoPor)return c.creadoPor;
@@ -10084,34 +10084,49 @@ function renderListadoContactos(){
 // Pestaña "Acompañantes" de la lista: junta los acompañantes cargados en todas las fichas (no son contactos propios).
 function _renderListadoAcompanantes(clientes,search,filterCreador,filterCat,creadorNombreDe,grid){
     const rows=[];
+    const byId=new Map(clientes.map(x=>[x.id,x]));
+    const vinculados=new Set();
+    const pasaFiltros=c=>!(filterCreador&&creadorNombreDe(c)!==filterCreador)&&!(filterCat&&(filterCat==='__sin'?!!c.categoria:c.categoria!==filterCat));
+    const pasaBusqueda=(a,c)=>!search||[a.nombre,a.relacion,a.numeroDoc,a.numeroPasaporte,a.email,a.telefono,a.nacionalidad,c?c.nombreCompleto:''].join(' ').toLowerCase().includes(search);
     clientes.forEach(c=>{
         if(!c||!Array.isArray(c.acompanantes)||!c.acompanantes.length)return;
-        if(filterCreador&&creadorNombreDe(c)!==filterCreador)return;
-        if(filterCat&&(filterCat==='__sin'?!!c.categoria:c.categoria!==filterCat))return;
+        if(!pasaFiltros(c))return;
         c.acompanantes.forEach(a=>{
             if(!a||!String(a.nombre||'').trim())return;
-            const text=[a.nombre,a.relacion,a.numeroDoc,a.numeroPasaporte,a.email,a.telefono,a.nacionalidad,c.nombreCompleto].join(' ').toLowerCase();
-            if(search&&!text.includes(search))return;
-            rows.push({a,c});
+            const propio=a.contactoId?byId.get(a.contactoId):null;
+            if(propio){vinculados.add(propio.id);a=Object.assign({},a,_acompDesdeContacto(propio));}
+            if(!pasaBusqueda(a,c))return;
+            rows.push({a,c,propio});
         });
+    });
+    // Contactos con rol acompañante que no figuran en la lista de acompañantes de su titular
+    clientes.forEach(x=>{
+        if(!_esContactoAcomp(x)||vinculados.has(x.id))return;
+        const t=x.titularId?byId.get(x.titularId):null;
+        if(!pasaFiltros(t||x))return;
+        const a=_acompDesdeContacto(x);a.nombre=x.nombreCompleto||'';
+        if(!pasaBusqueda(a,t))return;
+        rows.push({a,c:t,propio:x});
     });
     rows.sort((x,y)=>String(x.a.nombre||'').localeCompare(String(y.a.nombre||''),'es'));
     if(!rows.length){
         grid.innerHTML=`<div class="grid-empty"><h3>${search?'Sin resultados':'Sin acompañantes'}</h3><p>Los acompañantes se cargan desde la ficha de cada cliente: Editar &rarr; pestaña Viajero &rarr; Acompañantes / grupo familiar.</p></div>`;return;
     }
     const dash='<span style="color:var(--text-light);">-</span>';
-    const html=rows.map(({a,c})=>{
+    const html=rows.map(({a,c,propio})=>{
         const ed=_edadDesde(a.fechaNacimiento);
         const pill=_mcAcompPassPill(a.vencimientoPasaporte);
         const docTxt=a.numeroDoc?((a.tipoDoc==='pasaporte'?'Pas. ':a.tipoDoc==='cedula'?'C&eacute;d. ':'')+esc(a.numeroDoc)):dash;
+        const abrir=propio?`openClienteModal('${propio.id}')`:(c?`openClienteModalTab('${c.id}','viajero')`:'');
+        const chipPropio=propio?' <span class="lt-badge" style="background:#e1f5ee;color:#0f6e56;">Ficha propia</span>':'';
         return `<tr>
-        <td><div class="lt-nombre"><span class="cliente-link" onclick="openClienteModalTab('${c.id}','viajero')">${esc(a.nombre)}</span></div>${a.relacion?`<div class="lt-secondary">${esc(a.relacion)}</div>`:''}${a.notas?`<div class="lt-secondary">&#9888; ${esc(a.notas)}</div>`:''}</td>
-        <td><span class="cliente-link" onclick="openClienteModal('${c.id}')">${esc(c.nombreCompleto||'-')}</span></td>
+        <td><div class="lt-nombre"><span class="cliente-link" onclick="${abrir}">${esc(a.nombre)}</span>${chipPropio}</div>${a.relacion?`<div class="lt-secondary">${esc(a.relacion)}</div>`:''}${a.notas?`<div class="lt-secondary">&#9888; ${esc(a.notas)}</div>`:''}</td>
+        <td>${c?`<span class="cliente-link" onclick="openClienteModal('${c.id}')">${esc(c.nombreCompleto||'-')}</span>`:dash}</td>
         <td>${ed!=null?ed+' a&ntilde;os':dash}${a.fechaNacimiento?`<div class="lt-secondary">${esc(fmtFechaCorta(String(a.fechaNacimiento).slice(0,10)))}</div>`:''}</td>
         <td>${docTxt}${a.nacionalidad?`<div class="lt-secondary">${esc(a.nacionalidad)}</div>`:''}</td>
         <td>${a.numeroPasaporte?esc(a.numeroPasaporte):dash}${a.vencimientoPasaporte?`<div class="lt-secondary">vence ${esc(fmtFechaCorta(String(a.vencimientoPasaporte).slice(0,10)))}${pill?' '+pill:''}</div>`:''}</td>
         <td>${a.telefono?esc(a.telefono):dash}${a.email?`<div class="lt-secondary">${esc(a.email)}</div>`:''}</td>
-        <td><div class="lt-actions"><button class="btn btn-sm btn-primary" onclick="openClienteModalTab('${c.id}','viajero')">Ver ficha</button></div></td>
+        <td><div class="lt-actions"><button class="btn btn-sm btn-primary" onclick="${abrir}">${propio?'Abrir':'Ver ficha'}</button></div></td>
         </tr>`;
     }).join('');
     grid.innerHTML=`<table class="list-table">
@@ -10129,6 +10144,84 @@ function _renderListadoAcompanantes(clientes,search,filterCreador,filterCat,crea
 }
 // Abre la ficha de un contacto directamente en una pestaña de la vista (datos | actividad | viajero | prefs)
 function openClienteModalTab(id,tab){openClienteModal(id);if(tab)mcvSwitchTab(tab);}
+// ===== Acompañantes con ficha propia (rol 'acompanante' + titularId) =====
+// Un contacto es "acompañante" cuando c.rolContacto==='acompanante'. Se oculta de Todos/Contactos/Clientes
+// y se ve en la pestaña Acompañantes. c.titularId apunta al titular; en la ficha del titular,
+// acompanantes[i].contactoId apunta a la ficha propia del acompañante.
+function _esContactoAcomp(c){return !!(c&&c.rolContacto==='acompanante');}
+// Convierte un contacto a la forma de "acompañante" (para mostrar datos actualizados de la ficha propia)
+function _acompDesdeContacto(x){
+    if(!x)return {};
+    const o={nombre:x.nombreCompleto,fechaNacimiento:x.fechaNacimiento,tipoDoc:x.tipoDocumento,numeroDoc:x.numeroDocumento,nacionalidad:x.nacionalidad,numeroPasaporte:x.numeroPasaporte,vencimientoPasaporte:x.vencimientoPasaporte,telefono:x.telefono,email:x.email,vfAerolinea:x.viajeroProgramaAerolinea,vfNumero:x.viajeroProgramaNumero};
+    Object.keys(o).forEach(k=>{if(!String(o[k]||'').trim())delete o[k];});
+    return o;
+}
+function _acompRolBannerHtml(c){
+    if(!c||!c.titularId)return '';
+    const t=getClientes().find(x=>x.id===c.titularId);
+    const nomT=t?esc(t.nombreCompleto||'(sin nombre)'):'(contacto eliminado)';
+    const link=t?`<span class="cliente-link" onclick="openClienteModal('${t.id}')">Ver ficha de ${nomT}</span>`:'';
+    const esAc=_esContactoAcomp(c);
+    const txt=esAc?'Acompa&ntilde;ante de <strong>'+nomT+'</strong>':'Viaja con <strong>'+nomT+'</strong>';
+    const btn=esAc?`<button type="button" class="btn btn-sm btn-ghost" style="padding:2px 10px;font-size:0.72rem;" onclick="pasarATitular('${c.id}')">Pasar a titular</button>`:'';
+    return `<div style="display:flex;align-items:center;flex-wrap:wrap;gap:10px;background:#eef6f7;border:1px solid #cfe3e6;border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:0.84rem;"><span>&#128101; ${txt}</span>${link?'<span style="color:var(--text-light);">&middot;</span>'+link:''}${btn?'<span style="flex:1;"></span>'+btn:''}</div>`;
+}
+function crearContactoDesdeAcompanante(titularId,idx){
+    const clientes=getClientes();
+    const t=clientes.find(x=>x.id===titularId);
+    if(!t||!Array.isArray(t.acompanantes)||!t.acompanantes[idx]){alert('No se encontró el acompañante.');return;}
+    const a=t.acompanantes[idx];
+    const nombre=String(a.nombre||'').trim();
+    if(!nombre){alert('El acompañante no tiene nombre.');return;}
+    if(a.contactoId&&clientes.find(x=>x.id===a.contactoId)){openClienteModal(a.contactoId);return;}
+    const ahora=new Date().toISOString();
+    const usuarioEmail=(window.currentUser&&window.currentUser.email)||'';
+    const norm=s=>String(s||'').trim().toLowerCase();
+    // Si ya existe un contacto con el mismo documento, pasaporte o nombre, ofrecer vincularlo en vez de duplicar
+    const dup=clientes.find(x=>x.id!==titularId&&((a.numeroDoc&&norm(x.numeroDocumento)===norm(a.numeroDoc))||(a.numeroPasaporte&&norm(x.numeroPasaporte)===norm(a.numeroPasaporte))||norm(x.nombreCompleto)===norm(nombre)));
+    if(dup){
+        if(!confirm('Ya existe un contacto llamado "'+(dup.nombreCompleto||'')+'".\n\n¿Vincular ese contacto como acompañante de '+(t.nombreCompleto||'')+' en lugar de crear uno nuevo?'))return;
+        a.contactoId=dup.id;
+        if(!dup.titularId)dup.titularId=titularId;
+        const tieneVentas=getVentas().some(v=>v.clienteId===dup.id);
+        if(!tieneVentas&&!dup.rolContacto)dup.rolContacto='acompanante';
+        if(!Array.isArray(dup.bitacora))dup.bitacora=[];
+        dup.bitacora.push(makeBitacoraEntry('nota','Vinculado como acompañante de '+(t.nombreCompleto||''),{automatico:true}));
+        dup.fechaActualizacion=ahora;t.fechaActualizacion=ahora;
+        saveClientes(clientes);renderClientes();updateBadges();
+        openClienteModal(dup.id);return;
+    }
+    if(!confirm('Se va a crear una ficha propia para "'+nombre+'" con los datos ya cargados, marcada como acompañante de '+(t.nombreCompleto||'')+'.\n\n¿Continuar?'))return;
+    const nuevo={
+        id:Date.now().toString(),nombreCompleto:nombre,tipoDocumento:a.tipoDoc||'cedula',numeroDocumento:a.numeroDoc||'',nacionalidad:a.nacionalidad||t.nacionalidad||'',
+        fechaNacimiento:a.fechaNacimiento||'',telefono:a.telefono||'',email:a.email||'',direccion:t.direccion||'',empresa:'',
+        numeroPasaporte:a.numeroPasaporte||'',vencimientoPasaporte:a.vencimientoPasaporte||'',viajeroProgramaAerolinea:a.vfAerolinea||'',viajeroProgramaNumero:a.vfNumero||'',
+        notas:a.relacion?(a.relacion+' de '+(t.nombreCompleto||'')):'',prefComida:a.notas||'',
+        etiquetas:[],estado:'nuevo',origen:'',categoria:'',
+        rolContacto:'acompanante',titularId:titularId,
+        asignadoA:t.asignadoA||matchEncargadoDesdeEmail(usuarioEmail,cfgGet().encargados)||usuarioEmail,
+        creadoPor:usuarioEmail,fechaCaptura:ahora,fechaCreacion:ahora,fechaActualizacion:ahora,
+        bitacora:[makeBitacoraEntry('captura','Ficha creada desde los acompañantes de '+(t.nombreCompleto||''),{automatico:true})]
+    };
+    a.contactoId=nuevo.id;
+    t.fechaActualizacion=ahora;
+    if(!Array.isArray(t.bitacora))t.bitacora=[];
+    t.bitacora.push(makeBitacoraEntry('nota','Se creó ficha propia para el acompañante '+nombre,{automatico:true}));
+    clientes.unshift(nuevo);
+    saveClientes(clientes);renderClientes();updateBadges();
+    openClienteModal(nuevo.id);
+}
+function pasarATitular(id){
+    const clientes=getClientes();const c=clientes.find(x=>x.id===id);if(!c)return;
+    const t=clientes.find(x=>x.id===c.titularId);
+    if(!confirm('"'+(c.nombreCompleto||'')+'" va a pasar a ser cliente principal.\n\nAparecerá en la lista de Clientes como cualquier otro'+(t?' y seguirá vinculado a la ficha de '+(t.nombreCompleto||''):'')+'.\n\n¿Continuar?'))return;
+    c.rolContacto='';
+    c.fechaActualizacion=new Date().toISOString();
+    if(!Array.isArray(c.bitacora))c.bitacora=[];
+    c.bitacora.push(makeBitacoraEntry('nota','Pasó de acompañante a cliente principal',{automatico:true}));
+    saveClientes(clientes);renderClientes();updateBadges();
+    _mcMostrarVista(c);
+}
 function renderClientes(){renderListadoContactos();}
 function renderClientesVentas(){renderListadoContactos();}
 
@@ -11072,8 +11165,8 @@ function mcSwitchTab(name){
     document.querySelectorAll('#modalCliente .mc-pane').forEach(p=>p.classList.toggle('active',p.dataset.mcpane===name));
 }
 // Campos que se guardan por acompañante (los 3 primeros son los históricos; el resto se agregó después)
-const _MC_ACOMP_CAMPOS=['nombre','relacion','fechaNacimiento','sexo','tipoDoc','numeroDoc','nacionalidad','numeroPasaporte','vencimientoPasaporte','telefono','email','vfAerolinea','vfNumero','notas'];
-const _MC_ACOMP_EXTRAS=_MC_ACOMP_CAMPOS.slice(3);
+const _MC_ACOMP_CAMPOS=['nombre','relacion','fechaNacimiento','sexo','tipoDoc','numeroDoc','nacionalidad','numeroPasaporte','vencimientoPasaporte','telefono','email','vfAerolinea','vfNumero','notas','contactoId'];
+const _MC_ACOMP_EXTRAS=_MC_ACOMP_CAMPOS.slice(3,-1);
 function _mcAcompLimpio(a){const o={};_MC_ACOMP_CAMPOS.forEach(k=>{o[k]=String((a&&a[k])||'').trim();});return o;}
 function _mcAcompPassPill(venc){
     if(!venc)return '';
@@ -11136,8 +11229,14 @@ function _mcAddAcompanante(){_mcAcompanantes.push({nombre:'',relacion:'',fechaNa
 function _mcDelAcompanante(i){_mcAcompanantes.splice(i,1);_mcRenderAcompanantes();}
 function _mcToggleAcomp(i){if(_mcAcompanantes[i])_mcAcompanantes[i]._open=!_mcAcompanantes[i]._open;_mcRenderAcompanantes();}
 // Resumen de un acompañante para la ficha (vista de solo lectura)
-function _acompDetalleHtml(a){
+function _acompDetalleHtml(a,titularId,idx){
     if(!a)return '';
+    let accion='';
+    if(titularId!=null&&idx!=null){
+        const propio=a.contactoId?getClientes().find(x=>x.id===a.contactoId):null;
+        if(propio){a=Object.assign({},a,_acompDesdeContacto(propio));accion=` <span class="cliente-link" style="font-size:0.74rem;" onclick="openClienteModal('${propio.id}')">Ver ficha</span>`;}
+        else accion=` <button type="button" class="btn btn-sm btn-ghost" style="padding:1px 8px;font-size:0.68rem;" onclick="crearContactoDesdeAcompanante('${titularId}',${idx})">Crear contacto propio</button>`;
+    }
     const ed=_edadDesde(a.fechaNacimiento);
     const paren=[a.relacion?esc(a.relacion):'',ed!=null?ed+' a&ntilde;os':''].filter(Boolean).join(', ');
     const det=[];
@@ -11148,7 +11247,7 @@ function _acompDetalleHtml(a){
     if(a.email)det.push(esc(a.email));
     if(a.vfAerolinea||a.vfNumero)det.push('VF '+esc(a.vfAerolinea||'')+(a.vfNumero?' &middot;&middot;&middot;&middot;'+esc(String(a.vfNumero).slice(-3)):''));
     if(a.notas)det.push('&#9888; '+esc(a.notas));
-    return `<div style="margin-bottom:6px;"><div>${esc(a.nombre||'')}${paren?' <span style="color:var(--text-light);">('+paren+')</span>':''}</div>${det.length?`<div style="font-size:0.76rem;color:var(--text-light);line-height:1.6;">${det.join(' &middot; ')}</div>`:''}</div>`;
+    return `<div style="margin-bottom:6px;"><div>${esc(a.nombre||'')}${paren?' <span style="color:var(--text-light);">('+paren+')</span>':''}${accion}</div>${det.length?`<div style="font-size:0.76rem;color:var(--text-light);line-height:1.6;">${det.join(' &middot; ')}</div>`:''}</div>`;
 }
 function _mcRenderPasaporteAlerta(venc){
     const el=document.getElementById('mcPasaporteAlerta');
@@ -11283,7 +11382,7 @@ function renderClienteView(c){
     const asign=_asignadoNombre(c.asignadoA);
     const inic=((c.nombreCompleto||'?').trim().split(/\s+/).map(w=>w[0]||'').slice(0,2).join('')||'?').toUpperCase();
     const esCliente=ventas.length>0;
-    const estadoLbl=esCliente?'Cliente':((CONTACTO_ESTADOS.find(s=>s.id===_estadoContactoNorm(c.estado||'nuevo'))||{}).label||'Contacto');
+    const estadoLbl=esCliente?'Cliente':_esContactoAcomp(c)?'Acompañante':((CONTACTO_ESTADOS.find(s=>s.id===_estadoContactoNorm(c.estado||'nuevo'))||{}).label||'Contacto');
     const estadoBg=esCliente?'#e1f5ee':'var(--primary-light)',estadoCol=esCliente?'#0f6e56':'var(--primary-dark)';
     const esVip=Array.isArray(c.etiquetas)&&c.etiquetas.some(t=>/vip/i.test(t));
     const vipBadge=esVip?'<span style="font-size:0.7rem;padding:2px 10px;border-radius:20px;background:#faeeda;color:#854f0b;font-weight:700;">&#9733; VIP</span>':'';
@@ -11307,7 +11406,7 @@ function renderClienteView(c){
     let proxTxt='—';
     if(futuros.length){const pf=futuros[0];const pv=ventas.find(v=>String(v.fechaInicio||'').slice(0,10)===pf);proxTxt=pv?(_venta360Label(pv).split(' · ')[0]+' · '+fFmt(pf)):fFmt(pf);}
     const mcard=(lbl,val)=>`<div style="flex:1;min-width:118px;background:var(--bg);border-radius:10px;padding:10px 14px;"><div style="font-size:0.72rem;color:var(--text-light);">${lbl}</div><div style="font-size:1.15rem;font-weight:800;">${val}</div></div>`;
-    document.getElementById('mcvMetrics').innerHTML=`<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;">${mcard('Viajes',ventas.length)}${mcard('Histórico',fmtMoney(histTotal,monPrinc))}${mcard('Ticket prom.',nPrinc?fmtMoney(ticket,monPrinc):'—')}${mcard('Próximo viaje',proxTxt)}</div>`;
+    document.getElementById('mcvMetrics').innerHTML=_acompRolBannerHtml(c)+`<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;">${mcard('Viajes',ventas.length)}${mcard('Histórico',fmtMoney(histTotal,monPrinc))}${mcard('Ticket prom.',nPrinc?fmtMoney(ticket,monPrinc):'—')}${mcard('Próximo viaje',proxTxt)}</div>`;
     const V=v=>v?esc(v):'<span style="color:var(--text-light);">—</span>';
     const sl=(ic,tx)=>`<div style="font-size:0.8rem;font-weight:700;color:var(--text-light);margin:0 0 6px;">${ic} ${tx}</div>`;
     const kv=(k,v)=>`<div style="font-size:0.86rem;line-height:1.9;"><span style="color:var(--text-light);">${k}:</span> ${v}</div>`;
@@ -11329,7 +11428,7 @@ function renderClienteView(c){
     let nacLine='<span style="color:var(--text-light);">—</span>';
     if(c.fechaNacimiento){const iso=String(c.fechaNacimiento).slice(0,10);nacLine='Nace '+fmtFechaCorta(iso);const ct=_diasAlCumple(iso);if(ct)nacLine+=' <span style="color:var(--text-light);font-size:0.8rem;">('+ct+')</span>';}
     const vf=(c.viajeroProgramaAerolinea||c.viajeroProgramaNumero)?(esc(c.viajeroProgramaAerolinea||'')+(c.viajeroProgramaNumero?' ····'+esc(String(c.viajeroProgramaNumero).slice(-3)):'')):'<span style="color:var(--text-light);">—</span>';
-    const acmp=(Array.isArray(c.acompanantes)&&c.acompanantes.length)?c.acompanantes.map(_acompDetalleHtml).join(''):'<span style="color:var(--text-light);">—</span>';
+    const acmp=(Array.isArray(c.acompanantes)&&c.acompanantes.length)?c.acompanantes.map((a,i)=>_acompDetalleHtml(a,c.id,i)).join(''):'<span style="color:var(--text-light);">—</span>';
     const hayEmerg=c.emergenciaNombre||c.emergenciaTelefono;
     document.getElementById('mcvViajero').innerHTML=`<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
         <div>${sl('&#128188;','Documento de viaje')}${pasaporteLine}<div style="margin-top:12px;">${sl('&#127874;','Fechas clave')}<div style="font-size:0.86rem;line-height:1.9;">${nacLine}</div></div></div>
@@ -11522,6 +11621,10 @@ function guardarCliente(){
             obj.fechaCaptura=existing.fechaCaptura||existing.fechaCreacion||ahora;
             // Preservar bitacora existente
             obj.bitacora=Array.isArray(existing.bitacora)?existing.bitacora.slice():[];
+            // Conservar rol de acompañante, vínculo con el titular y quién lo creó
+            if(existing.rolContacto)obj.rolContacto=existing.rolContacto;
+            if(existing.titularId)obj.titularId=existing.titularId;
+            if(existing.creadoPor)obj.creadoPor=existing.creadoPor;
             // Auto-registro si cambio el estado
             const estadoAnterior=existing.estado||'nuevo';
             if(estadoAnterior!==obj.estado){
@@ -11587,7 +11690,13 @@ function eliminarCliente(id){
     const nV=getVentas().filter(v=>v.clienteId===id).length;
     if(nV>0){alert('Este contacto tiene '+nV+' venta(s) vinculada(s).\n\nPara no dejar ventas sin cliente, primero reasignalas (o elimin\u00e1 esas ventas) y despu\u00e9s borr\u00e1 el contacto.');return;}
     if(!confirm('\u00bfEliminar este contacto?'))return;
-    saveClientes(getClientes().filter(c=>c.id!==id));renderClientes();updateBadges();
+    const restantes=getClientes().filter(c=>c.id!==id);
+    // Limpiar vínculos titular/acompañante que apuntaban al contacto borrado
+    restantes.forEach(c=>{
+        if(c.titularId===id){c.titularId='';if(_esContactoAcomp(c))c.rolContacto='';}
+        if(Array.isArray(c.acompanantes))c.acompanantes.forEach(a=>{if(a&&a.contactoId===id)a.contactoId='';});
+    });
+    saveClientes(restantes);renderClientes();updateBadges();
 }
 
 // ===== MODALS =====
