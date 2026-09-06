@@ -5353,6 +5353,56 @@ function notifAbrirChecklist(notifId,ventaId){
     closeModal('modalNotif');
     abrirVentaDesdeDashboard(ventaId);
 }
+// ===== NOTIFICACIONES DEL ESCRITORIO =====
+// Con permiso del navegador, los mismos recordatorios salen como avisos del sistema (Windows/Mac),
+// aunque la pestaña esté detrás de otra ventana. Solo funcionan mientras el sistema esté abierto.
+function _deskSoportado(){return ('Notification' in window)&&typeof Notification.requestPermission==='function';}
+function _deskOn(){try{return localStorage.getItem('dv_desk_notif_on')!=='0';}catch(e){return true;}}
+function _deskSetOn(v){try{localStorage.setItem('dv_desk_notif_on',v?'1':'0');}catch(e){}}
+function _deskShownMap(){try{return JSON.parse(localStorage.getItem('dv_desk_notif_shown')||'{}')||{};}catch(e){return {};}}
+function _deskShownSave(m){try{localStorage.setItem('dv_desk_notif_shown',JSON.stringify(m));}catch(e){}}
+// Olvidar que ya se avisó (para que vuelva a avisar cuando termine la posposición)
+function _deskOlvidar(keys){const m=_deskShownMap();let ch=false;(Array.isArray(keys)?keys:[keys]).forEach(k=>{if(k in m){delete m[k];ch=true;}});if(ch)_deskShownSave(m);}
+function _deskIcono(){try{const l=cfgGet().agencyInfo&&cfgGet().agencyInfo.logo;if(typeof l==='string'&&/^(https?:|data:image)/.test(l))return l;}catch(e){}return undefined;}
+function _deskEstado(){if(!_deskSoportado())return 'nosoporta';try{return Notification.permission;}catch(e){return 'nosoporta';}}
+function deskActivar(){
+    if(!_deskSoportado()){alert('Este navegador no permite avisos del escritorio. En iPhone/iPad solo funcionan si el sistema está instalado como app en la pantalla de inicio.');return;}
+    let hecho=false;
+    const done=p=>{
+        if(hecho)return;hecho=true;
+        _deskSetOn(true);
+        try{renderRecordatorios(true);}catch(e){}
+        if(p==='granted')_deskMostrar([{key:'prueba',titulo:'Avisos del escritorio activados',detalle:'Así vas a ver los recordatorios de Deseos Viajeros aunque estés en otra ventana.'}],true);
+        else if(p==='denied')alert('El navegador bloqueó los avisos de este sitio. Para activarlos, hacé clic en el candado de la barra de direcciones y permití las notificaciones.');
+    };
+    try{const r=Notification.requestPermission(done);if(r&&typeof r.then==='function')r.then(done);}catch(e){console.error('[desk notif]',e);}
+}
+function _deskMostrar(items,esPrueba){
+    if(_deskEstado()!=='granted')return 0;
+    if(!esPrueba&&!_deskOn())return 0;
+    const shown=_deskShownMap();const now=Date.now();
+    const nuevos=esPrueba?items:items.filter(it=>!shown[it.key]);
+    if(!nuevos.length)return 0;
+    let n=0;const icono=_deskIcono();
+    nuevos.slice(0,3).forEach(it=>{
+        try{
+            const opts={body:it.detalle||'',tag:'dv_'+it.key};if(icono)opts.icon=icono;
+            const N=new Notification(it.titulo||'Recordatorio',opts);
+            N.onclick=function(){try{window.focus();}catch(e){}try{mostrarRecordatorios(true);}catch(e){}try{N.close();}catch(e){}};
+            n++;
+        }catch(e){console.error('[desk notif]',e);}
+    });
+    if(nuevos.length>3){try{new Notification('Y '+(nuevos.length-3)+' recordatorio'+(nuevos.length-3===1?'':'s')+' más',{body:'Abrí Deseos Viajeros para verlos.',tag:'dv_mas'});}catch(e){}}
+    if(!esPrueba){nuevos.forEach(it=>{shown[it.key]=now;});Object.keys(shown).forEach(k=>{if(now-shown[k]>7*86400000)delete shown[k];});_deskShownSave(shown);}
+    return n;
+}
+function _deskControlHtml(){
+    const e=_deskEstado();
+    if(e==='nosoporta')return '';
+    if(e==='granted')return `<label style="display:flex;align-items:center;gap:4px;font-size:0.72rem;margin:0;cursor:pointer;" title="Mostrar los recordatorios también como avisos del sistema"><input type="checkbox" ${_deskOn()?'checked':''} onchange="_deskSetOn(this.checked)"> Escritorio</label>`;
+    if(e==='denied')return `<span style="font-size:0.68rem;color:var(--text-light);" title="Bloqueaste los avisos de este sitio en el navegador. Se activan desde el candado de la barra de direcciones.">Escritorio: bloqueado</span>`;
+    return `<button type="button" class="btn btn-sm btn-ghost" style="padding:2px 8px;font-size:0.68rem;" onclick="deskActivar()" title="Recibir los recordatorios como avisos del sistema, aunque estés en otra ventana">&#128421;&#65039; Activar avisos del escritorio</button>`;
+}
 // ===== VENTANA DE RECORDATORIOS (estilo Outlook) =====
 // Aparece al entrar y cada _REC_INTERVALO_MIN minutos mientras haya pendientes del usuario actual:
 // avisos accionables (hitos, viajes próximos, tareas asignadas) y tareas propias vencidas o de hoy.
@@ -5393,11 +5443,19 @@ function _recTitleBlink(n){
     let flip=false;
     _recTitleTimer=setInterval(()=>{flip=!flip;document.title=flip?'('+n+') Recordatorios':_recTitleBase;},1500);
 }
-function renderRecordatorios(){
+function renderRecordatorios(mostrarVacia){
     const overlay=document.getElementById('modalRecordatorios');if(!overlay)return;
     const items=_recActivos();
     _recTitleBlink(items.length);
-    if(!items.length){overlay.classList.remove('open');return;}
+    const ctl=`<span style="display:flex;align-items:center;gap:10px;margin-left:auto;margin-right:10px;flex-wrap:wrap;">${_deskControlHtml()}<label style="display:flex;align-items:center;gap:4px;font-size:0.72rem;margin:0;cursor:pointer;" title="Sonido al aparecer"><input type="checkbox" ${_recSonidoOn()?'checked':''} onchange="_recSetSonido(this.checked)"> Sonido</label></span>`;
+    if(!items.length){
+        if(!mostrarVacia){overlay.classList.remove('open');return;}
+        overlay.innerHTML=`<div class="modal" style="max-width:560px;">
+        <div class="modal-header"><h3>&#9200; Recordatorios</h3>${ctl}<button class="modal-close" onclick="_recCerrar()">&times;</button></div>
+        <div class="modal-body"><div class="dash-empty" style="text-align:center;padding:30px 10px;color:var(--text-light);font-style:italic;">No ten&eacute;s recordatorios pendientes &#127881;</div>${_deskEstado()==='default'?'<p style="font-size:0.76rem;color:var(--text-light);text-align:center;">Consejo: activ&aacute; los avisos del escritorio para enterarte aunque est&eacute;s en otra ventana.</p>':''}</div>
+        <div class="modal-footer"><button class="btn btn-ghost" onclick="_recCerrar()">Cerrar</button></div></div>`;
+        overlay.classList.add('open');return;
+    }
     const col={danger:'#c0392b',warn:'#d4830f',info:'#0a7e8c'};
     const ico={danger:'&#9203;',warn:'&#128276;',info:'&#128203;'};
     const fila=it=>{
@@ -5416,7 +5474,7 @@ function renderRecordatorios(){
             </div></div>`;
     };
     overlay.innerHTML=`<div class="modal" style="max-width:560px;">
-        <div class="modal-header"><h3>&#9200; Recordatorios (${items.length})</h3><label style="display:flex;align-items:center;gap:4px;font-size:0.72rem;margin:0 10px 0 auto;cursor:pointer;" title="Sonido al aparecer"><input type="checkbox" ${_recSonidoOn()?'checked':''} onchange="_recSetSonido(this.checked)"> Sonido</label><button class="modal-close" onclick="recPosponerTodo(60)" title="Recordar en 1 hora">&times;</button></div>
+        <div class="modal-header"><h3>&#9200; Recordatorios (${items.length})</h3>${ctl}<button class="modal-close" onclick="recPosponerTodo(60)" title="Recordar en 1 hora">&times;</button></div>
         <div class="modal-body" style="background:var(--bg);">${items.map(fila).join('')}</div>
         <div class="modal-footer" style="justify-content:space-between;flex-wrap:wrap;gap:8px;"><span style="font-size:0.72rem;color:var(--text-light);">Vuelve a aparecer cada ${_REC_INTERVALO_MIN} minutos mientras haya pendientes.</span><span style="display:flex;gap:6px;"><button class="btn btn-ghost" onclick="recPosponerTodo(60)">Recordar en 1 hora</button><button class="btn btn-ghost" onclick="recPosponerTodo('manana')">Hasta ma&ntilde;ana</button></span></div>
     </div>`;
@@ -5424,15 +5482,17 @@ function renderRecordatorios(){
 }
 function mostrarRecordatorios(forzar){
     if(!window.currentUser)return false;
-    // Sin pedido explícito, no interrumpir si hay otro cuadro abierto (se reintenta en el próximo ciclo)
-    if(!forzar){const otro=Array.from(document.querySelectorAll('.modal-overlay.open')).some(o=>o.id!=='modalRecordatorios');if(otro)return false;}
     try{generarNotificacionesViajesProximos();}catch(e){}
     try{generarNotificacionesHitos();}catch(e){}
     try{_limpiarNotifObsoletas();}catch(e){}
     try{renderNotifBell();}catch(e){}
     const items=_recActivos();
     _recTitleBlink(items.length);
-    if(!items.length){if(forzar)alert('No tenés recordatorios pendientes.');return false;}
+    // Avisos del sistema (solo los nuevos), aunque la ventana no llegue a abrirse
+    if(!forzar){try{_deskMostrar(items,false);}catch(e){}}
+    // Sin pedido explícito, no interrumpir si hay otro cuadro abierto (se reintenta en el próximo ciclo)
+    if(!forzar){const otro=Array.from(document.querySelectorAll('.modal-overlay.open')).some(o=>o.id!=='modalRecordatorios');if(otro)return false;}
+    if(!items.length){if(forzar)renderRecordatorios(true);return false;}
     const ov=document.getElementById('modalRecordatorios');
     const yaAbierta=!!(ov&&ov.classList.contains('open'));
     renderRecordatorios();
@@ -5440,8 +5500,8 @@ function mostrarRecordatorios(forzar){
     return true;
 }
 function _recUntil(val){if(val==='manana'){const d=new Date();d.setDate(d.getDate()+1);d.setHours(8,0,0,0);return d.getTime();}return Date.now()+(parseInt(val,10)||60)*60000;}
-function recPosponer(key,val){const m=_recSnoozeMap();m[key]=_recUntil(val);_recSnoozeSave(m);renderRecordatorios();}
-function recPosponerTodo(val){const m=_recSnoozeMap();const u=_recUntil(val);_recActivos().forEach(it=>{m[it.key]=u;});_recSnoozeSave(m);renderRecordatorios();}
+function recPosponer(key,val){const m=_recSnoozeMap();m[key]=_recUntil(val);_recSnoozeSave(m);_deskOlvidar(key);renderRecordatorios();}
+function recPosponerTodo(val){const m=_recSnoozeMap();const u=_recUntil(val);const act=_recActivos();act.forEach(it=>{m[it.key]=u;});_recSnoozeSave(m);_deskOlvidar(act.map(it=>it.key));renderRecordatorios();}
 function recMarcarHecho(notifId){
     const arr=getNotificaciones().map(x=>Object.assign({},x));
     const n=arr.find(x=>x.id===notifId);
@@ -5451,9 +5511,9 @@ function recMarcarHecho(notifId){
 }
 function _recCerrar(){const ov=document.getElementById('modalRecordatorios');if(ov)ov.classList.remove('open');}
 // Abrir un ítem lo pospone 1 hora (para no volver a molestar mientras se resuelve)
-function recAbrirVenta(key,notifId,ventaId){const m=_recSnoozeMap();m[key]=_recUntil(60);_recSnoozeSave(m);_recCerrar();notifAbrirChecklist(notifId,ventaId);}
-function recAbrirTareaNotif(key,notifId,tareaId){const m=_recSnoozeMap();m[key]=_recUntil(60);_recSnoozeSave(m);_recCerrar();notifAbrirTarea(notifId,tareaId);}
-function recAbrirTarea(tareaId){const m=_recSnoozeMap();m['t:'+tareaId]=_recUntil(60);_recSnoozeSave(m);_recCerrar();nav('tareas');setTimeout(()=>{try{openTareaDetalle(tareaId);}catch(e){console.error('[tarea]',e);}},0);}
+function recAbrirVenta(key,notifId,ventaId){const m=_recSnoozeMap();m[key]=_recUntil(60);_recSnoozeSave(m);_deskOlvidar(key);_recCerrar();notifAbrirChecklist(notifId,ventaId);}
+function recAbrirTareaNotif(key,notifId,tareaId){const m=_recSnoozeMap();m[key]=_recUntil(60);_recSnoozeSave(m);_deskOlvidar(key);_recCerrar();notifAbrirTarea(notifId,tareaId);}
+function recAbrirTarea(tareaId){const m=_recSnoozeMap();m['t:'+tareaId]=_recUntil(60);_recSnoozeSave(m);_deskOlvidar('t:'+tareaId);_recCerrar();nav('tareas');setTimeout(()=>{try{openTareaDetalle(tareaId);}catch(e){console.error('[tarea]',e);}},0);}
 function recAbrirCampana(){_recCerrar();openNotifPanel();}
 function iniciarRecordatorios(){
     if(_recTimer)clearInterval(_recTimer);
