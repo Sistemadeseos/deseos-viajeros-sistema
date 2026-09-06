@@ -1559,7 +1559,7 @@ onAuthStateChanged(fbAuth, (user) => {
     <input type="hidden" id="clVentaId">
     <div class="form-group" style="margin-bottom:12px;"><label>Estado de la venta</label><select id="clEstado" onchange="updateVentaEstado()"><option value="pendiente">Pendiente</option><option value="en_proceso">En proceso</option><option value="completada">Completada</option><option value="cancelada">Cancelada</option></select></div>
     <div class="form-row" style="margin-bottom:8px;"><div class="form-group" style="margin:0;"><label>Aerol&iacute;nea</label><select id="clAerolinea" onchange="clVueloChange()"></select></div><div class="form-group" style="margin:0;"><label>Hora del vuelo de ida</label><input type="time" id="clHoraVuelo" onchange="clVueloChange()"></div></div>
-    <p style="font-size:0.7rem;color:var(--text-light);margin:0 0 8px;">Con la aerol&iacute;nea y la hora del vuelo se calcula el check-in. Los hitos con <span style="color:#a32d2d;">*</span> son obligatorios: no pueden quedar sin fecha.</p>
+    <p style="font-size:0.7rem;color:var(--text-light);margin:0 0 8px;">Eleg&iacute; la aerol&iacute;nea (o "Sin vuelo") y la hora del vuelo: con eso se calcula el check-in. Las fechas calculadas son <em>sugeridas</em>: hay que revisarlas una por una (cambiarlas o marcar "Revisada"). Los hitos con <span style="color:#a32d2d;">*</span> son obligatorios.</p>
     <div id="clHitosAviso" style="display:none;font-size:0.76rem;padding:6px 10px;border-radius:6px;background:#fcebeb;color:#a32d2d;margin-bottom:8px;"></div>
     <div id="checklistItems"></div>
     <div class="checklist-add"><input type="text" id="clNuevoItem" placeholder="Nuevo hito del checklist..." onkeydown="if(event.key==='Enter')addChecklistItem()"><input type="date" id="clNuevaFecha" title="Fecha (opcional)" style="width:150px;padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:0.85rem;"><button class="btn btn-sm btn-primary" onclick="addChecklistItem()">+</button></div>
@@ -1700,7 +1700,7 @@ onAuthStateChanged(fbAuth, (user) => {
         </div>
         <div id="veAcompContainer" style="display:none;margin-bottom:10px;"><label style="display:block;font-weight:600;font-size:0.78rem;color:var(--text-light);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.5px;">Nombres de acompa&ntilde;antes</label><div id="veAcompList" style="display:flex;flex-direction:column;gap:5px;"></div></div>
         <div class="form-group"><label style="display:flex;align-items:center;gap:8px;">Plan de pago <button type="button" class="btn btn-sm btn-ghost" style="font-size:0.7rem;padding:3px 8px;" onclick="distribuirPlanPagoVe()" title="Divide el monto total en partes iguales">Distribuir total</button></label><p style="font-size:0.7rem;color:var(--text-light);margin-top:0;margin-bottom:6px;">Una fila por mes desde la fecha de la venta hasta la fecha de inicio del viaje.</p><div id="vePlanPagoBox"></div></div>
-        <div class="form-group"><label>Fechas importantes <span style="font-weight:400;font-size:0.7rem;color:var(--text-light);text-transform:none;letter-spacing:0;">(las marcadas con <span style="color:#a32d2d;">*</span> son obligatorias)</span></label>
+        <div class="form-group"><label>Fechas importantes <span style="font-weight:400;font-size:0.7rem;color:var(--text-light);text-transform:none;letter-spacing:0;">(las fechas son sugeridas: revisalas una por una. Las marcadas con <span style="color:#a32d2d;">*</span> son obligatorias)</span></label>
             <div class="form-row"><div class="form-group" style="margin-bottom:6px;"><label style="font-size:0.68rem;">Aerol&iacute;nea</label><select id="veAerolinea" onchange="veVueloChange()"></select></div><div class="form-group" style="margin-bottom:6px;"><label style="font-size:0.68rem;">Hora del vuelo de ida</label><input type="time" id="veHoraVuelo" onchange="veVueloChange()"></div></div>
             <div id="veHitosBox"></div>
         </div>
@@ -5274,7 +5274,7 @@ function generarNotificacionesViajesProximos(){
         const destino=v.destino||v.grupoNombre||'Viaje';
         arr.push({id:newRrhhId(),tipo:'tarea',
             titulo:'Viaje próximo: '+destino,
-            detalle:(v.clienteNombre?v.clienteNombre+' — ':'')+'sale en '+diasFaltan+' día(s) ('+fmtFechaCorta(v.fechaInicio)+'). Revisá que esté todo listo: checklist, saldo pendiente y documentos.',
+            detalle:(v.clienteNombre?v.clienteNombre+' — ':'')+'sale en '+diasFaltan+' día(s) ('+fmtFechaCorta(v.fechaInicio)+'). Revisá que esté todo listo: checklist, saldo pendiente y documentos.'+(function(){try{const m=hitosPendientesTxt(v);return m.length?' ⚠ Pendiente en el checklist: '+m.join(', ')+'.':'';}catch(e){return '';}})(),
             paraEmail:email,paraPermiso:email?'':'ventas.ver',
             estado:'pendiente',origen:'viaje',refId:String(v.id),creadaTs:Date.now(),creadaPor:'sistema'});
         yaViaje.add(String(v.id));creadas++;
@@ -8069,42 +8069,77 @@ function openModalVentaInfoExtra(ventaId){
     document.getElementById('modalVentaInfoExtra').classList.add('open');
 }
 // --- Bloque "Fechas importantes" del cuadro que aparece al aceptar la cotización ---
+// Las fechas calculadas nacen como "sugeridas": hay que revisarlas una por una (cambiarlas o marcar "Revisada").
 let _veHitos=[];
+function _veVentaTmp(){
+    const v=getVentas().find(x=>x.id===document.getElementById('veVentaId').value)||{};
+    const sel=(document.getElementById('veAerolinea')||{}).value||'';
+    return {fechaInicio:v.fechaInicio,fechaFin:v.fechaFin,fechaVenta:(document.getElementById('veFechaVenta')||{}).value||v.fechaVenta,fechaCreacion:v.fechaCreacion,sinVuelo:sel===SIN_VUELO,aerolinea:sel===SIN_VUELO?'':sel,horaVuelo:(document.getElementById('veHoraVuelo')||{}).value||'',checklist:_veHitos};
+}
 function _veRenderHitos(){
     const box=document.getElementById('veHitosBox');if(!box)return;
+    const tmp=_veVentaTmp();
+    const hoy=_hitoHoyISO();
     const inp='padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:0.8rem;';
-    box.innerHTML=_veHitos.map((it,i)=>`<div style="display:flex;gap:6px;align-items:center;margin-bottom:5px;flex-wrap:wrap;">
-        <span style="flex:1;min-width:170px;font-size:0.82rem;">${esc(it.texto)}${it.obligatorio?' <span style="color:#a32d2d;" title="Obligatorio">*</span>':''}</span>
-        <input type="date" value="${esc(it.fecha||'')}" oninput="_veHitos[${i}].fecha=this.value;this.style.borderColor=''" style="${inp}width:150px;${(it.obligatorio&&!it.fecha)?'border-color:#e74c3c;':''}">
-        ${(it.regla==='checkin'||it.hora)?`<input type="time" value="${esc(it.hora||'')}" oninput="_veHitos[${i}].hora=this.value" style="${inp}width:100px;">`:'<span style="width:100px;"></span>'}
+    const hv=document.getElementById('veHoraVuelo');if(hv)hv.disabled=!!tmp.sinVuelo;
+    box.innerHTML=_veHitos.map((it,i)=>{
+        const ef=_hitoFechaEf(it,tmp);
+        const sinRev=_hitoSinRevisar(it,tmp);
+        const vencido=ef.fecha&&ef.fecha<hoy;
+        const sub=sinRev?'<span style="color:#a32d2d;">sugerida, sin revisar</span>':(it.revisado?'<span style="color:#0f6e56;">&#10003; '+_revisadoTxt(it)+'</span>':'');
+        return `<div style="display:flex;gap:6px;align-items:center;margin-bottom:5px;flex-wrap:wrap;${sinRev?'background:#fff8f8;border-radius:6px;padding:3px 4px;':''}">
+        <span style="flex:1;min-width:170px;font-size:0.82rem;">${esc(it.texto)}${it.obligatorio?' <span style="color:#a32d2d;" title="Obligatorio">*</span>':''}${sub?'<div style="font-size:0.68rem;">'+sub+'</div>':''}</span>
+        <input type="date" value="${esc(ef.fecha||'')}" oninput="_veHitos[${i}].fecha=this.value" onblur="_veFechaBlur(${i},this.value)" style="${inp}width:150px;${sinRev?'color:#7a7a7a;font-style:italic;':''}${vencido?'border-color:#e74c3c;':''}${(it.obligatorio&&!ef.fecha)?'border-color:#e74c3c;':''}">
+        ${(it.regla==='checkin'||it.hora)?`<input type="time" value="${esc(ef.hora||'')}" oninput="_veHitos[${i}].hora=this.value" onblur="_veFechaBlur(${i},_veHitos[${i}].fecha)" style="${inp}width:100px;">`:'<span style="width:100px;"></span>'}
+        ${ef.fecha?`<label style="display:flex;align-items:center;gap:4px;font-size:0.72rem;margin:0;white-space:nowrap;${sinRev?'font-weight:700;color:#a32d2d;':''}" title="Marcar que revisaste esta fecha"><input type="checkbox" ${it.revisado?'checked':''} onchange="_veSetRevisado(${i},this.checked)"> Revisada</label>`:'<span style="width:78px;"></span>'}
         ${it.obligatorio?'<span style="width:28px;"></span>':`<button type="button" class="btn btn-sm btn-danger" style="padding:2px 8px;" onclick="_veHitos.splice(${i},1);_veRenderHitos()" title="Quitar">&times;</button>`}
-    </div>`).join('')+`<div style="display:flex;gap:6px;margin-top:8px;align-items:center;"><input type="text" id="veHitoNuevoTxt" placeholder="Otro hito (ej: Pago del tour)" style="${inp}flex:1;" onkeydown="if(event.key==='Enter'){event.preventDefault();_veAddHito();}"><input type="date" id="veHitoNuevoFecha" style="${inp}width:150px;"><button type="button" class="btn btn-sm btn-primary" onclick="_veAddHito()">+</button></div>`;
+    </div>`;}).join('')+`<div style="display:flex;gap:6px;margin-top:8px;align-items:center;"><input type="text" id="veHitoNuevoTxt" placeholder="Otro hito (ej: Pago del tour)" style="${inp}flex:1;" onkeydown="if(event.key==='Enter'){event.preventDefault();_veAddHito();}"><input type="date" id="veHitoNuevoFecha" style="${inp}width:150px;"><button type="button" class="btn btn-sm btn-primary" onclick="_veAddHito()">+</button></div>`;
 }
+// Al salir del campo de fecha: si la cambió a mano, cuenta como revisada
+function _veFechaBlur(i,val){const it=_veHitos[i];if(!it)return;const antes=it._sug||'';it.fecha=val||'';if(it.fecha&&it.fecha!==antes)_marcarRevisado(it,true);_veRenderHitos();}
+function _veSetRevisado(i,val){const it=_veHitos[i];if(!it)return;if(!it.fecha){const c=calcFechaHito(it,_veVentaTmp());it.fecha=c.fecha;it.hora=c.hora||'';}_marcarRevisado(it,val);_veRenderHitos();}
 function _veAddHito(){
     const t=document.getElementById('veHitoNuevoTxt');const f=document.getElementById('veHitoNuevoFecha');
     const texto=(t&&t.value||'').trim();if(!texto)return;
-    _veHitos.push({id:Date.now().toString(),texto,completado:false,fecha:(f&&f.value)||'',hora:'',regla:'sin_fecha',dias:0,obligatorio:false});
-    _veRenderHitos();
+    const it={id:Date.now().toString(),texto,completado:false,fecha:(f&&f.value)||'',hora:'',regla:'sin_fecha',dias:0,obligatorio:false,revisado:false,revisadoPor:'',revisadoTs:''};
+    if(it.fecha)_marcarRevisado(it,true);
+    _veHitos.push(it);_veRenderHitos();
 }
 function _veCargarHitos(v){
     if(!Array.isArray(v.checklist)||!v.checklist.length)v.checklist=crearChecklistVenta();
     completarHitosObligatorios(v);
+    _aplicarVueloAChecklist(v);
     recalcularFechasHitos(v);
-    _veHitos=v.checklist.map(it=>Object.assign({},it));
-    const selA=document.getElementById('veAerolinea');if(selA)selA.innerHTML=_aerolineaOptionsHtml(v.aerolinea||'');
+    _veHitos=v.checklist.map(it=>Object.assign({},it,{_sug:it.revisado?'':(it.fecha||'')}));
+    const selA=document.getElementById('veAerolinea');if(selA)selA.innerHTML=_aerolineaOptionsHtml(v.aerolinea||'',!!v.sinVuelo);
     const hv=document.getElementById('veHoraVuelo');if(hv)hv.value=v.horaVuelo||'';
     _veRenderHitos();
 }
 function veVueloChange(){
-    const v=getVentas().find(x=>x.id===document.getElementById('veVentaId').value);if(!v)return;
-    const tmp={fechaInicio:v.fechaInicio,fechaFin:v.fechaFin,fechaVenta:document.getElementById('veFechaVenta').value||v.fechaVenta,fechaCreacion:v.fechaCreacion,aerolinea:document.getElementById('veAerolinea').value||'',horaVuelo:document.getElementById('veHoraVuelo').value||''};
-    _veHitos.forEach(it=>{if(it.regla==='checkin'){const c=calcFechaHito(it,tmp);if(c.fecha){it.fecha=c.fecha;it.hora=c.hora||'';}}});
+    const tmp=_veVentaTmp();
+    if(tmp.sinVuelo){_veHitos=_veHitos.filter(it=>it.regla!=='checkin');}
+    else if(!_veHitos.some(it=>it.regla==='checkin')){const h=(cfgGet().hitos||[]).find(x=>x.regla==='checkin');if(h)_veHitos.unshift(_hitoNuevoDesdeCfg(h,'ck'));}
+    _veHitos.forEach(it=>{if(it.regla==='checkin'){const c=calcFechaHito(it,tmp);it.fecha=c.fecha;it.hora=c.hora||'';it._sug=c.fecha;_marcarRevisado(it,false);}});
     _veRenderHitos();
 }
-function _veHitosFaltantes(){return _veHitos.filter(it=>it.obligatorio&&!it.fecha);}
+// Devuelve la lista de problemas que impiden guardar (vacía si está todo bien)
+function _veProblemas(){
+    const p=[];
+    const sel=(document.getElementById('veAerolinea')||{}).value||'';
+    const hora=(document.getElementById('veHoraVuelo')||{}).value||'';
+    if(!sel)p.push('Elegí la aerolínea del vuelo de ida (o marcá "Sin vuelo").');
+    else if(sel!==SIN_VUELO&&!hora)p.push('Cargá la hora del vuelo de ida (se usa para calcular el check-in).');
+    const tmp=_veVentaTmp();
+    const faltan=_veHitos.filter(it=>it.obligatorio&&!_hitoFechaEf(it,tmp).fecha);
+    if(faltan.length)p.push('Fechas obligatorias sin definir: '+faltan.map(x=>x.texto).join(', ')+'.');
+    const sinRev=_veHitos.filter(it=>_hitoSinRevisar(it,tmp));
+    if(sinRev.length)p.push('Fechas sugeridas sin revisar: '+sinRev.map(x=>x.texto).join(', ')+'. Revisá cada una (cambiala o marcá "Revisada").');
+    return p;
+}
+function _veHitosFaltantes(){const tmp=_veVentaTmp();return _veHitos.filter(it=>it.obligatorio&&!_hitoFechaEf(it,tmp).fecha);}
 function veSaltar(){
-    const faltan=_veHitosFaltantes();
-    if(faltan.length&&!confirm('Hay '+faltan.length+' fecha'+(faltan.length===1?' obligatoria':'s obligatorias')+' sin completar:\n- '+faltan.map(x=>x.texto).join('\n- ')+'\n\nLa venta quedará marcada con "fechas por definir" hasta que las completes desde el Checklist.\n\n¿Cerrar igual?'))return;
+    const p=_veProblemas();
+    if(p.length&&!confirm('Quedan pendientes en "Fechas importantes":\n\n- '+p.join('\n- ')+'\n\nLa venta va a aparecer en rojo en la lista de Ventas hasta que lo resuelvas desde su Checklist.\n\n¿Cerrar igual?'))return;
     closeModal('modalVentaInfoExtra');
 }
 
@@ -8207,8 +8242,8 @@ function guardarVentaInfoExtra(){
         const sumaPP=inputsPP.reduce((s,i)=>s+(parseFloat(i.value)||0),0);
         if(Math.abs(monto-sumaPP)>=0.01){alert('El plan de pago no coincide con el total de la venta. Ajustalo antes de guardar.');return;}
     }
-    const faltanH=_veHitosFaltantes();
-    if(faltanH.length){alert('Faltan fechas obligatorias:\n- '+faltanH.map(x=>x.texto).join('\n- ')+'\n\nComplet\u00e1 esas fechas en "Fechas importantes" antes de guardar.');return;}
+    const probH=_veProblemas();
+    if(probH.length){alert('Antes de guardar, revis\u00e1 "Fechas importantes":\n\n- '+probH.join('\n- '));return;}
     const moneda=document.getElementById('veMoneda').value||'USD';
     const nAd=Math.max(0,parseInt(document.getElementById('veAcompAd').value||'0',10));
     const nNi=Math.max(0,parseInt(document.getElementById('veAcompNino').value||'0',10));
@@ -8224,9 +8259,8 @@ function guardarVentaInfoExtra(){
     v.acompanantes=acompanantes;
     v.planPago=planPago;
     v.notas=document.getElementById('veNotas').value.trim();
-    v.aerolinea=document.getElementById('veAerolinea').value||'';
-    v.horaVuelo=document.getElementById('veHoraVuelo').value||'';
-    v.checklist=_veHitos.map(it=>({id:it.id||Date.now().toString(),texto:it.texto,completado:!!it.completado,fecha:it.fecha||'',hora:it.hora||'',regla:it.regla||'sin_fecha',dias:parseInt(it.dias||0,10)||0,obligatorio:!!it.obligatorio}));
+    {const selA=document.getElementById('veAerolinea').value||'';v.sinVuelo=(selA===SIN_VUELO);v.aerolinea=v.sinVuelo?'':selA;v.horaVuelo=v.sinVuelo?'':(document.getElementById('veHoraVuelo').value||'');}
+    v.checklist=_veHitos.map(it=>({id:it.id||Date.now().toString(),texto:it.texto,completado:!!it.completado,fecha:it.fecha||'',hora:it.hora||'',regla:it.regla||'sin_fecha',dias:parseInt(it.dias||0,10)||0,obligatorio:!!it.obligatorio,revisado:!!it.revisado,revisadoPor:it.revisadoPor||'',revisadoTs:it.revisadoTs||''}));
     v.cobranza=v.cobranza||{};
     if(monto>0)v.cobranza.montoTotal=monto;
     v.cobranza.moneda=moneda;
@@ -9456,29 +9490,33 @@ function renderVentas(){
 }
 
 // ===== HITOS CON FECHA (checklist de la venta) =====
+const SIN_VUELO='__sinvuelo';
 function _hitoHoyISO(){const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
+function _usuarioNombreActual(){const em=(window.currentUser&&window.currentUser.email)||'';if(!em)return '';try{return matchEncargadoDesdeEmail(em,cfgGet().encargados)||em;}catch(e){return em;}}
 function _aerolineaHoras(nombre){if(!nombre)return 24;const n=normalizarParaMatch(nombre);const a=(cfgGet().aerolineas||[]).find(x=>x&&normalizarParaMatch(x.nombre||'')===n);return a?(parseFloat(a.horasCheckin)||24):24;}
-function _aerolineaOptionsHtml(sel){
+// Opciones del desplegable de aerolínea. Arranca en "-- Elegir --": hay que elegir una aerolínea o "Sin vuelo".
+function _aerolineaOptionsHtml(sel,sinVuelo){
     const lista=(cfgGet().aerolineas||[]).map(a=>a&&a.nombre).filter(Boolean);
     if(sel&&!lista.includes(sel))lista.push(sel);
-    return '<option value="">-- Sin definir --</option>'+lista.map(n=>`<option value="${esc(n)}"${n===sel?' selected':''}>${esc(n)}</option>`).join('');
+    return '<option value="">-- Elegir --</option><option value="'+SIN_VUELO+'"'+(sinVuelo?' selected':'')+'>Sin vuelo (solo hotel / traslados / otros)</option>'+lista.map(n=>`<option value="${esc(n)}"${(!sinVuelo&&n===sel)?' selected':''}>${esc(n)}</option>`).join('');
 }
-// Checklist inicial de una venta nueva, a partir de los hitos configurados (las fechas se calculan cuando se conocen las fechas del viaje)
-function crearChecklistVenta(){
-    const base=Date.now();
-    return (cfgGet().hitos||[]).map((h,i)=>({id:base+'_'+i,texto:h.texto,completado:false,fecha:'',hora:'',regla:h.regla||'sin_fecha',dias:parseInt(h.dias||0,10)||0,obligatorio:!!h.obligatorio}));
-}
-// Fecha (y hora) que le corresponde a un hito según su regla y las fechas del viaje
+function _hitoNuevoDesdeCfg(h,i){return {id:Date.now()+'_'+i,texto:h.texto,completado:false,fecha:'',hora:'',regla:h.regla||'sin_fecha',dias:parseInt(h.dias||0,10)||0,obligatorio:!!h.obligatorio,revisado:false,revisadoPor:'',revisadoTs:''};}
+// Checklist inicial de una venta nueva (las fechas se calculan cuando se conocen las fechas del viaje)
+function crearChecklistVenta(){return (cfgGet().hitos||[]).map((h,i)=>_hitoNuevoDesdeCfg(h,i));}
+// Fecha (y hora) que le corresponde a un hito según su regla y las fechas del viaje.
+// Si la fecha calculada ya pasó pero el viaje todavía no salió, se sugiere HOY (la colaboradora la ajusta).
 function calcFechaHito(it,v){
     if(!it||!v)return {fecha:'',hora:''};
     const r=it.regla||'sin_fecha';const n=parseInt(it.dias||0,10)||0;
     const fi=String(v.fechaInicio||'').slice(0,10),ff=String(v.fechaFin||'').slice(0,10);
     const ok=s=>/^\d{4}-\d{2}-\d{2}$/.test(s);
-    if(r==='venta'){const fv=String(v.fechaVenta||v.fechaCreacion||'').slice(0,10);return {fecha:ok(fv)?_addDiasISO(fv,n):'',hora:''};}
-    if(r==='antes_salida')return {fecha:ok(fi)?_addDiasISO(fi,-n):'',hora:''};
-    if(r==='antes_regreso')return {fecha:ok(ff)?_addDiasISO(ff,-n):'',hora:''};
+    const hoy=_hitoHoyISO();
+    const ajusta=f=>(f&&f<hoy&&ok(fi)&&fi>=hoy)?hoy:f;
+    if(r==='venta'){const fv=String(v.fechaVenta||v.fechaCreacion||'').slice(0,10);return {fecha:ajusta(ok(fv)?_addDiasISO(fv,n):''),hora:''};}
+    if(r==='antes_salida')return {fecha:ajusta(ok(fi)?_addDiasISO(fi,-n):''),hora:''};
+    if(r==='antes_regreso')return {fecha:ajusta(ok(ff)?_addDiasISO(ff,-n):''),hora:''};
     if(r==='checkin'){
-        if(!ok(fi))return {fecha:'',hora:''};
+        if(!ok(fi)||v.sinVuelo)return {fecha:'',hora:''};
         const horas=_aerolineaHoras(v.aerolinea);
         const hv=/^\d{2}:\d{2}$/.test(v.horaVuelo||'')?v.horaVuelo:'';
         if(!hv)return {fecha:_addDiasISO(fi,-Math.ceil(horas/24)),hora:''};
@@ -9491,6 +9529,10 @@ function calcFechaHito(it,v){
 }
 // Fecha efectiva de un hito: la cargada a mano o, si está vacía, la calculada
 function _hitoFechaEf(it,v){if(!it)return {fecha:'',hora:''};if(it.fecha)return {fecha:String(it.fecha).slice(0,10),hora:it.hora||''};return calcFechaHito(it,v);}
+// Un hito necesita revisión si tiene fecha, no está completado y nadie lo marcó como revisado
+function _hitoSinRevisar(it,v){return !!(it&&!it.completado&&!it.revisado&&_hitoFechaEf(it,v).fecha);}
+function _marcarRevisado(it,val){if(!it)return;it.revisado=!!val;if(val){it.revisadoPor=_usuarioNombreActual();it.revisadoTs=new Date().toISOString();}else{it.revisadoPor='';it.revisadoTs='';}}
+function _revisadoTxt(it){if(!it||!it.revisado)return '';return 'revisada'+(it.revisadoPor?' por '+esc(it.revisadoPor):'')+(it.revisadoTs?' el '+fmtFechaCorta(String(it.revisadoTs).slice(0,10)):'');}
 // Completa las fechas vacías de los hitos con regla. forzarCheckin=true recalcula el check-in aunque ya tuviera fecha (cambió aerolínea u hora)
 function recalcularFechasHitos(v,forzarCheckin){
     if(!v||!Array.isArray(v.checklist))return false;
@@ -9499,39 +9541,58 @@ function recalcularFechasHitos(v,forzarCheckin){
         if(!it||!it.regla||it.regla==='sin_fecha')return;
         if(it.fecha&&!(forzarCheckin&&it.regla==='checkin'))return;
         const c=calcFechaHito(it,v);
-        if(c.fecha&&(c.fecha!==it.fecha||(c.hora||'')!==(it.hora||''))){it.fecha=c.fecha;it.hora=c.hora||'';cambio=true;}
+        if(c.fecha&&(c.fecha!==it.fecha||(c.hora||'')!==(it.hora||''))){it.fecha=c.fecha;it.hora=c.hora||'';if(forzarCheckin&&it.regla==='checkin')_marcarRevisado(it,false);cambio=true;}
     });
     return cambio;
+}
+// Aplica "Sin vuelo" / aerolínea al checklist: sin vuelo quita el check-in; con aerolínea lo agrega si falta
+function _aplicarVueloAChecklist(v){
+    if(!v||!Array.isArray(v.checklist))return;
+    if(v.sinVuelo){v.checklist=v.checklist.filter(it=>!(it&&it.regla==='checkin'));return;}
+    if(!v.checklist.some(it=>it&&it.regla==='checkin')){const h=(cfgGet().hitos||[]).find(x=>x.regla==='checkin');if(h)v.checklist.unshift(_hitoNuevoDesdeCfg(h,'ck'));}
 }
 // Si a una venta vieja le faltan hitos obligatorios de la configuración, se los agrega (solo al abrir su checklist)
 function completarHitosObligatorios(v){
     if(!v)return false;
     if(!Array.isArray(v.checklist))v.checklist=[];
-    let cambio=false;const base=Date.now();
+    let cambio=false;
     (cfgGet().hitos||[]).forEach((h,i)=>{
         if(!h.obligatorio)return;
+        if(h.regla==='checkin'&&v.sinVuelo)return;
         const n=normalizarParaMatch(h.texto);
         if(v.checklist.some(it=>it&&normalizarParaMatch(it.texto||'')===n))return;
-        v.checklist.push({id:base+'_o'+i,texto:h.texto,completado:false,fecha:'',hora:'',regla:h.regla||'sin_fecha',dias:parseInt(h.dias||0,10)||0,obligatorio:true});cambio=true;
+        v.checklist.push(_hitoNuevoDesdeCfg(h,'o'+i));cambio=true;
     });
     return cambio;
 }
-// Resumen para avisos: obligatorios sin fecha, vencidos (fecha pasada sin completar) y próximo hito
+// Resumen para avisos: obligatorios sin fecha, sin revisar, vencidos (fecha pasada sin completar) y próximo hito
 function hitosResumen(v){
     const hoy=_hitoHoyISO();
-    const out={faltan:0,vencidos:0,proximo:null};
+    const out={faltan:0,sinRevisar:0,vencidos:0,proximo:null,sinAerolinea:false};
+    if(v&&!v.sinVuelo&&!v.aerolinea&&Array.isArray(v.checklist)&&v.checklist.some(it=>it&&it.regla==='checkin'))out.sinAerolinea=true;
     (v&&Array.isArray(v.checklist)?v.checklist:[]).forEach(it=>{
         if(!it)return;
         const f=_hitoFechaEf(it,v).fecha;
         if(it.obligatorio&&!f)out.faltan++;
+        if(_hitoSinRevisar(it,v))out.sinRevisar++;
         if(f&&!it.completado){if(f<hoy)out.vencidos++;else if(!out.proximo||f<out.proximo.fecha)out.proximo={fecha:f,texto:it.texto};}
     });
     return out;
 }
+function hitosPendientesTxt(v){
+    const r=hitosResumen(v);const m=[];
+    if(r.sinAerolinea)m.push('aerolínea sin definir');
+    if(r.faltan)m.push(r.faltan+' fecha'+(r.faltan===1?' obligatoria':'s obligatorias')+' sin definir');
+    if(r.sinRevisar)m.push(r.sinRevisar+' fecha'+(r.sinRevisar===1?'':'s')+' sin revisar');
+    if(r.vencidos)m.push(r.vencidos+' hito'+(r.vencidos===1?'':'s')+' vencido'+(r.vencidos===1?'':'s')+' sin completar');
+    return m;
+}
 function hitosBadgeHtml(v){
     if(!v||v.estado==='completada'||v.estado==='cancelada')return '';
     const r=hitosResumen(v);const b=[];
+    if(r.sinAerolinea)b.push(`<span class="lt-badge" style="background:#fcebeb;color:#a32d2d;" title="Falta elegir la aerolínea (o marcar Sin vuelo)">&#9992; sin aerolínea</span>`);
     if(r.faltan)b.push(`<span class="lt-badge" style="background:#fcebeb;color:#a32d2d;" title="Hitos obligatorios sin fecha">&#9888; ${r.faltan} fecha${r.faltan===1?'':'s'} por definir</span>`);
+    if(r.sinRevisar)b.push(`<span class="lt-badge" style="background:#fcebeb;color:#a32d2d;" title="Fechas sugeridas por el sistema que nadie revisó">&#128065; ${r.sinRevisar} sin revisar</span>`);
     if(r.vencidos)b.push(`<span class="lt-badge" style="background:#faeeda;color:#854f0b;" title="Hitos con fecha pasada sin completar">&#9203; ${r.vencidos} vencido${r.vencidos===1?'':'s'}</span>`);
     return b.length?`<div style="margin-top:3px;display:flex;flex-wrap:wrap;gap:3px;">${b.join('')}</div>`:'';
 }
@@ -9544,15 +9605,18 @@ function openChecklist(ventaId){
     document.getElementById('clVentaId').value=ventaId;
     document.getElementById('modalChecklistTitulo').textContent='Checklist - '+(v.destino||v.grupoNombre||v.naviera||v.clienteNombre||'');
     document.getElementById('clEstado').value=v.estado;
-    const selA=document.getElementById('clAerolinea');if(selA)selA.innerHTML=_aerolineaOptionsHtml(v.aerolinea||'');
+    const selA=document.getElementById('clAerolinea');if(selA)selA.innerHTML=_aerolineaOptionsHtml(v.aerolinea||'',!!v.sinVuelo);
     const hv=document.getElementById('clHoraVuelo');if(hv)hv.value=v.horaVuelo||'';
     renderChecklistItems(v);
     document.getElementById('modalChecklist').classList.add('open');
 }
 function clVueloChange(){
     const ventas=getVentas();const v=ventas.find(x=>x.id===document.getElementById('clVentaId').value);if(!v)return;
-    v.aerolinea=document.getElementById('clAerolinea').value||'';
-    v.horaVuelo=document.getElementById('clHoraVuelo').value||'';
+    const sel=document.getElementById('clAerolinea').value||'';
+    v.sinVuelo=(sel===SIN_VUELO);
+    v.aerolinea=v.sinVuelo?'':sel;
+    v.horaVuelo=v.sinVuelo?'':(document.getElementById('clHoraVuelo').value||'');
+    _aplicarVueloAChecklist(v);
     recalcularFechasHitos(v,true);
     v.fechaActualizacion=new Date().toISOString();
     saveVentas(ventas);renderChecklistItems(v);renderVentas();
@@ -9563,29 +9627,36 @@ function renderChecklistItems(v){
     const c=document.getElementById('checklistItems');
     const hoy=_hitoHoyISO();
     const inp='padding:4px 6px;border:1px solid var(--border);border-radius:5px;font-size:0.78rem;';
+    const hv=document.getElementById('clHoraVuelo');if(hv)hv.disabled=!!v.sinVuelo;
     c.innerHTML=(v.checklist||[]).map(it=>{
         const ef=_hitoFechaEf(it,v);
         const vencido=!it.completado&&ef.fecha&&ef.fecha<hoy;
         const falta=it.obligatorio&&!ef.fecha;
+        const sinRev=_hitoSinRevisar(it,v);
         const sub=[];
         if(it.regla==='checkin'&&v.aerolinea)sub.push(esc(v.aerolinea)+' ('+_aerolineaHoras(v.aerolinea)+' h antes)');
+        if(sinRev)sub.push('<span style="color:#a32d2d;font-weight:700;">fecha sugerida, sin revisar</span>');
+        else if(it.revisado&&!it.completado)sub.push(_revisadoTxt(it));
         if(vencido)sub.push('<span style="color:#a32d2d;font-weight:700;">vencido</span>');
         if(falta)sub.push('<span style="color:#a32d2d;font-weight:700;">fecha obligatoria sin definir</span>');
-        return `<div class="checklist-item${it.completado?' done':''}" style="flex-wrap:wrap;${vencido?'border-color:#e8a1a1;background:#fff5f5;':''}${falta?'border-color:#e74c3c;':''}">
-            <input type="checkbox" ${it.completado?'checked':''} onchange="toggleCheckItem('${v.id}','${it.id}')">
+        return `<div class="checklist-item${it.completado?' done':''}" style="flex-wrap:wrap;${vencido?'border-color:#e8a1a1;background:#fff5f5;':''}${(falta||sinRev)?'border-color:#e74c3c;':''}">
+            <input type="checkbox" ${it.completado?'checked':''} onchange="toggleCheckItem('${v.id}','${it.id}')" title="Completado">
             <span class="cl-text">${esc(it.texto)}${it.obligatorio?' <span style="color:#a32d2d;" title="Obligatorio">*</span>':''}${sub.length?'<div style="font-size:0.7rem;color:var(--text-light);">'+sub.join(' &middot; ')+'</div>':''}</span>
-            <input type="date" value="${esc(ef.fecha||'')}" title="Fecha del hito" style="${inp}width:140px;" onchange="setCheckItemFecha('${v.id}','${it.id}',this.value)">
+            <input type="date" value="${esc(ef.fecha||'')}" title="Fecha del hito" style="${inp}width:140px;${sinRev?'color:#7a7a7a;font-style:italic;':''}" onchange="setCheckItemFecha('${v.id}','${it.id}',this.value)">
             ${(it.regla==='checkin'||it.hora)?`<input type="time" value="${esc(ef.hora||'')}" title="Hora" style="${inp}width:92px;" onchange="setCheckItemHora('${v.id}','${it.id}',this.value)">`:''}
+            ${(ef.fecha&&!it.completado)?`<label style="display:flex;align-items:center;gap:4px;font-size:0.72rem;margin:0;white-space:nowrap;" title="Marcar que revisaste esta fecha"><input type="checkbox" ${it.revisado?'checked':''} onchange="setCheckItemRevisado('${v.id}','${it.id}',this.checked)"> Revisada</label>`:''}
             ${it.obligatorio?'':`<button class="cl-remove" onclick="removeCheckItem('${v.id}','${it.id}')" title="Quitar">&times;</button>`}
         </div>`;
     }).join('');
     const av=document.getElementById('clHitosAviso');
-    if(av){const r=hitosResumen(v);const msgs=[];if(r.faltan)msgs.push(r.faltan+' fecha'+(r.faltan===1?' obligatoria':'s obligatorias')+' sin definir');if(r.vencidos)msgs.push(r.vencidos+' hito'+(r.vencidos===1?'':'s')+' vencido'+(r.vencidos===1?'':'s')+' sin completar');av.style.display=msgs.length?'':'none';av.innerHTML=msgs.length?'&#9888; '+msgs.join(' &middot; '):'';}
+    if(av){const msgs=hitosPendientesTxt(v);av.style.display=msgs.length?'':'none';av.innerHTML=msgs.length?'&#9888; '+msgs.join(' &middot; '):'';}
 }
-function setCheckItemFecha(ventaId,itemId,val){const ventas=getVentas();const v=ventas.find(x=>x.id===ventaId);if(!v)return;const it=(v.checklist||[]).find(c=>c.id===itemId);if(!it)return;it.fecha=val||'';if(!it.fecha)it.hora='';v.fechaActualizacion=new Date().toISOString();saveVentas(ventas);renderChecklistItems(v);renderVentas();}
-function setCheckItemHora(ventaId,itemId,val){const ventas=getVentas();const v=ventas.find(x=>x.id===ventaId);if(!v)return;const it=(v.checklist||[]).find(c=>c.id===itemId);if(!it)return;it.hora=val||'';v.fechaActualizacion=new Date().toISOString();saveVentas(ventas);renderChecklistItems(v);}
-function toggleCheckItem(ventaId,itemId){const ventas=getVentas();const v=ventas.find(x=>x.id===ventaId);if(!v)return;const it=v.checklist.find(c=>c.id===itemId);if(it)it.completado=!it.completado;saveVentas(ventas);renderChecklistItems(v);renderVentas();}
-function addChecklistItem(){const ventaId=document.getElementById('clVentaId').value;const input=document.getElementById('clNuevoItem');const texto=input.value.trim();if(!texto)return;const ventas=getVentas();const v=ventas.find(x=>x.id===ventaId);if(!v)return;const fIn=document.getElementById('clNuevaFecha');v.checklist.push({id:Date.now().toString(),texto,completado:false,fecha:(fIn&&fIn.value)||'',hora:'',regla:'sin_fecha',dias:0,obligatorio:false});saveVentas(ventas);input.value='';if(fIn)fIn.value='';renderChecklistItems(v);renderVentas();}
+function _clItem(ventaId,itemId){const ventas=getVentas();const v=ventas.find(x=>x.id===ventaId);if(!v)return null;const it=(v.checklist||[]).find(c=>c.id===itemId);return it?{ventas,v,it}:null;}
+function setCheckItemFecha(ventaId,itemId,val){const r=_clItem(ventaId,itemId);if(!r)return;r.it.fecha=val||'';if(!r.it.fecha)r.it.hora='';_marcarRevisado(r.it,!!r.it.fecha);r.v.fechaActualizacion=new Date().toISOString();saveVentas(r.ventas);renderChecklistItems(r.v);renderVentas();}
+function setCheckItemHora(ventaId,itemId,val){const r=_clItem(ventaId,itemId);if(!r)return;r.it.hora=val||'';_marcarRevisado(r.it,true);r.v.fechaActualizacion=new Date().toISOString();saveVentas(r.ventas);renderChecklistItems(r.v);}
+function setCheckItemRevisado(ventaId,itemId,val){const r=_clItem(ventaId,itemId);if(!r)return;if(!r.it.fecha){const c=calcFechaHito(r.it,r.v);r.it.fecha=c.fecha;r.it.hora=c.hora||'';}_marcarRevisado(r.it,val);r.v.fechaActualizacion=new Date().toISOString();saveVentas(r.ventas);renderChecklistItems(r.v);renderVentas();}
+function toggleCheckItem(ventaId,itemId){const r=_clItem(ventaId,itemId);if(!r)return;r.it.completado=!r.it.completado;if(r.it.completado&&!r.it.revisado)_marcarRevisado(r.it,true);saveVentas(r.ventas);renderChecklistItems(r.v);renderVentas();}
+function addChecklistItem(){const ventaId=document.getElementById('clVentaId').value;const input=document.getElementById('clNuevoItem');const texto=input.value.trim();if(!texto)return;const ventas=getVentas();const v=ventas.find(x=>x.id===ventaId);if(!v)return;const fIn=document.getElementById('clNuevaFecha');const it={id:Date.now().toString(),texto,completado:false,fecha:(fIn&&fIn.value)||'',hora:'',regla:'sin_fecha',dias:0,obligatorio:false,revisado:false,revisadoPor:'',revisadoTs:''};if(it.fecha)_marcarRevisado(it,true);v.checklist.push(it);saveVentas(ventas);input.value='';if(fIn)fIn.value='';renderChecklistItems(v);renderVentas();}
 function removeCheckItem(ventaId,itemId){const ventas=getVentas();const v=ventas.find(x=>x.id===ventaId);if(!v)return;const it=(v.checklist||[]).find(c=>c.id===itemId);if(it&&it.obligatorio){alert('Este hito es obligatorio y no se puede quitar. Podés cambiarlo desde Configuración → Checklist ventas.');return;}v.checklist=v.checklist.filter(c=>c.id!==itemId);saveVentas(ventas);renderChecklistItems(v);renderVentas();}
 
 function updateVentaEstado(){const ventaId=document.getElementById('clVentaId').value;const estado=document.getElementById('clEstado').value;const ventas=getVentas();const v=ventas.find(x=>x.id===ventaId);if(!v)return;v.estado=estado;saveVentas(ventas);renderVentas();}
