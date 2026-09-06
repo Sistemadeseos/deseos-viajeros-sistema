@@ -5226,34 +5226,40 @@ function guardarNotifNueva(){
     alert('Enviado. Le va a aparecer a esa persona la próxima vez que entre o recargue el sistema.');
 }
 // Anuncio de novedades: se muestra una sola vez por navegador (clave dvAnuncioVisto, no se migra ni se borra con la caché).
-const _ANUNCIO_ID='ficha-crm-2026-09b';
+const _ANUNCIO_ID='hitos-recordatorios-2026-09';
 function mostrarAnuncioNotif(){
     try{if(localStorage.getItem('dvAnuncioVisto')===_ANUNCIO_ID)return;}catch(e){}
     const overlay=document.getElementById('modalAnuncio');
     if(!overlay)return;
-    overlay.innerHTML=`<div class="modal" style="max-width:540px;">
-        <div class="modal-header"><h3>&#128100; La ficha del cliente, renovada</h3></div>
+    const P=(t,b)=>`<p style="margin:0 0 4px;font-weight:700;">${t}</p><p style="margin:0 0 12px;">${b}</p>`;
+    overlay.innerHTML=`<div class="modal" style="max-width:560px;">
+        <div class="modal-header"><h3>&#9200; Novedades: fechas, recordatorios y acompañantes</h3></div>
         <div class="modal-body" style="font-size:0.9rem;line-height:1.5;">
-            <p style="margin:0 0 12px;">Mejoramos la <strong>ficha del cliente</strong> para que se vea más ordenada y tenga más información útil.</p>
+            <p style="margin:0 0 12px;">Hicimos varios cambios para que <strong>ninguna fecha importante se nos pase</strong>. Esto es lo que vas a notar:</p>
 
-            <p style="margin:0 0 4px;font-weight:700;">1. Vista ordenada + botón Editar</p>
-            <p style="margin:0 0 12px;">Al abrir un cliente ves una <strong>ficha linda de solo lectura</strong> (con foto, estado y un resumen de viajes y dinero arriba). Para cambiar algo, tocás <strong>&#9998; Editar</strong>; al guardar, volvés a la ficha.</p>
+            ${P('1. Al aceptar una cotización, ahora hay "Fechas importantes"',
+                'Elegís la <strong>aerolínea</strong> (o "Sin vuelo") y la <strong>hora del vuelo de ida</strong>, y el sistema calcula solo la fecha del <strong>check-in</strong>, el pago al hotel, los documentos, etc. Las fechas aparecen como <em>sugeridas</em>: tenés que <strong>revisarlas una por una</strong> (cambiarlas o marcar "Revisada"). No deja guardar si falta algo, y queda registrado quién revisó cada fecha.')}
 
-            <p style="margin:0 0 4px;font-weight:700;">2. Ordenada en pestañas</p>
-            <p style="margin:0 0 12px;"><strong>Datos · Viajero · Preferencias · Actividad</strong>. Cada cosa en su lugar.</p>
+            ${P('2. El Checklist de cada venta tiene fechas',
+                'Cada hito lleva su fecha. En rojo lo vencido y lo que falta revisar. Los hitos con <span style="color:#a32d2d;">*</span> son obligatorios. La plantilla de hitos y las horas de check-in por aerolínea se ajustan en <strong>Configuración &rarr; Checklist ventas</strong>.')}
 
-            <p style="margin:0 0 4px;font-weight:700;">3. Más datos del viajero</p>
-            <p style="margin:0 0 12px;"><strong>Acompañantes / grupo familiar</strong> (con edades), <strong>contacto de emergencia</strong>, <strong>preferencias</strong> (asiento, comida, hotel…) y un <strong>aviso si el pasaporte está por vencer</strong>.</p>
+            ${P('3. Avisos personales',
+                'Cada hito te avisa <strong>a vos</strong>, como encargada de la venta: unos días antes, el mismo día y si se venció. Si un hito lleva más de 24 horas vencido, también le llega a Milady.')}
 
-            <p style="margin:0 0 4px;font-weight:700;">4. Categoría de cliente</p>
-            <p style="margin:0 0 12px;">Ahora podés marcar el nivel del cliente —<strong>Diamante, Platino, Oro, Plata, Bronce</strong>—. Se ve como etiqueta de color en la ficha y en la lista, y podés <strong>filtrar la lista por categoría</strong>.</p>
+            ${P('4. Ventana de recordatorios',
+                'Al entrar, y cada 10 minutos mientras tengas pendientes, aparece una ventana con tus recordatorios. De cada uno podés <strong>Abrir</strong>, <strong>Marcar hecho</strong> o <strong>Posponer</strong>. No se cierra sola. Con el botón &#9200; junto a la campanita la abrís cuando quieras.')}
 
-            <div style="background:var(--bg);border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:0.84rem;">
-                💡 La categoría se elige en <strong>Editar &rarr; pestaña Datos</strong>. En la lista de <strong>Clientes</strong> tenés arriba el filtro por categoría.
-            </div>
+            ${P('5. Avisos en tu computadora',
+                'En esa ventana hay un botón <strong>"Activar avisos del escritorio"</strong>. Apretalo una vez y los recordatorios te van a saltar aunque estés en otra ventana (solo con el sistema abierto).')}
+
+            ${P('6. En Inicio y en el Calendario',
+                'En Inicio hay un panel nuevo con los hitos <strong>vencidos, de hoy y de los próximos 7 días</strong>. En el Calendario, los hitos aparecen bajo "Viajes/Check-ins".')}
+
+            ${P('7. Acompañantes con más datos',
+                'En la ficha del cliente, cada acompañante tiene "Más datos": cédula, pasaporte y vencimiento, teléfono, email, viajero frecuente, alergias. En la lista de Clientes hay una pestaña <strong>Acompañantes</strong>, y el buscador los encuentra por nombre. Si un acompañante necesita su propia ficha, usá <strong>"Crear contacto propio"</strong>.')}
 
             <div style="background:var(--primary-light);border-radius:8px;padding:11px 13px;margin-bottom:12px;font-size:0.86rem;color:var(--primary-dark);">
-                <strong>&#128203; Un pedido importante:</strong> completá la <strong>mayor cantidad de datos posible</strong> de cada cliente —pasaporte, cumpleaños, acompañantes, preferencias, categoría, notas…—. Cuanto mejor conozcamos a nuestros clientes, mejor los atendemos, más fácil les cotizamos y más confianza generamos. ¡Cada dato suma! &#10024;
+                <strong>&#128203; Lo que te pedimos:</strong> cuando aceptes una cotización, <strong>revisá cada fecha</strong> antes de guardar; y cuando termines un hito, <strong>marcalo como completado</strong> en el checklist. Así los avisos se apagan solos y el panel de Inicio se mantiene limpio.
             </div>
 
             <p style="font-size:0.82rem;color:var(--text-light);margin:0;">Cualquier duda, consultá con Xavier o María José. 💜</p>
@@ -5265,6 +5271,8 @@ function mostrarAnuncioNotif(){
 function cerrarAnuncioNotif(){
     try{localStorage.setItem('dvAnuncioVisto',_ANUNCIO_ID);}catch(e){}
     closeModal('modalAnuncio');
+    // Recién ahora mostrar los recordatorios (mientras el anuncio estaba abierto se posponían)
+    setTimeout(()=>{try{mostrarRecordatorios(false);}catch(e){}},300);
 }
 // Genera (una sola vez por venta) tareas de "viaje próximo" para viajes que salen dentro de 7 días.
 function generarNotificacionesViajesProximos(){
