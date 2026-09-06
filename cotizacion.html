@@ -1718,6 +1718,7 @@ onAuthStateChanged(fbAuth, (user) => {
 <div class="modal-overlay" id="modalUnificarEnc"></div>
 <div class="modal-overlay" id="modalTransporteCalc"></div>
 <div class="modal-overlay" id="modalNotif"></div>
+<div class="modal-overlay" id="modalRecordatorios" style="z-index:300;"></div>
 <div class="modal-overlay" id="modalNotifNueva"></div>
 <div class="modal-overlay" id="modalTarea"></div>
 <div class="modal-overlay" id="modalTareaDetalle"></div>
@@ -5122,7 +5123,7 @@ function renderNotifBell(){
     if(!window.currentUser){wrap.innerHTML='';return;}
     try{_limpiarNotifObsoletas();}catch(e){console.error('[notif limpieza]',e);}
     const n=_notifPendientesCount();
-    wrap.innerHTML=`<button onclick="openNotifPanel()" title="Notificaciones" style="position:relative;background:none;border:none;cursor:pointer;font-size:1.35rem;line-height:1;padding:4px 6px;">&#128276;${n>0?`<span style="position:absolute;top:-1px;right:-1px;background:var(--danger);color:#fff;border-radius:10px;font-size:0.6rem;font-weight:700;min-width:16px;height:16px;line-height:16px;padding:0 4px;text-align:center;">${n>99?'99+':n}</span>`:''}</button>`;
+    wrap.innerHTML=`<button onclick="openNotifPanel()" title="Notificaciones" style="position:relative;background:none;border:none;cursor:pointer;font-size:1.35rem;line-height:1;padding:4px 6px;">&#128276;${n>0?`<span style="position:absolute;top:-1px;right:-1px;background:var(--danger);color:#fff;border-radius:10px;font-size:0.6rem;font-weight:700;min-width:16px;height:16px;line-height:16px;padding:0 4px;text-align:center;">${n>99?'99+':n}</span>`:''}</button><button onclick="mostrarRecordatorios(true)" title="Ver recordatorios pendientes" style="background:none;border:none;cursor:pointer;font-size:1.2rem;line-height:1;padding:4px 4px;">&#9200;</button>`;
 }
 function _notifFecha(ts){try{return fmtFechaCorta(new Date(num(ts)).toISOString().slice(0,10));}catch(e){return '';}}
 let _notifVerResueltas=false;
@@ -5351,6 +5352,114 @@ function notifAbrirChecklist(notifId,ventaId){
     if(n&&n.estado==='pendiente'&&n.tipo!=='tarea'){n.estado='leida';n.resueltaPor=_notifEmailActual();n.resueltaTs=Date.now();saveNotificaciones(arr);}
     closeModal('modalNotif');
     abrirVentaDesdeDashboard(ventaId);
+}
+// ===== VENTANA DE RECORDATORIOS (estilo Outlook) =====
+// Aparece al entrar y cada _REC_INTERVALO_MIN minutos mientras haya pendientes del usuario actual:
+// avisos accionables (hitos, viajes próximos, tareas asignadas) y tareas propias vencidas o de hoy.
+// No se cierra sola: cada ítem se abre, se marca hecho o se pospone. "×" = recordar en 1 hora.
+const _REC_INTERVALO_MIN=10;
+let _recTimer=null,_recTitleTimer=null,_recTitleBase='';
+function _recSnoozeMap(){try{return JSON.parse(localStorage.getItem('dv_recordatorios_snooze')||'{}')||{};}catch(e){return {};}}
+function _recSnoozeSave(m){try{localStorage.setItem('dv_recordatorios_snooze',JSON.stringify(m));}catch(e){}}
+function _recSonidoOn(){try{return localStorage.getItem('dv_recordatorios_sonido')!=='0';}catch(e){return true;}}
+function _recSetSonido(on){try{localStorage.setItem('dv_recordatorios_sonido',on?'1':'0');}catch(e){}}
+function _recItems(){
+    const hoy=_hitoHoyISO();
+    const items=[];
+    misNotificaciones().filter(n=>n.estado==='pendiente'&&n.tipo==='tarea').forEach(n=>{
+        const urg=(n.origen==='hito'&&(n.etapa==='vencido'||n.etapa==='supervisor'))?'danger':((n.origen==='hito'&&n.etapa==='hoy')?'warn':'info');
+        items.push({key:'n:'+n.id,tipo:'notif',urg,titulo:n.titulo||'',detalle:n.detalle||'',n});
+    });
+    try{getTareas().forEach(t=>{
+        if(!t||!_tareaEsMia(t)||!_tareaAbierta(t)||!t.vence)return;
+        const v=String(t.vence).slice(0,10);
+        if(v>hoy)return;
+        items.push({key:'t:'+t.id,tipo:'tarea',urg:v<hoy?'danger':'warn',titulo:(v<hoy?'Tarea vencida: ':'Tarea para hoy: ')+(t.titulo||''),detalle:(t.descripcion||'')+(v<hoy?' (vencía el '+fmtFechaCorta(v)+')':''),t});
+    });}catch(e){}
+    const ord={danger:0,warn:1,info:2};
+    items.sort((a,b)=>(ord[a.urg]-ord[b.urg])||String(a.titulo).localeCompare(String(b.titulo),'es'));
+    return items;
+}
+function _recActivos(){const sn=_recSnoozeMap();const now=Date.now();return _recItems().filter(it=>!(sn[it.key]&&sn[it.key]>now));}
+// Sonido corto generado por el navegador (sin archivos externos). Puede no sonar hasta el primer clic en la página.
+function _recBeep(){
+    if(!_recSonidoOn())return;
+    try{const C=window.AudioContext||window.webkitAudioContext;if(!C)return;const ctx=new C();const o=ctx.createOscillator();const g=ctx.createGain();o.type='sine';o.frequency.value=880;g.gain.value=0.0001;o.connect(g);g.connect(ctx.destination);const t=ctx.currentTime;g.gain.exponentialRampToValueAtTime(0.18,t+0.02);o.frequency.setValueAtTime(1175,t+0.18);g.gain.exponentialRampToValueAtTime(0.0001,t+0.4);o.start(t);o.stop(t+0.42);setTimeout(()=>{try{ctx.close();}catch(e){}},700);}catch(e){}
+}
+function _recTitleBlink(n){
+    if(!_recTitleBase)_recTitleBase=document.title;
+    if(_recTitleTimer){clearInterval(_recTitleTimer);_recTitleTimer=null;}
+    if(!n){document.title=_recTitleBase;return;}
+    let flip=false;
+    _recTitleTimer=setInterval(()=>{flip=!flip;document.title=flip?'('+n+') Recordatorios':_recTitleBase;},1500);
+}
+function renderRecordatorios(){
+    const overlay=document.getElementById('modalRecordatorios');if(!overlay)return;
+    const items=_recActivos();
+    _recTitleBlink(items.length);
+    if(!items.length){overlay.classList.remove('open');return;}
+    const col={danger:'#c0392b',warn:'#d4830f',info:'#0a7e8c'};
+    const ico={danger:'&#9203;',warn:'&#128276;',info:'&#128203;'};
+    const fila=it=>{
+        let abrir='recAbrirCampana()';
+        if(it.tipo==='tarea')abrir=`recAbrirTarea('${it.t.id}')`;
+        else if((it.n.origen==='hito'||it.n.origen==='viaje')&&it.n.refId)abrir=`recAbrirVenta('${it.key}','${it.n.id}','${it.n.refId}')`;
+        else if(it.n.origen==='tarea'&&it.n.refId)abrir=`recAbrirTareaNotif('${it.key}','${it.n.id}','${it.n.refId}')`;
+        const hecho=it.tipo==='notif'?`<button class="btn btn-sm btn-success" style="padding:3px 10px;font-size:0.72rem;" onclick="recMarcarHecho('${it.n.id}')">Marcar hecho</button>`:'';
+        return `<div style="border:1px solid var(--border);border-left:4px solid ${col[it.urg]};border-radius:8px;padding:9px 12px;margin-bottom:8px;background:#fff;">
+            <div style="font-weight:700;font-size:0.86rem;">${ico[it.urg]} ${esc(it.titulo)}</div>
+            ${it.detalle?`<div style="font-size:0.78rem;color:var(--text);margin:3px 0 6px;">${esc(it.detalle)}</div>`:''}
+            <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+                <button class="btn btn-sm btn-primary" style="padding:3px 10px;font-size:0.72rem;" onclick="${abrir}">Abrir</button>${hecho}
+                <span style="flex:1;"></span>
+                <select onchange="if(this.value)recPosponer('${it.key}',this.value)" style="padding:3px 6px;font-size:0.72rem;border:1px solid var(--border);border-radius:6px;background:#fff;"><option value="">Posponer&hellip;</option><option value="60">1 hora</option><option value="180">3 horas</option><option value="manana">Hasta ma&ntilde;ana 8:00</option></select>
+            </div></div>`;
+    };
+    overlay.innerHTML=`<div class="modal" style="max-width:560px;">
+        <div class="modal-header"><h3>&#9200; Recordatorios (${items.length})</h3><label style="display:flex;align-items:center;gap:4px;font-size:0.72rem;margin:0 10px 0 auto;cursor:pointer;" title="Sonido al aparecer"><input type="checkbox" ${_recSonidoOn()?'checked':''} onchange="_recSetSonido(this.checked)"> Sonido</label><button class="modal-close" onclick="recPosponerTodo(60)" title="Recordar en 1 hora">&times;</button></div>
+        <div class="modal-body" style="background:var(--bg);">${items.map(fila).join('')}</div>
+        <div class="modal-footer" style="justify-content:space-between;flex-wrap:wrap;gap:8px;"><span style="font-size:0.72rem;color:var(--text-light);">Vuelve a aparecer cada ${_REC_INTERVALO_MIN} minutos mientras haya pendientes.</span><span style="display:flex;gap:6px;"><button class="btn btn-ghost" onclick="recPosponerTodo(60)">Recordar en 1 hora</button><button class="btn btn-ghost" onclick="recPosponerTodo('manana')">Hasta ma&ntilde;ana</button></span></div>
+    </div>`;
+    overlay.classList.add('open');
+}
+function mostrarRecordatorios(forzar){
+    if(!window.currentUser)return false;
+    // Sin pedido explícito, no interrumpir si hay otro cuadro abierto (se reintenta en el próximo ciclo)
+    if(!forzar){const otro=Array.from(document.querySelectorAll('.modal-overlay.open')).some(o=>o.id!=='modalRecordatorios');if(otro)return false;}
+    try{generarNotificacionesViajesProximos();}catch(e){}
+    try{generarNotificacionesHitos();}catch(e){}
+    try{_limpiarNotifObsoletas();}catch(e){}
+    try{renderNotifBell();}catch(e){}
+    const items=_recActivos();
+    _recTitleBlink(items.length);
+    if(!items.length){if(forzar)alert('No tenés recordatorios pendientes.');return false;}
+    const ov=document.getElementById('modalRecordatorios');
+    const yaAbierta=!!(ov&&ov.classList.contains('open'));
+    renderRecordatorios();
+    if(!yaAbierta)_recBeep();
+    return true;
+}
+function _recUntil(val){if(val==='manana'){const d=new Date();d.setDate(d.getDate()+1);d.setHours(8,0,0,0);return d.getTime();}return Date.now()+(parseInt(val,10)||60)*60000;}
+function recPosponer(key,val){const m=_recSnoozeMap();m[key]=_recUntil(val);_recSnoozeSave(m);renderRecordatorios();}
+function recPosponerTodo(val){const m=_recSnoozeMap();const u=_recUntil(val);_recActivos().forEach(it=>{m[it.key]=u;});_recSnoozeSave(m);renderRecordatorios();}
+function recMarcarHecho(notifId){
+    const arr=getNotificaciones().map(x=>Object.assign({},x));
+    const n=arr.find(x=>x.id===notifId);
+    if(n&&n.estado==='pendiente'){n.estado=(n.tipo==='tarea')?'hecha':'leida';n.resueltaPor=_notifEmailActual();n.resueltaTs=Date.now();saveNotificaciones(arr);}
+    try{renderNotifBell();}catch(e){}
+    renderRecordatorios();
+}
+function _recCerrar(){const ov=document.getElementById('modalRecordatorios');if(ov)ov.classList.remove('open');}
+// Abrir un ítem lo pospone 1 hora (para no volver a molestar mientras se resuelve)
+function recAbrirVenta(key,notifId,ventaId){const m=_recSnoozeMap();m[key]=_recUntil(60);_recSnoozeSave(m);_recCerrar();notifAbrirChecklist(notifId,ventaId);}
+function recAbrirTareaNotif(key,notifId,tareaId){const m=_recSnoozeMap();m[key]=_recUntil(60);_recSnoozeSave(m);_recCerrar();notifAbrirTarea(notifId,tareaId);}
+function recAbrirTarea(tareaId){const m=_recSnoozeMap();m['t:'+tareaId]=_recUntil(60);_recSnoozeSave(m);_recCerrar();nav('tareas');setTimeout(()=>{try{openTareaDetalle(tareaId);}catch(e){console.error('[tarea]',e);}},0);}
+function recAbrirCampana(){_recCerrar();openNotifPanel();}
+function iniciarRecordatorios(){
+    if(_recTimer)clearInterval(_recTimer);
+    const m=_recSnoozeMap();const now=Date.now();let ch=false;Object.keys(m).forEach(k=>{if(!(m[k]>now)){delete m[k];ch=true;}});if(ch)_recSnoozeSave(m);
+    setTimeout(()=>{try{mostrarRecordatorios(false);}catch(e){console.error('[recordatorios]',e);}},1500);
+    _recTimer=setInterval(()=>{try{mostrarRecordatorios(false);}catch(e){console.error('[recordatorios]',e);}},_REC_INTERVALO_MIN*60000);
 }
 // ===== PANEL "HITOS" EN INICIO =====
 let _dashHitosScope=(function(){try{return localStorage.getItem('dv_dash_hitos_scope')||'';}catch(e){return '';}})();
@@ -12266,6 +12375,7 @@ window.onUserReady=async function(user){
     }
     // Activar control de inactividad (auto-logout)
     iniciarInactividad();
+    try{iniciarRecordatorios();}catch(e){console.error('[recordatorios]',e);}
     // Aplicar guardrails de permisos según el usuario logueado
     aplicarPermisosUI();
     // Mostrar (una sola vez) el anuncio de novedades.
