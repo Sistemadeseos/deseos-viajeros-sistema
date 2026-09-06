@@ -1778,9 +1778,10 @@ const defaultAerolineas=[
     {nombre:'British Airways',horasCheckin:24},{nombre:'Turkish Airlines',horasCheckin:24},{nombre:'Arajet',horasCheckin:24},
     {nombre:'Sansa',horasCheckin:24}
 ];
+const SUPERVISOR_EMAIL_DEFAULT='miladyzuniga@deseosviajeros.com';
 const HITO_REGLAS=[['checkin','Check-in (según aerolínea)'],['antes_salida','Días antes de la salida'],['antes_regreso','Días antes del regreso'],['venta','Días después de la venta'],['sin_fecha','Sin fecha']];
 function _normHitos(h,checklist){
-    const norm=x=>({texto:String((x&&x.texto)||'').trim(),regla:(x&&HITO_REGLAS.some(r=>r[0]===x.regla))?x.regla:'sin_fecha',dias:parseInt((x&&x.dias)||0,10)||0,obligatorio:!!(x&&x.obligatorio)});
+    const norm=x=>({texto:String((x&&x.texto)||'').trim(),regla:(x&&HITO_REGLAS.some(r=>r[0]===x.regla))?x.regla:'sin_fecha',dias:parseInt((x&&x.dias)||0,10)||0,obligatorio:!!(x&&x.obligatorio),avisarDias:(x&&x.avisarDias!=null&&x.avisarDias!=='')?Math.max(0,parseInt(x.avisarDias,10)||0):null});
     if(Array.isArray(h)&&h.length)return h.map(norm).filter(x=>x.texto);
     // Sin hitos guardados: si el checklist viejo fue personalizado, lo convertimos (sin fecha) y le sumamos el check-in
     if(Array.isArray(checklist)&&checklist.length&&JSON.stringify(checklist)!==JSON.stringify(defaultChecklistItems)){
@@ -2484,6 +2485,7 @@ function cfgGet(){
         checklist: c.checklist || defaultChecklistItems,
         hitos: _normHitos(c.hitos, c.checklist),
         aerolineas: (Array.isArray(c.aerolineas)&&c.aerolineas.length) ? c.aerolineas : defaultAerolineas,
+        supervisorEmail: c.supervisorEmail || SUPERVISOR_EMAIL_DEFAULT,
         alertas:   c.alertas   || defaultAlertas,
         fees:      c.fees      || defaultFees,
         agencyInfo: Object.assign({},defaultAgencyInfo,c.agencyInfo||{})
@@ -3115,6 +3117,7 @@ function renderDashboard(){
         return`<div class="dash-list-item" style="cursor:pointer;" onclick="abrirVentaDesdeDashboard('${v.id}')" title="Abrir checklist de esta venta"><div class="dli-main"><div class="dli-title">${esc(v.destino)}</div><div class="dli-sub">${esc(v.clienteNombre||'')}${v.encargado?' &bull; '+esc(v.encargado):''}</div></div><span class="dli-badge ${badge}">${v.done}/${v.total} (${pctInt}%)</span></div>`;
     }).join(''):'<div class="dash-empty">Todas las ventas est\u00e1n al d\u00eda &#127881;</div>';
 
+    let hitosCardHtml='';try{hitosCardHtml=_dashHitosCardHtml();}catch(e){console.error('[dash hitos]',e);}
     // Trend indicators
     const trendClass=m.cotGrowth>0?'up':(m.cotGrowth<0?'down':'flat');
     const trendArrow=m.cotGrowth>0?'&uarr;':(m.cotGrowth<0?'&darr;':'=');
@@ -3189,6 +3192,7 @@ function renderDashboard(){
             <h3>&#9992; Pr\u00f3ximos viajes (60 d\u00edas)</h3>
             <div class="dash-list">${proximosHtml}</div>
         </div>
+        ${hitosCardHtml}
         <div class="dash-card">
             <h3>&#9888; Ventas que requieren atenci\u00f3n</h3>
             <div class="dash-list">${atenderHtml}</div>
@@ -5085,6 +5089,14 @@ function _limpiarNotifObsoletas(){
             else if(v.fechaInicio){const fi=new Date(v.fechaInicio+'T12:00:00');if(!isNaN(fi)&&fi<hoy)obsoleta=true;}
             if(obsoleta){n.estado='hecha';n.resueltaPor='sistema';n.resueltaTs=Date.now();cambio=true;}
         }
+        // Regla 4: aviso de hito cuya venta se cerró/canceló/borró, o cuyo hito ya se completó o se quitó.
+        if(n.origen==='hito'&&n.refId){
+            const v=vById.get(String(n.refId));
+            let ob=false;
+            if(!v||v.estado==='cancelada'||v.estado==='completada')ob=true;
+            else{const it=(Array.isArray(v.checklist)?v.checklist:[]).find(x=>x&&String(x.id)===String(n.hitoId||''));if(!it||it.completado)ob=true;}
+            if(ob){n.estado='hecha';n.resueltaPor='sistema';n.resueltaTs=Date.now();cambio=true;}
+        }
     });
     if(cambio)saveNotificaciones(out);
     return cambio;
@@ -5121,7 +5133,7 @@ function cerrarNotifPanel(){
     closeModal('modalNotif');
 }
 function openNotifPanel(){
-    try{generarNotificacionesViajesProximos();}catch(e){console.error('[notif viajes]',e);}
+    try{generarNotificacionesViajesProximos();}catch(e){console.error('[notif viajes]',e);}try{generarNotificacionesHitos();}catch(e){console.error('[notif hitos]',e);}
     try{_limpiarNotifObsoletas();}catch(e){console.error('[notif limpieza]',e);}
     const overlay=document.getElementById('modalNotif');
     const todas=misNotificaciones();
@@ -5143,7 +5155,7 @@ function openNotifPanel(){
             ${n.detalle?`<div style="font-size:0.8rem;color:var(--text);margin:3px 0;">${esc(n.detalle)}</div>`:''}
             <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;gap:8px;">
                 <span style="font-size:0.7rem;color:var(--text-light);">${_notifFecha(n.creadaTs)}</span>
-                <span style="display:flex;gap:6px;align-items:center;">${n.origen==='tarea'&&n.refId?`<button class="btn btn-sm btn-outline" style="padding:3px 10px;font-size:0.72rem;color:var(--primary-dark);border-color:var(--primary);" onclick="notifAbrirTarea('${n.id}','${n.refId}')">Ver tarea</button>`:''}${btn}</span>
+                <span style="display:flex;gap:6px;align-items:center;">${n.origen==='tarea'&&n.refId?`<button class="btn btn-sm btn-outline" style="padding:3px 10px;font-size:0.72rem;color:var(--primary-dark);border-color:var(--primary);" onclick="notifAbrirTarea('${n.id}','${n.refId}')">Ver tarea</button>`:''}${(n.origen==='hito'||n.origen==='viaje')&&n.refId?`<button class="btn btn-sm btn-outline" style="padding:3px 10px;font-size:0.72rem;color:var(--primary-dark);border-color:var(--primary);" onclick="notifAbrirChecklist('${n.id}','${n.refId}')">Abrir checklist</button>`:''}${btn}</span>
             </div>
         </div>`;
     };
@@ -5281,6 +5293,97 @@ function generarNotificacionesViajesProximos(){
     });
     if(creadas>0)saveNotificaciones(arr);
     return creadas;
+}
+// ===== AVISOS POR HITO (fase 2) =====
+// Cada hito con fecha avisa a la encargada de la venta: X días antes (configurable por hito), el mismo día,
+// y cuando vence. Si lleva más de 24 h vencido sin completar, se avisa además a la supervisora.
+function _hitoAvisarDias(it){if(it&&it.avisarDias!=null&&it.avisarDias!=='')return Math.max(0,parseInt(it.avisarDias,10)||0);return (it&&it.regla==='checkin')?1:3;}
+function _diasEntreISO(a,b){return Math.round((new Date(b+'T12:00:00')-new Date(a+'T12:00:00'))/86400000);}
+function _ventaEncargadaEmail(v){const emails=getEncargadosEmails();return (v&&v.encargado&&emails[v.encargado])?_normEmail(emails[v.encargado]):'';}
+function _ventaEtiqueta(v){if(!v)return '';const d=v.destino||v.grupoNombre||v.naviera||'';return (v.clienteNombre||'')+(d?(v.clienteNombre?' · ':'')+d:'');}
+function _supervisorEmail(){return _normEmail(cfgGet().supervisorEmail||SUPERVISOR_EMAIL_DEFAULT);}
+function generarNotificacionesHitos(){
+    const ventas=getVentas();if(!ventas.length)return 0;
+    const hoy=_hitoHoyISO();
+    const arr=getNotificaciones().map(x=>Object.assign({},x));
+    const ya=new Set(arr.filter(n=>n.origen==='hito').map(n=>String(n.refId)+'|'+String(n.hitoId||'')+'|'+String(n.etapa||'')));
+    const sup=_supervisorEmail();
+    let creadas=0;
+    // Al pasar a una etapa nueva (antes → hoy → vencido) se cierran las anteriores del mismo hito para que no se acumulen
+    const cerrarPrevias=(vid,hid)=>{arr.forEach(n=>{if(n.origen==='hito'&&String(n.refId)===String(vid)&&String(n.hitoId||'')===String(hid)&&n.estado==='pendiente'&&n.etapa!=='supervisor'){n.estado='hecha';n.resueltaPor='sistema';n.resueltaTs=Date.now();}});};
+    const push=(v,it,etapa,para,titulo,detalle)=>{
+        const key=String(v.id)+'|'+String(it.id)+'|'+etapa;
+        if(ya.has(key)||!para)return;
+        if(etapa!=='supervisor')cerrarPrevias(v.id,it.id);
+        arr.push({id:newRrhhId(),tipo:'tarea',titulo,detalle,paraEmail:para,paraPermiso:'',estado:'pendiente',origen:'hito',refId:String(v.id),hitoId:String(it.id),etapa,creadaTs:Date.now(),creadaPor:'sistema'});
+        ya.add(key);creadas++;
+    };
+    ventas.forEach(v=>{
+        if(!v||v.estado==='cancelada'||v.estado==='completada'||!Array.isArray(v.checklist))return;
+        const enc=_ventaEncargadaEmail(v)||sup;
+        const quien=_ventaEtiqueta(v);
+        v.checklist.forEach(it=>{
+            if(!it||it.completado||!it.texto)return;
+            const ef=_hitoFechaEf(it,v);if(!ef.fecha)return;
+            const d=_diasEntreISO(hoy,ef.fecha); // >0 faltan días, 0 hoy, <0 vencido
+            const horaTxt=ef.hora?' a las '+ef.hora:'';
+            if(d<0){
+                const atr=-d;
+                push(v,it,'vencido',enc,'Vencido: '+it.texto+' · '+quien,'Venció el '+fmtFechaCorta(ef.fecha)+horaTxt+' (hace '+atr+' día'+(atr===1?'':'s')+') y sigue sin completarse. Abrí el checklist de la venta y resolvelo.');
+                // Más de 24 h vencido (sin hora: se cuenta desde el final del día)
+                const limite=new Date(ef.fecha+'T'+(ef.hora||'23:59')+':00');
+                if(!isNaN(limite)&&(Date.now()-limite)>24*3600000&&sup&&sup!==enc){
+                    push(v,it,'supervisor',sup,'Hito vencido sin resolver: '+it.texto+' · '+quien,'Encargada: '+(v.encargado||'sin asignar')+'. Venció el '+fmtFechaCorta(ef.fecha)+horaTxt+' (hace '+atr+' día'+(atr===1?'':'s')+') y no se completó.');
+                }
+            }else if(d===0){
+                push(v,it,'hoy',enc,'Hoy: '+it.texto+' · '+quien,'Vence hoy'+horaTxt+'. Marcalo como completado en el checklist cuando esté listo.');
+            }else if(d<=_hitoAvisarDias(it)){
+                push(v,it,'antes',enc,'En '+d+' día'+(d===1?'':'s')+': '+it.texto+' · '+quien,'Vence el '+fmtFechaCorta(ef.fecha)+horaTxt+'.');
+            }
+        });
+    });
+    if(creadas>0)saveNotificaciones(arr);
+    return creadas;
+}
+function notifAbrirChecklist(notifId,ventaId){
+    const arr=getNotificaciones().map(x=>Object.assign({},x));
+    const n=arr.find(x=>x.id===notifId);
+    if(n&&n.estado==='pendiente'&&n.tipo!=='tarea'){n.estado='leida';n.resueltaPor=_notifEmailActual();n.resueltaTs=Date.now();saveNotificaciones(arr);}
+    closeModal('modalNotif');
+    abrirVentaDesdeDashboard(ventaId);
+}
+// ===== PANEL "HITOS" EN INICIO =====
+let _dashHitosScope=(function(){try{return localStorage.getItem('dv_dash_hitos_scope')||'';}catch(e){return '';}})();
+function _dashHitosSetScope(s){_dashHitosScope=s;try{localStorage.setItem('dv_dash_hitos_scope',s);}catch(e){}renderDashboard();}
+function _miEncargadoNombre(){const em=(window.currentUser&&window.currentUser.email)||'';if(!em)return '';try{return matchEncargadoDesdeEmail(em,cfgGet().encargados)||'';}catch(e){return '';}}
+function _dashHitosCardHtml(){
+    const hoy=_hitoHoyISO();const lim=_addDiasISO(hoy,7);
+    const mio=_miEncargadoNombre();
+    const scope=_dashHitosScope||(mio?'mias':'todas');
+    const mioN=mio?normalizarParaMatch(mio):'';
+    const ventas=getVentas().filter(v=>v&&v.estado!=='cancelada'&&v.estado!=='completada');
+    const vs=(scope==='mias'&&mioN)?ventas.filter(v=>normalizarParaMatch(v.encargado||'')===mioN):ventas;
+    const venc=[],hoyL=[],prox=[],rev=[];
+    vs.forEach(v=>{
+        (Array.isArray(v.checklist)?v.checklist:[]).forEach(it=>{
+            if(!it||it.completado||!it.texto)return;const ef=_hitoFechaEf(it,v);if(!ef.fecha)return;
+            const row={v,it,fecha:ef.fecha,hora:ef.hora||''};
+            if(ef.fecha<hoy)venc.push(row);else if(ef.fecha===hoy)hoyL.push(row);else if(ef.fecha<=lim)prox.push(row);
+        });
+        const m=hitosPendientesTxt(v).filter(t=>/revisar|aerol|definir/.test(t));
+        if(m.length)rev.push({v,txt:m.join(', ')});
+    });
+    const srt=(a,b)=>a.fecha.localeCompare(b.fecha)||a.hora.localeCompare(b.hora);
+    venc.sort(srt);hoyL.sort(srt);prox.sort(srt);
+    const item=(r,badge,cls)=>`<div class="dash-list-item" style="cursor:pointer;" onclick="abrirVentaDesdeDashboard('${r.v.id}')" title="Abrir checklist de la venta"><div class="dli-main"><div class="dli-title">${esc(r.it.texto)}${(r.it.regla==='checkin'&&r.v.aerolinea)?' · '+esc(r.v.aerolinea):''}</div><div class="dli-sub">${esc(_ventaEtiqueta(r.v))}${r.v.encargado?' &bull; '+esc(r.v.encargado):''} &bull; ${fmtFechaCorta(r.fecha)}${r.hora?' '+esc(r.hora):''}</div></div><span class="dli-badge ${cls}">${badge}</span></div>`;
+    const grupo=(tit,lista,fb)=>lista.length?`<div style="font-size:0.7rem;font-weight:700;color:var(--text-light);text-transform:uppercase;letter-spacing:.5px;margin:8px 0 4px;">${tit} (${lista.length})</div>`+lista.slice(0,8).map(fb).join('')+(lista.length>8?`<div class="dli-sub" style="padding:2px 10px;color:var(--text-light);font-size:0.72rem;">y ${lista.length-8} m&aacute;s&hellip;</div>`:''):'';
+    let html=grupo('Vencidos',venc,r=>item(r,'hace '+_diasEntreISO(r.fecha,hoy)+' d','danger'))
+        +grupo('Hoy',hoyL,r=>item(r,'hoy','warn'))
+        +grupo('Pr&oacute;ximos 7 d&iacute;as',prox,r=>item(r,'en '+_diasEntreISO(hoy,r.fecha)+' d','info'))
+        +grupo('Por revisar',rev,r=>`<div class="dash-list-item" style="cursor:pointer;" onclick="abrirVentaDesdeDashboard('${r.v.id}')" title="Abrir checklist de la venta"><div class="dli-main"><div class="dli-title">${esc(_ventaEtiqueta(r.v))}</div><div class="dli-sub">${esc(r.txt)}${r.v.encargado?' &bull; '+esc(r.v.encargado):''}</div></div><span class="dli-badge danger">revisar</span></div>`);
+    if(!html)html='<div class="dash-empty">Sin hitos vencidos ni pr&oacute;ximos'+(scope==='mias'?' en tus ventas':'')+' &#127881;</div>';
+    const tog='<span style="display:flex;gap:4px;margin-left:auto;">'+[['mias','Mis ventas'],['todas','Todo el equipo']].map(o=>`<button class="btn btn-sm ${scope===o[0]?'btn-primary':'btn-ghost'}" style="padding:2px 9px;font-size:0.68rem;" onclick="_dashHitosSetScope('${o[0]}')">${o[1]}</button>`).join('')+'</span>';
+    return `<div class="dash-card" style="grid-column:1/-1;"><h3 style="flex-wrap:wrap;"><span>&#128197; Hitos: vencidos, hoy y pr&oacute;ximos 7 d&iacute;as</span>${tog}</h3><div class="dash-list">${html}</div></div>`;
 }
 // =====================================================================================
 
@@ -6463,6 +6566,7 @@ function renderCfgHitoItem(h){
         <input type="text" class="cfg-h-texto" onblur="autoSaveConfigSilently()" value="${esc(h.texto||'')}" placeholder="Nombre del hito" style="flex:1;${inp}">
         <select class="cfg-h-regla" onchange="autoSaveConfigSilently()" style="width:190px;${inp}">${HITO_REGLAS.map(r=>`<option value="${r[0]}"${(h.regla||'sin_fecha')===r[0]?' selected':''}>${r[1]}</option>`).join('')}</select>
         <input type="number" class="cfg-h-dias" min="0" step="1" onblur="autoSaveConfigSilently()" value="${parseInt(h.dias||0,10)||0}" title="Días" style="width:64px;${inp}">
+        <input type="number" class="cfg-h-avisar" min="0" step="1" onblur="autoSaveConfigSilently()" value="${(h.avisarDias!=null&&h.avisarDias!=='')?esc(String(h.avisarDias)):''}" placeholder="${(h.regla==='checkin')?'1':'3'}" title="Avisar a la encargada tantos días antes (vacío = 3, check-in = 1)" style="width:64px;${inp}">
         <label style="display:flex;align-items:center;gap:4px;font-size:0.74rem;width:96px;margin:0;"><input type="checkbox" class="cfg-h-oblig" onchange="autoSaveConfigSilently()"${h.obligatorio?' checked':''}> Obligatorio</label>
         <button class="btn-icon remove" onclick="this.parentElement.remove();autoSaveConfigSilently();">&times;</button></div>`;
 }
@@ -6476,7 +6580,7 @@ function renderCfgAerolineaItem(a){
 }
 function _collectHitosFromDOM(){
     const cont=document.getElementById('cfgHitosList');if(!cont)return null;
-    return Array.from(cont.querySelectorAll('.cfg-hito')).map(d=>({texto:(d.querySelector('.cfg-h-texto')?.value||'').trim(),regla:d.querySelector('.cfg-h-regla')?.value||'sin_fecha',dias:parseInt(d.querySelector('.cfg-h-dias')?.value||'0',10)||0,obligatorio:!!d.querySelector('.cfg-h-oblig')?.checked})).filter(h=>h.texto);
+    return Array.from(cont.querySelectorAll('.cfg-hito')).map(d=>({texto:(d.querySelector('.cfg-h-texto')?.value||'').trim(),regla:d.querySelector('.cfg-h-regla')?.value||'sin_fecha',dias:parseInt(d.querySelector('.cfg-h-dias')?.value||'0',10)||0,obligatorio:!!d.querySelector('.cfg-h-oblig')?.checked,avisarDias:(function(){const s=d.querySelector('.cfg-h-avisar')?.value;return (s==null||String(s).trim()==='')?null:Math.max(0,parseInt(s,10)||0);})()})).filter(h=>h.texto);
 }
 function _collectAerolineasFromDOM(){
     const cont=document.getElementById('cfgAerolineasList');if(!cont)return null;
@@ -6487,9 +6591,11 @@ function renderConfigChecklist(){
     const pane=document.getElementById('cfgPane-checklist');
     const hdr='display:flex;gap:5px;font-size:0.66rem;color:var(--text-light);text-transform:uppercase;letter-spacing:.5px;padding:0 0 4px 24px;';
     pane.innerHTML=`<p class="config-hint">Hitos del checklist que se crean automáticamente con cada venta nueva. Cada uno puede tener una <strong>fecha calculada</strong> a partir de las fechas del viaje, y si es <strong>obligatorio</strong> la venta avisa hasta que esa fecha esté definida.</p>
-    <div style="${hdr}"><span style="flex:1;">Hito</span><span style="width:190px;">Cuándo</span><span style="width:64px;">Días</span><span style="width:96px;"></span><span style="width:24px;"></span></div>
+    <div style="${hdr}"><span style="flex:1;">Hito</span><span style="width:190px;">Cuándo</span><span style="width:64px;">Días</span><span style="width:64px;" title="Días antes de la fecha del hito en que se avisa a la encargada">Avisar</span><span style="width:96px;"></span><span style="width:24px;"></span></div>
     <div id="cfgHitosList">${cfg.hitos.map(h=>renderCfgHitoItem(h)).join('')}</div>
     <button class="btn btn-sm btn-primary" onclick="document.getElementById('cfgHitosList').insertAdjacentHTML('beforeend',renderCfgHitoItem({texto:'',regla:'antes_salida',dias:7,obligatorio:false}));initDrag(document.getElementById('cfgHitosList'));" style="margin-top:8px;">+ Agregar hito</button>
+    <p class="config-hint" style="margin-top:12px;">Cada hito avisa a la <strong>encargada de la venta</strong>: los d&iacute;as antes indicados en "Avisar", el mismo d&iacute;a, y cuando vence. Si lleva m&aacute;s de 24 horas vencido sin completar, se avisa adem&aacute;s a la supervisora.</p>
+    <div class="form-group" style="max-width:420px;"><label>Email de la supervisora</label><input type="email" id="cfgSupervisorEmail" value="${esc(cfg.supervisorEmail||'')}" onblur="autoSaveConfigSilently()" placeholder="${SUPERVISOR_EMAIL_DEFAULT}"></div>
     <hr class="wizard-divider" style="margin:18px 0 12px;">
     <p class="config-hint">Aerolíneas y con cuántas <strong>horas de anticipación</strong> abren el check-in. Con la aerolínea y la hora del vuelo, el sistema calcula la fecha y hora exacta del check-in de cada venta.</p>
     <div id="cfgAerolineasList">${cfg.aerolineas.map(a=>renderCfgAerolineaItem(a)).join('')}</div>
@@ -6745,7 +6851,7 @@ function saveConfigFromUI(silent){
     // Navieras para ventas de crucero (pestaña Cruceros)
     c.navieras=collectConfigListFromDOM('cfgNavierasList',false);
     // Checklist con fecha (hitos) y aerolíneas. Si la pestaña no está dibujada, se conserva lo guardado.
-    {const hs=_collectHitosFromDOM();if(hs){c.hitos=hs;c.checklist=hs.map(h=>h.texto);}const as=_collectAerolineasFromDOM();if(as)c.aerolineas=as;}
+    {const hs=_collectHitosFromDOM();if(hs){c.hitos=hs;c.checklist=hs.map(h=>h.texto);}const as=_collectAerolineasFromDOM();if(as)c.aerolineas=as;const se=document.getElementById('cfgSupervisorEmail');if(se)c.supervisorEmail=_normEmail(se.value)||SUPERVISOR_EMAIL_DEFAULT;}
     // Alertas (textarea)
     c.alertas=collectConfigListFromDOM('cfgAlertasList',true);
     // Fees
@@ -9500,7 +9606,7 @@ function _aerolineaOptionsHtml(sel,sinVuelo){
     if(sel&&!lista.includes(sel))lista.push(sel);
     return '<option value="">-- Elegir --</option><option value="'+SIN_VUELO+'"'+(sinVuelo?' selected':'')+'>Sin vuelo (solo hotel / traslados / otros)</option>'+lista.map(n=>`<option value="${esc(n)}"${(!sinVuelo&&n===sel)?' selected':''}>${esc(n)}</option>`).join('');
 }
-function _hitoNuevoDesdeCfg(h,i){return {id:Date.now()+'_'+i,texto:h.texto,completado:false,fecha:'',hora:'',regla:h.regla||'sin_fecha',dias:parseInt(h.dias||0,10)||0,obligatorio:!!h.obligatorio,revisado:false,revisadoPor:'',revisadoTs:''};}
+function _hitoNuevoDesdeCfg(h,i){return {id:Date.now()+'_'+i,texto:h.texto,completado:false,fecha:'',hora:'',regla:h.regla||'sin_fecha',dias:parseInt(h.dias||0,10)||0,obligatorio:!!h.obligatorio,avisarDias:(h.avisarDias!=null&&h.avisarDias!=='')?h.avisarDias:null,revisado:false,revisadoPor:'',revisadoTs:''};}
 // Checklist inicial de una venta nueva (las fechas se calculan cuando se conocen las fechas del viaje)
 function crearChecklistVenta(){return (cfgGet().hitos||[]).map((h,i)=>_hitoNuevoDesdeCfg(h,i));}
 // Fecha (y hora) que le corresponde a un hito según su regla y las fechas del viaje.
@@ -12155,7 +12261,7 @@ window.onUserReady=async function(user){
         // Cargar datos desde Firestore antes de inicializar la app
         await loadAllFromFirestore();
         init();
-        try{generarNotificacionesViajesProximos();}catch(e){console.error('[notif viajes]',e);}
+        try{generarNotificacionesViajesProximos();}catch(e){console.error('[notif viajes]',e);}try{generarNotificacionesHitos();}catch(e){console.error('[notif hitos]',e);}
         try{generarTareasAutomaticas();}catch(e){console.error('[tareas auto]',e);}
     }
     // Activar control de inactividad (auto-logout)
