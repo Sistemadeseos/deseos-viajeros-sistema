@@ -40,3 +40,8 @@ serviceAccountKey.json
 .env.local
 .env.*.local
 .claude/
+
+# Extractos bancarios y hojas de cálculo con datos reales: nunca al repositorio
+*.xls
+*.xlsx
+*.csv

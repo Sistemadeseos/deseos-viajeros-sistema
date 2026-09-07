@@ -1264,7 +1264,7 @@ onAuthStateChanged(fbAuth, (user) => {
 <!-- VIEW: REPORTE DE PAGOS -->
 <div class="app-view view-list" id="viewContabilidad">
     <div class="list-search" style="flex-wrap:wrap;align-items:center;">
-        <div class="cal-seg" id="contaSeg"><button class="active" data-ct="diario" onclick="contaTab('diario')">Diario</button><button data-ct="mayor" onclick="contaTab('mayor')">Mayor</button><button data-ct="cxp" onclick="contaTab('cxp')">Proveedores</button><button data-ct="gastos" onclick="contaTab('gastos')">Gastos</button><button data-ct="margen" onclick="contaTab('margen')">M&aacute;rgenes</button><button data-ct="tc" onclick="contaTab('tc')">Tipo de cambio</button><button data-ct="cierres" onclick="contaTab('cierres')">Cierres</button></div>
+        <div class="cal-seg" id="contaSeg"><button class="active" data-ct="diario" onclick="contaTab('diario')">Diario</button><button data-ct="mayor" onclick="contaTab('mayor')">Mayor</button><button data-ct="cxp" onclick="contaTab('cxp')">Proveedores</button><button data-ct="gastos" onclick="contaTab('gastos')">Gastos</button><button data-ct="margen" onclick="contaTab('margen')">M&aacute;rgenes</button><button data-ct="bancos" onclick="contaTab('bancos')">Bancos</button><button data-ct="tc" onclick="contaTab('tc')">Tipo de cambio</button><button data-ct="cierres" onclick="contaTab('cierres')">Cierres</button></div>
         <label style="font-size:0.78rem;color:var(--text-light);margin-left:8px;">Per&iacute;odo</label><input type="month" id="contaPeriodo" onchange="renderContabilidad()" style="width:170px;">
         <span style="flex:1;"></span><span id="contaTCHoy" style="font-size:0.78rem;color:var(--text-light);"></span>
     </div>
@@ -2253,6 +2253,138 @@ function contaMargenVenta(v){
     const margen=_contaRound(ingresoCRC-costosCRC);
     return {moneda,total,ingresoCRC,costosCRC,margen,pct:ingresoCRC>0?Math.round(margen/ingresoCRC*1000)/10:null,docs};
 }
+// ===== CONTABILIDAD (fase 3): conciliación bancaria =====
+// Líneas de extracto (dv_conta_bancos): {id,loteId,cuenta,banco,moneda,fecha,referencia,descripcion,debito,credito,balance,hash,
+//   estado:'pendiente'|'conciliado'|'ignorado',asientoId,matchTipo:'auto'|'manual'|'creado',sugeridoId,importadoPor,importadoTs}
+// Lotes (cfg.contaLotes): {id,cuenta,banco,moneda,iban,desde,hasta,saldoInicial,saldoFinal,n,ts,por}
+function getContaBancos(){return getLS('dv_conta_bancos');}
+function saveContaBancos(arr){return setLS('dv_conta_bancos',Array.isArray(arr)?arr:[]);}
+function _contaLotes(){const c=getConfig();return Array.isArray(c.contaLotes)?c.contaLotes:[];}
+function _contaBancosMapeo(){const c=getConfig();return (c.contaBancosMapeo&&typeof c.contaBancosMapeo==='object')?c.contaBancosMapeo:{};}
+function contaGuardarMapeoBanco(iban,cuenta,banco){const c=getConfig();if(!c.contaBancosMapeo||typeof c.contaBancosMapeo!=='object')c.contaBancosMapeo={};c.contaBancosMapeo[iban]={cuenta,banco};saveConfig(c);}
+function _contaReglas(){const c=getConfig();return Array.isArray(c.contaReglas)?c.contaReglas:[];}
+function contaGuardarRegla(patron,cuentaGasto,proveedorId){const c=getConfig();if(!Array.isArray(c.contaReglas))c.contaReglas=[];const p=normalizarParaMatch(patron).slice(0,24);if(!p)return;const ex=c.contaReglas.find(r=>r.patron===p);if(ex){ex.cuentaGasto=cuentaGasto;ex.proveedorId=proveedorId||'';}else c.contaReglas.push({patron:p,cuentaGasto,proveedorId:proveedorId||'',ts:Date.now()});saveConfig(c);}
+function contaReglaPara(descripcion){const n=normalizarParaMatch(descripcion||'');if(!n)return null;const rs=_contaReglas().filter(r=>r&&r.patron&&n.indexOf(r.patron)>=0).sort((a,b)=>b.patron.length-a.patron.length);return rs[0]||null;}
+// --- Parseo del extracto (hoja leída con SheetJS: matriz de filas) ---
+function _contaNumBanco(v){
+    if(v==null)return 0;if(typeof v==='number')return _contaRound(v);
+    let s=String(v).trim();if(!s||s==='-')return 0;
+    s=s.replace(/[^\d.,\-]/g,'');
+    const lc=s.lastIndexOf(','),ld=s.lastIndexOf('.');
+    if(lc>ld){s=s.replace(/\./g,'').replace(',','.');}else{s=s.replace(/,/g,'');}
+    const n=parseFloat(s);return isFinite(n)?_contaRound(n):0;
+}
+function _contaFechaBanco(v){
+    if(v==null||v==='')return '';
+    if(typeof v==='number'){const d=new Date(Math.round((v-25569)*86400000));if(isNaN(d))return '';return d.toISOString().slice(0,10);}
+    if(v instanceof Date){if(isNaN(v))return '';return v.getFullYear()+'-'+String(v.getMonth()+1).padStart(2,'0')+'-'+String(v.getDate()).padStart(2,'0');}
+    const s=String(v).trim();let m=s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})/);if(m)return m[3]+'-'+m[2].padStart(2,'0')+'-'+m[1].padStart(2,'0');
+    m=s.match(/^(\d{4})-(\d{2})-(\d{2})/);if(m)return m[0];
+    return '';
+}
+// Devuelve {banco,iban,moneda,saldoInicial,saldoFinal,lineas:[{fecha,referencia,descripcion,debito,credito,balance}],error}
+function contaParsearExtracto(filas){
+    const out={banco:'',iban:'',moneda:'',saldoInicial:null,saldoFinal:null,lineas:[]};
+    if(!Array.isArray(filas)||!filas.length){out.error='El archivo está vacío.';return out;}
+    const txt=r=>(r||[]).map(x=>String(x==null?'':x));
+    // IBAN y moneda en las primeras filas
+    for(let i=0;i<Math.min(filas.length,15);i++){const t=txt(filas[i]).join(' ');const m=t.match(/CR\d{20}/);if(m&&!out.iban)out.iban=m[0];if(/\bUSD\b/.test(t)&&!out.moneda)out.moneda='USD';if(/\bCRC\b/.test(t)&&!out.moneda)out.moneda='CRC';if(/\bEUR\b/.test(t)&&!out.moneda)out.moneda='EUR';if(/saldo inicial/i.test(t)&&out.saldoInicial==null){const r=txt(filas[i]);const k=r.findIndex(x=>/saldo inicial/i.test(x));for(let j=k+1;j<r.length;j++){if(r[j].trim()){out.saldoInicial=_contaNumBanco(r[j]);break;}}}}
+    let hi=-1,cols=null;
+    for(let i=0;i<filas.length;i++){const r=txt(filas[i]);const iD=r.findIndex(x=>/d[eé]bitos?/i.test(x)),iC=r.findIndex(x=>/cr[eé]ditos?/i.test(x));if(iD>=0&&iC>=0){hi=i;let iF=r.findIndex(x=>/fecha contable/i.test(x));if(iF<0)iF=r.findIndex(x=>/^fecha/i.test(x.trim()));cols={fecha:iF,ref:r.findIndex(x=>/referencia|n[uú]mero documento|documento/i.test(x)),desc:r.findIndex(x=>/descripci/i.test(x)),deb:iD,cre:iC,bal:r.findIndex(x=>/balance|saldo/i.test(x))};break;}}
+    if(hi<0||!cols||cols.fecha<0||cols.desc<0){out.error='No encontré la fila de encabezado con Fecha, Descripción, Débitos y Créditos. Verificá que sea el estado de cuenta exportado del banco.';return out;}
+    out.banco=/bcr|banco de costa rica/i.test(txt(filas.slice(0,10).flat()).join(' '))||/fecha contable/i.test(txt(filas[hi]).join(' '))?'BCR':'BAC';
+    for(let i=hi+1;i<filas.length;i++){
+        const r=filas[i]||[];const f=_contaFechaBanco(r[cols.fecha]);
+        const desc=String(r[cols.desc]==null?'':r[cols.desc]).trim();
+        if(!f){if(/saldo final/i.test(desc)||txt(r).some(x=>/saldo final/i.test(x))){const rr=txt(r);const k=rr.findIndex(x=>/saldo final/i.test(x));const nxt=txt(filas[i+1]||[]);if(nxt[k]&&nxt[k].trim())out.saldoFinal=_contaNumBanco(nxt[k]);else{for(let j=k+1;j<rr.length;j++){if(rr[j].trim()){out.saldoFinal=_contaNumBanco(rr[j]);break;}}}}continue;}
+        const deb=_contaNumBanco(r[cols.deb]),cre=_contaNumBanco(r[cols.cre]);
+        if(!deb&&!cre)continue;
+        out.lineas.push({fecha:f,referencia:cols.ref>=0?String(r[cols.ref]==null?'':r[cols.ref]).trim():'',descripcion:desc,debito:deb,credito:cre,balance:cols.bal>=0?_contaNumBanco(r[cols.bal]):null});
+    }
+    if(out.saldoFinal==null&&cols.bal>=0&&out.lineas.length){const ult=out.lineas[out.lineas.length-1];if(ult.balance!=null)out.saldoFinal=ult.balance;}
+    if(!out.lineas.length)out.error='No encontré movimientos en el archivo.';
+    return out;
+}
+function _contaHashLinea(cuenta,l){return normalizarParaMatch([cuenta,l.fecha,l.referencia,l.debito,l.credito,l.descripcion].join('|'));}
+// Importa las líneas parseadas a la cuenta contable indicada. Devuelve {nuevas,repetidas,lote}
+function contaImportarExtracto(parse,cuenta,banco){
+    const cta=contaCuenta(cuenta);if(!cta)return {error:'Cuenta contable inválida.'};
+    const moneda=cta.moneda||parse.moneda||'CRC';
+    const arr=getContaBancos().map(x=>Object.assign({},x));const hashes=new Set(arr.map(x=>x.hash));
+    const lote={id:'lb_'+Date.now(),cuenta,banco:banco||parse.banco,moneda,iban:parse.iban||'',desde:'',hasta:'',saldoInicial:parse.saldoInicial,saldoFinal:parse.saldoFinal,n:0,ts:Date.now(),por:(window.currentUser&&window.currentUser.email)||''};
+    let nuevas=0,repetidas=0;
+    parse.lineas.forEach(l=>{const h=_contaHashLinea(cuenta,l);if(hashes.has(h)){repetidas++;return;}hashes.add(h);arr.push({id:'lb_'+Date.now()+'_'+Math.random().toString(36).slice(2,7),loteId:lote.id,cuenta,banco:lote.banco,moneda,fecha:l.fecha,referencia:l.referencia,descripcion:l.descripcion,debito:l.debito,credito:l.credito,balance:l.balance,hash:h,estado:'pendiente',asientoId:'',matchTipo:'',sugeridoId:'',importadoPor:lote.por,importadoTs:lote.ts});nuevas++;if(!lote.desde||l.fecha<lote.desde)lote.desde=l.fecha;if(!lote.hasta||l.fecha>lote.hasta)lote.hasta=l.fecha;});
+    lote.n=nuevas;
+    saveContaBancos(arr);
+    const c=getConfig();if(!Array.isArray(c.contaLotes))c.contaLotes=[];c.contaLotes.push(lote);if(c.contaLotes.length>200)c.contaLotes=c.contaLotes.slice(-200);saveConfig(c);
+    _contaBitacora('Importó extracto '+lote.banco+' '+contaCuentaNombre(cuenta)+': '+nuevas+' movimiento(s) nuevo(s), '+repetidas+' repetido(s)');
+    return {nuevas,repetidas,lote};
+}
+// --- Emparejamiento ---
+// Monto de una línea de asiento en la moneda de la cuenta bancaria (positivo = entra al banco)
+function _contaMovimientoLibro(l,cta){const m=(cta.moneda||'CRC');const orig=(l.moneda||'CRC')===m?(num(l.montoOrig)||0):(m==='CRC'?(l.debe||l.haber):((l.debe||l.haber)/(num(l.tc)||1)));return l.debe>0?orig:-orig;}
+function _contaAsientosConciliados(){const s=new Set();getContaBancos().forEach(x=>{if(x&&x.asientoId&&x.estado==='conciliado')s.add(x.asientoId);});return s;}
+// Candidatos de asientos para una línea del banco: misma cuenta, mismo sentido, mismo monto (±0.01), fecha ±TOL días
+function contaCandidatos(linea,tolDias){
+    const cta=contaCuenta(linea.cuenta);if(!cta)return [];
+    const ya=_contaAsientosConciliados();const monto=linea.credito>0?linea.credito:-linea.debito;const tol=tolDias==null?7:tolDias;
+    const out=[];
+    getContaAsientos().forEach(a=>{if(!a||a.reversadoPor||a.origen==='reversion'||a.origen==='apertura'||ya.has(a.id))return;const dias=Math.abs(_diasEntreISO(a.fecha,linea.fecha));if(dias>tol)return;let suma=0,tiene=false;a.lineas.forEach(l=>{if(l.cuenta===linea.cuenta){suma+=_contaMovimientoLibro(l,cta);tiene=true;}});if(!tiene)return;if(Math.abs(suma-monto)>0.011)return;const refOk=linea.referencia&&a.descripcion&&normalizarParaMatch(a.descripcion).indexOf(normalizarParaMatch(linea.referencia))>=0;out.push({asiento:a,dias,refOk});});
+    out.sort((x,y)=>(y.refOk-x.refOk)||(x.dias-y.dias));
+    return out;
+}
+// Corre el emparejamiento automático sobre las líneas pendientes de una cuenta. Devuelve {sugeridas,confirmadas}
+function contaEmparejar(cuenta,confirmarUnicos){
+    const arr=getContaBancos().map(x=>Object.assign({},x));const usados=new Set();let sug=0,conf=0;
+    const pend=arr.filter(x=>x.cuenta===cuenta&&x.estado==='pendiente').sort((a,b)=>a.fecha.localeCompare(b.fecha));
+    const marcar=(x,a,tipo)=>{x.estado='conciliado';x.asientoId=a.id;x.matchTipo=tipo;x.sugeridoId='';x.sugeridos=0;x.conciliadoTs=Date.now();x.conciliadoPor=(window.currentUser&&window.currentUser.email)||'';usados.add(a.id);conf++;};
+    // Pasada 1: coincidencia por referencia (la más confiable) → se concilia directo
+    pend.forEach(x=>{const c1=contaCandidatos(x).filter(k=>k.refOk&&!usados.has(k.asiento.id));if(c1.length===1)marcar(x,c1[0].asiento,'auto');});
+    // Pasada 2: por monto y fecha, priorizando la fecha más cercana
+    pend.filter(x=>x.estado==='pendiente').forEach(x=>{
+        const cands=contaCandidatos(x).filter(k=>!usados.has(k.asiento.id));
+        x.sugeridoId=cands.length?cands[0].asiento.id:'';x.sugeridos=cands.length;
+        if(cands.length===1&&confirmarUnicos)marcar(x,cands[0].asiento,'auto');
+        else if(cands.length){usados.add(cands[0].asiento.id);sug++;}
+    });
+    saveContaBancos(arr);return {sugeridas:sug,confirmadas:conf};
+}
+function contaConciliarLinea(lineaId,asientoId,tipo){const arr=getContaBancos().map(x=>Object.assign({},x));const x=arr.find(y=>y.id===lineaId);if(!x)return false;x.estado='conciliado';x.asientoId=asientoId;x.matchTipo=tipo||'manual';x.sugeridoId='';x.conciliadoTs=Date.now();x.conciliadoPor=(window.currentUser&&window.currentUser.email)||'';saveContaBancos(arr);return true;}
+function contaDesconciliarLinea(lineaId){const arr=getContaBancos().map(x=>Object.assign({},x));const x=arr.find(y=>y.id===lineaId);if(!x)return false;x.estado='pendiente';x.asientoId='';x.matchTipo='';saveContaBancos(arr);return true;}
+function contaIgnorarLinea(lineaId,motivo){const arr=getContaBancos().map(x=>Object.assign({},x));const x=arr.find(y=>y.id===lineaId);if(!x)return false;x.estado=x.estado==='ignorado'?'pendiente':'ignorado';x.ignoradoMotivo=String(motivo||'');saveContaBancos(arr);return true;}
+// Registra un cobro de cliente en una venta a partir de una línea del banco (crédito) y concilia
+function contaCobroDesdeLinea(lineaId,ventaId,montoVenta){
+    const linea=getContaBancos().find(x=>x.id===lineaId);if(!linea||!(linea.credito>0))return null;
+    const ventas=getVentas();const v=ventas.find(x=>x.id===ventaId);if(!v)return null;
+    if(!v.cobranza)v.cobranza={montoTotal:0,moneda:'USD',pagos:[]};if(!Array.isArray(v.cobranza.pagos))v.cobranza.pagos=[];
+    const monto=_contaRound(montoVenta!=null?montoVenta:linea.credito);if(!(monto>0))return null;
+    const pago={id:'p_'+Date.now(),fecha:linea.fecha,monto,metodo:'Depósito',referencia:linea.referencia||'',nota:'Desde extracto '+(linea.banco||'')+': '+(linea.descripcion||''),descripcion:''};
+    v.cobranza.pagos.push(pago);v._lastModifiedAt=Date.now();saveVentas(ventas);
+    // El asiento del cobro debe entrar a ESTA cuenta bancaria: se registra con la cuenta de la línea
+    const conv=contaACRC(monto,v.cobranza.moneda||'USD',linea.fecha);
+    const contra=v.contaIngresoReconocido?contaCfg().mapeo.cxcClientes:contaCfg().mapeo.anticiposClientes;
+    const a=contaRegistrarAsiento({fecha:linea.fecha,origen:'cobro',refId:v.id,subRef:pago.id,silencioso:true,descripcion:'Cobro · '+_contaVentaEtiqueta(v)+' · Depósito'+(linea.referencia?' · ref. '+linea.referencia:''),lineas:[{cuenta:linea.cuenta,debe:conv.crc,haber:0,moneda:v.cobranza.moneda||'USD',montoOrig:monto,tc:conv.tc,detalle:'Ingreso a '+contaCuentaNombre(linea.cuenta)},{cuenta:contra,debe:0,haber:conv.crc,moneda:v.cobranza.moneda||'USD',montoOrig:monto,tc:conv.tc,detalle:v.contaIngresoReconocido?'Abono a cuenta por cobrar':'Anticipo del cliente'}]});
+    if(a){const arr=getContaAsientos().map(x=>Object.assign({},x));const a2=arr.find(x=>x.id===a.id);if(a2){a2.montoOrig=monto;a2.metodo='Depósito';saveContaAsientos(arr);}contaConciliarLinea(lineaId,a.id,'creado');}
+    return a;
+}
+// --- Reporte de conciliación ---
+// Saldo de la cuenta bancaria en su propia moneda según libros, hasta la fecha (inclusive)
+function contaSaldoLibrosOrig(cuenta,hasta){const cta=contaCuenta(cuenta);if(!cta)return 0;let s=0;getContaAsientos().forEach(a=>{if(!a||(hasta&&a.fecha>hasta))return;a.lineas.forEach(l=>{if(l.cuenta===cuenta)s+=_contaMovimientoLibro(l,cta);});});return _contaRound(s);}
+function contaReporteConciliacion(cuenta,hasta){
+    const cta=contaCuenta(cuenta);const lineas=getContaBancos().filter(x=>x&&x.cuenta===cuenta&&(!hasta||x.fecha<=hasta));
+    const pend=lineas.filter(x=>x.estado==='pendiente');const ign=lineas.filter(x=>x.estado==='ignorado');
+    const pendNeto=_contaRound(pend.reduce((s,x)=>s+(x.credito-x.debito),0));
+    const conc=_contaAsientosConciliados();
+    const sinBanco=[];getContaAsientos().forEach(a=>{if(!a||a.reversadoPor||a.origen==='reversion'||a.origen==='apertura'||conc.has(a.id)||(hasta&&a.fecha>hasta)||a.fecha<contaCfg().fechaInicio)return;let m=0,t=false;a.lineas.forEach(l=>{if(l.cuenta===cuenta){m+=_contaMovimientoLibro(l,cta);t=true;}});if(t&&Math.abs(m)>=0.005)sinBanco.push({asiento:a,monto:_contaRound(m)});});
+    const sinBancoNeto=_contaRound(sinBanco.reduce((s,x)=>s+x.monto,0));
+    const lotes=_contaLotes().filter(l=>l.cuenta===cuenta&&(!hasta||l.hasta<=hasta)).sort((a,b)=>String(a.hasta).localeCompare(String(b.hasta)));
+    const ultimoLote=lotes.length?lotes[lotes.length-1]:null;
+    const saldoLibros=contaSaldoLibrosOrig(cuenta,hasta);
+    const saldoBanco=ultimoLote&&ultimoLote.saldoFinal!=null?ultimoLote.saldoFinal:null;
+    // Banco = Libros + (en banco y no en libros) − (en libros y no en banco)
+    const explicado=saldoBanco==null?null:_contaRound(saldoLibros+pendNeto-sinBancoNeto);
+    return {cuenta:cta,saldoLibros,saldoBanco,pend,pendNeto,ign,sinBanco,sinBancoNeto,explicado,diferencia:saldoBanco==null?null:_contaRound(saldoBanco-explicado),ultimoLote,conciliadas:lineas.filter(x=>x.estado==='conciliado').length};
+}
 
 // ===== ESTADOS Y ORIGENES DEL PIPELINE DE CONTACTOS =====
 const CONTACTO_ESTADOS=[
@@ -2316,7 +2448,7 @@ let _idb=null,_idbReady=false;
 const _IDB_DB='dv_store',_IDB_STORE='kv';
 // Claves de DATOS (colecciones) que migramos a IndexedDB. El resto de claves dv_ (preferencias de UI,
 // respaldos, estado de vistas) se quedan en localStorage tal como estaban.
-const _CLAVES_DATOS=['dv_cotizaciones','dv_ventas','dv_clientes','dv_encabezados','dv_config','dv_grupos','dv_hoteles','dv_rrhh_colillas','dv_rrhh_vacaciones','dv_rrhh_horasextra','dv_eventos','dv_conta_asientos','dv_conta_tc','dv_conta_docs'];
+const _CLAVES_DATOS=['dv_cotizaciones','dv_ventas','dv_clientes','dv_encabezados','dv_config','dv_grupos','dv_hoteles','dv_rrhh_colillas','dv_rrhh_vacaciones','dv_rrhh_horasextra','dv_eventos','dv_conta_asientos','dv_conta_tc','dv_conta_docs','dv_conta_bancos'];
 function _esClaveDatos(k){return _CLAVES_DATOS.indexOf(k)>=0;}
 function _idbOpen(){return new Promise(resolve=>{try{if(!window.indexedDB)return resolve(null);const req=indexedDB.open(_IDB_DB,1);req.onupgradeneeded=()=>{const db=req.result;if(!db.objectStoreNames.contains(_IDB_STORE))db.createObjectStore(_IDB_STORE);};req.onsuccess=()=>resolve(req.result);req.onerror=()=>resolve(null);}catch(e){resolve(null);}});}
 function _idbSet(k,str){if(!_idb)return;try{_idb.transaction(_IDB_STORE,'readwrite').objectStore(_IDB_STORE).put(str,k);}catch(e){console.warn('[idb] set',k,e);}}
@@ -2378,7 +2510,7 @@ function setLSObj(k,v){
 //   destinos/{pais}/{ciudad}_{timestamp}
 
 // Tracking de IDs que ya subimos a Firestore (para poder detectar eliminaciones)
-const _fsDocIds={cotizaciones:new Set(),ventas:new Set(),clientes:new Set(),destinos:new Set(),hoteles:new Set(),grupos:new Set(),rrhh_colillas:new Set(),rrhh_vacaciones:new Set(),rrhh_horasextra:new Set(),notificaciones:new Set(),tareas:new Set(),eventos:new Set(),conta_asientos:new Set(),conta_tc:new Set(),conta_docs:new Set()};
+const _fsDocIds={cotizaciones:new Set(),ventas:new Set(),clientes:new Set(),destinos:new Set(),hoteles:new Set(),grupos:new Set(),rrhh_colillas:new Set(),rrhh_vacaciones:new Set(),rrhh_horasextra:new Set(),notificaciones:new Set(),tareas:new Set(),eventos:new Set(),conta_asientos:new Set(),conta_tc:new Set(),conta_docs:new Set(),conta_bancos:new Set()};
 
 // ===== METADATA (timestamp + autor en cada save) =====
 // Agrega _lastModifiedAt y _lastModifiedBy a un objeto antes de guardarlo.
@@ -2417,6 +2549,7 @@ function guardarSnapshotRespaldo(motivo){
             conta_asientos:getLS('dv_conta_asientos'),
             conta_tc:getLS('dv_conta_tc'),
             conta_docs:getLS('dv_conta_docs'),
+            conta_bancos:getLS('dv_conta_bancos'),
             config:getLSObj('dv_config')
         };
         localStorage.setItem(key,JSON.stringify(snap));
@@ -2513,6 +2646,8 @@ async function pushToFirestore(key,value){
             await syncArrayCollection('conta_tc',value,false);
         }else if(key==='dv_conta_docs'){
             await syncArrayCollection('conta_docs',value,true);
+        }else if(key==='dv_conta_bancos'){
+            await syncArrayCollection('conta_bancos',value,false);
         }
     }catch(e){
         console.error('[FS] error en pushToFirestore para',key,':',e);
@@ -2822,7 +2957,7 @@ async function loadAllFromFirestore(){
         guardarLocal('dv_eventos',eventos);
         if(mergedEv.recovered>0)setTimeout(()=>{if(_fsEnabled)pushToFirestore('dv_eventos',eventos).catch(e=>console.error(e));},14500);
         // contabilidad: asientos (inmutables) y tipos de cambio
-        for(const par of [['conta_asientos','dv_conta_asientos',15500],['conta_tc','dv_conta_tc',16000],['conta_docs','dv_conta_docs',16500]]){
+        for(const par of [['conta_asientos','dv_conta_asientos',15500],['conta_tc','dv_conta_tc',16000],['conta_docs','dv_conta_docs',16500],['conta_bancos','dv_conta_bancos',17000]]){
             const localC=getLS(par[1]);
             const cSnap=await h.getDocs(h.collection(db,par[0]));
             let itemsC=[];cSnap.forEach(dd=>{itemsC.push(dd.data());_fsDocIds[par[0]].add(dd.id);});
@@ -6024,7 +6159,7 @@ function iniciarRecordatorios(){
 }
 // ===== CONTABILIDAD: pantalla =====
 let _contaTab='diario';
-const CONTA_ORIGEN_LABEL={manual:'Manual',cobro:'Cobro',planilla:'Planilla',ingreso_venta:'Ingreso por viaje',reversion:'Reversión',gasto:'Gasto',proveedor:'Proveedor',ajuste:'Ajuste'};
+const CONTA_ORIGEN_LABEL={apertura:'Apertura',pago_proveedor:'Pago a proveedor',manual:'Manual',cobro:'Cobro',planilla:'Planilla',ingreso_venta:'Ingreso por viaje',reversion:'Reversión',gasto:'Gasto',proveedor:'Proveedor',ajuste:'Ajuste'};
 function contaTab(t){_contaTab=t;const seg=document.getElementById('contaSeg');if(seg)seg.querySelectorAll('button').forEach(b=>b.classList.toggle('active',b.getAttribute('data-ct')===t));renderContabilidad();}
 function _contaPeriodoUI(){const el=document.getElementById('contaPeriodo');if(el&&!el.value)el.value=_hitoHoyISO().slice(0,7);return el?el.value:_hitoHoyISO().slice(0,7);}
 function _contaRangoPeriodo(p){const y=parseInt(p.slice(0,4),10),m=parseInt(p.slice(5,7),10);const fin=new Date(y,m,0).getDate();return {desde:p+'-01',hasta:p+'-'+String(fin).padStart(2,'0')};}
@@ -6041,6 +6176,7 @@ function renderContabilidad(){
     else if(_contaTab==='cxp')body.innerHTML=banner+_contaCxPHtml(p);
     else if(_contaTab==='gastos')body.innerHTML=banner+_contaGastosHtml(p);
     else if(_contaTab==='margen')body.innerHTML=_contaMargenHtml(p);
+    else if(_contaTab==='bancos')body.innerHTML=banner+_contaBancosHtml(p);
     else if(_contaTab==='tc')body.innerHTML=_contaTCHtml();
     else body.innerHTML=_contaCierresHtml();
 }
@@ -6152,7 +6288,7 @@ function contaReconocerUI(){if(!exigirPermiso('contabilidad.registrar','registra
 let _asLineas=[];
 function openAsientoModal(){
     if(!exigirPermiso('contabilidad.registrar','registrar asientos'))return;
-    _asLineas=[{cuenta:'',debe:'',haber:''},{cuenta:'',debe:'',haber:''}];
+    _asLineas=[{cuenta:'',debe:'',haber:''},{cuenta:'',debe:'',haber:''}];window._asLinea='';
     const ov=document.getElementById('modalAsiento');
     ov.innerHTML=`<div class="modal" style="max-width:760px;"><div class="modal-header"><h3>Asiento manual</h3><button class="modal-close" onclick="closeModal('modalAsiento')">&times;</button></div>
     <div class="modal-body">
@@ -6189,6 +6325,7 @@ function guardarAsientoManual(){
     const lineas=_asLineas.filter(l=>l.cuenta&&((parseFloat(l.debe)||0)>0||(parseFloat(l.haber)||0)>0)).map(l=>{const o=(parseFloat(l.debe)||0)||(parseFloat(l.haber)||0);return {cuenta:l.cuenta,debe:_contaRound((parseFloat(l.debe)||0)*tc),haber:_contaRound((parseFloat(l.haber)||0)*tc),moneda:m,montoOrig:o,tc};});
     const a=contaRegistrarAsiento({fecha,descripcion:desc,origen:'manual',lineas});
     if(!a)return;
+    if(window._asLinea){contaConciliarLinea(window._asLinea,a.id,'creado');window._asLinea='';}
     _contaBitacora('Registró el asiento manual #'+a.numero+' · '+desc);
     closeModal('modalAsiento');renderContabilidad();
 }
@@ -6329,6 +6466,7 @@ let _cdAdjunto='';
 function openContaDocModal(o){
     if(!exigirPermiso('contabilidad.registrar','registrar facturas y gastos'))return;
     o=o||{};const tipo=o.tipo==='gasto'?'gasto':'factura';_cdAdjunto='';
+    const ln=o.lineaBancoId?getContaBancos().find(y=>y.id===o.lineaBancoId):null;window._cdLinea=ln?ln.id:'';const reglaLn=ln?contaReglaPara(ln.descripcion):null;
     const ov=document.getElementById('modalContaDoc');
     const provs=contaProveedores().filter(p=>p.activo);
     const v=o.ventaId?getVentas().find(x=>x.id===o.ventaId):null;
@@ -6347,6 +6485,8 @@ function openContaDocModal(o){
     <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modalContaDoc')">Cancelar</button><button class="btn btn-success" onclick="guardarContaDoc()">Registrar</button></div></div>`;
     ov.classList.add('open');
     _cdProvChange();_cdTC();
+    if(ln){const g=id=>document.getElementById(id);g('cdFecha').value=ln.fecha;g('cdDesc').value=ln.descripcion||'';g('cdMoneda').value=(contaCuenta(ln.cuenta)||{}).moneda||'CRC';g('cdMonto').value=ln.debito||ln.credito||'';if(g('cdCuentaBanco'))g('cdCuentaBanco').value=ln.cuenta;if(reglaLn&&contaCuenta(reglaLn.cuentaGasto))g('cdCuentaGasto').value=reglaLn.cuentaGasto;if(reglaLn&&reglaLn.proveedorId&&g('cdProv'))g('cdProv').value=reglaLn.proveedorId;_cdTC();
+        const fila=g('cdCuentaGasto').closest('.form-row');if(fila)fila.insertAdjacentHTML('afterend','<div class="form-group"><label style="display:flex;align-items:center;gap:6px;text-transform:none;letter-spacing:0;font-size:0.8rem;"><input type="checkbox" id="cdRegla" checked> Recordar: los movimientos parecidos a &ldquo;'+esc((ln.descripcion||'').slice(0,24))+'&rdquo; van a esta cuenta</label></div>');}
 }
 function _cdProvChange(){const p=contaProveedor(document.getElementById('cdProv').value);if(!p)return;const g=document.getElementById('cdCuentaGasto');if(g&&p.cuentaCosto&&contaCuenta(p.cuentaCosto))g.value=p.cuentaCosto;const x=document.getElementById('cdCuentaCxP');if(x&&p.cuentaCxP&&contaCuenta(p.cuentaCxP))x.value=p.cuentaCxP;}
 function _cdVentaChange(){const v=getVentas().find(x=>x.id===document.getElementById('cdVenta').value);if(v&&v.cobranza&&v.cobranza.moneda){document.getElementById('cdMoneda').value=v.cobranza.moneda;_cdTC();}}
@@ -6363,6 +6503,7 @@ function guardarContaDoc(){
     const ventaId=g('cdVenta').value;const v=ventaId?getVentas().find(x=>x.id===ventaId):null;
     const d=contaRegistrarDoc({tipo,fecha:g('cdFecha').value,vence:g('cdVence')?g('cdVence').value:'',proveedorId:g('cdProv').value,numero:g('cdNumero').value,descripcion:g('cdDesc').value,ventaId,ventaEtiqueta:v?_contaVentaEtiqueta(v):'',moneda:g('cdMoneda').value,monto:parseFloat(g('cdMonto').value)||0,tc:parseFloat(g('cdTC').value)||0,cuentaGasto:g('cdCuentaGasto').value,cuentaCxP:g('cdCuentaCxP')?g('cdCuentaCxP').value:'',cuentaBanco:g('cdCuentaBanco')?g('cdCuentaBanco').value:'',adjunto:_cdAdjunto});
     if(!d)return;
+    if(window._cdLinea){const lnc=getContaBancos().find(y=>y.id===window._cdLinea);if(lnc){contaConciliarLinea(lnc.id,d.asientoId,'creado');const rc=document.getElementById('cdRegla');if(rc&&rc.checked)contaGuardarRegla(lnc.descripcion,d.cuentaGasto,d.proveedorId);}window._cdLinea='';}
     closeModal('modalContaDoc');
     try{renderContabilidad();}catch(e){}
     try{renderCobCostos();}catch(e){}
@@ -6406,12 +6547,16 @@ function openContaPagoModal(docId){
     <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modalContaPago')">Cancelar</button><button class="btn btn-success" onclick="guardarContaPago('${d.id}')">Registrar pago</button></div></div>`;
     ov.classList.add('open');
     window._cpDoc=d;_cpTC();
+    const lineaPend=window._cpLinea||'';window._cpLinea='';window._cpLineaActiva=lineaPend;
+    if(lineaPend){const lnp=getContaBancos().find(y=>y.id===lineaPend);if(lnp){document.getElementById('cpFecha').value=lnp.fecha;document.getElementById('cpBanco').value=lnp.cuenta;if(((contaCuenta(lnp.cuenta)||{}).moneda||'CRC')===d.moneda)document.getElementById('cpMonto').value=lnp.debito;_cpTC();}}
 }
 function _cpTC(){const d=window._cpDoc;if(!d||d.moneda==='CRC'){_cpTotal();return;}const t=contaTCPara(document.getElementById('cpFecha').value);document.getElementById('cpTC').value=d.moneda==='USD'?(t.usd||''):(t.eur||'');_cpTotal();}
 function _cpTotal(){const d=window._cpDoc;if(!d)return;const m=parseFloat(document.getElementById('cpMonto').value)||0;const tc=d.moneda==='CRC'?1:(parseFloat(document.getElementById('cpTC').value)||0);const crc=m*tc;const cxp=m*(num(d.tc)||1);const dif=Math.round((crc-cxp)*100)/100;document.getElementById('cpTotal').innerHTML=(m&&tc)?('Salen del banco <strong>'+fmtCRC2(crc)+'</strong>'+(Math.abs(dif)>=0.01?' · diferencial cambiario: <span style="color:'+(dif>0?'#a32d2d':'#0f6e56')+';">'+(dif>0?'pérdida ':'ganancia ')+fmtCRC2(Math.abs(dif))+'</span>':'')):'';}
 function guardarContaPago(docId){
     const d=contaPagarDoc(docId,{fecha:document.getElementById('cpFecha').value,monto:parseFloat(document.getElementById('cpMonto').value)||0,cuentaBanco:document.getElementById('cpBanco').value,tc:parseFloat(document.getElementById('cpTC').value)||0,referencia:document.getElementById('cpRef').value});
-    if(!d)return;closeModal('modalContaPago');try{renderContabilidad();}catch(e){}try{renderCobCostos();}catch(e){}
+    if(!d)return;
+    if(window._cpLineaActiva){const pg=d.pagos[d.pagos.length-1];if(pg&&pg.asientoId)contaConciliarLinea(window._cpLineaActiva,pg.asientoId,'creado');window._cpLineaActiva='';}
+    closeModal('modalContaPago');try{renderContabilidad();}catch(e){}try{renderCobCostos();}catch(e){}
 }
 // --- Modal: proveedores ---
 function openContaProvModal(desdeDoc){
@@ -6455,6 +6600,148 @@ function renderCobCostos(){
     box.innerHTML=`<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;"><strong style="font-size:0.9rem;">Costos de proveedores y margen</strong><span style="flex:1;"></span>${tienePermiso('contabilidad.registrar')?`<button class="btn btn-sm btn-ghost" onclick="openContaDocModal({tipo:'factura',ventaId:'${v.id}'})">+ Factura de proveedor</button>`:''}</div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;font-size:0.8rem;margin-bottom:6px;"><span>Ingreso: <strong>${fmtCRC2(m.ingresoCRC)}</strong></span><span>Costos: <strong>${fmtCRC2(m.costosCRC)}</strong></span><span>Margen: <strong style="color:${col};">${fmtCRC2(m.margen)}${m.pct!=null?' ('+m.pct+' %)':''}</strong></span></div>
     ${filas?`<table class="pagos-table"><thead><tr><th>Fecha</th><th>Proveedor</th><th style="text-align:right;">Monto</th><th></th><th></th></tr></thead><tbody>${filas}</tbody></table>`:'<div style="font-size:0.78rem;color:var(--text-light);">Sin costos registrados para esta venta.</div>'}`;
+}
+
+// ===== CONTABILIDAD fase 3: pantalla Bancos =====
+let _bcoCuenta='',_bcoFiltro='pendiente';
+function _contaCuentasBancarias(){return contaCfg().cuentas.filter(c=>c.tipo==='activo'&&/^11/.test(c.codigo));}
+function _contaBancosHtml(p){
+    const ctas=_contaCuentasBancarias();if(!_bcoCuenta&&ctas.length)_bcoCuenta=ctas[0].codigo;
+    const cta=contaCuenta(_bcoCuenta);const r=_contaRangoPeriodo(p);const puedeReg=tienePermiso('contabilidad.registrar');
+    const sel=`<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">
+        <label style="font-size:0.78rem;color:var(--text-light);">Cuenta</label><select onchange="_bcoCuenta=this.value;renderContabilidad()" style="min-width:220px;">${ctas.map(c=>`<option value="${esc(c.codigo)}"${c.codigo===_bcoCuenta?' selected':''}>${esc(c.codigo+' · '+c.nombre+(c.moneda?' ('+c.moneda+')':''))}</option>`).join('')}</select>
+        ${puedeReg?`<label class="btn btn-sm btn-primary" style="cursor:pointer;">&#128229; Importar extracto<input type="file" accept=".xls,.xlsx,.csv,.html,.htm" style="display:none;" onchange="contaImportarArchivo(this)"></label><button class="btn btn-sm btn-ghost" onclick="contaEmparejarUI(false)" title="Busca en los libros el asiento de cada movimiento pendiente">&#8646; Emparejar</button><button class="btn btn-sm btn-ghost" onclick="contaEmparejarUI(true)" title="Concilia de una vez los movimientos con un único candidato">&#10003; Confirmar todo lo seguro</button>`:''}
+        <select onchange="_bcoFiltro=this.value;renderContabilidad()" style="padding:4px 8px;"><option value="pendiente"${_bcoFiltro==='pendiente'?' selected':''}>Pendientes</option><option value="periodo"${_bcoFiltro==='periodo'?' selected':''}>Del período ${p}</option><option value="todas"${_bcoFiltro==='todas'?' selected':''}>Todas</option></select>
+        <span style="flex:1;"></span><button class="btn btn-sm btn-ghost" onclick="contaExportarBancos()">&#128196; Exportar a Excel</button></div>`;
+    if(!cta)return sel+'<div class="grid-empty"><h3>Sin cuentas bancarias</h3><p>Agregá cuentas de activo con código 11xx en Configuración → Contabilidad.</p></div>';
+    const rep=contaReporteConciliacion(_bcoCuenta,r.hasta);
+    const m=cta.moneda||'CRC';const F=n=>_contaFmtOrig(n,m);
+    const ok=rep.diferencia!=null&&Math.abs(rep.diferencia)<0.01;
+    const cards=`<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
+        <div style="flex:1;min-width:200px;background:#fff;border:1px solid var(--border);border-radius:10px;padding:10px 14px;"><div style="font-size:0.72rem;font-weight:700;color:var(--text-light);text-transform:uppercase;">Saldo según libros al ${fmtFechaCorta(r.hasta)}</div><div style="font-family:'Playfair Display',serif;font-size:1.2rem;font-weight:700;color:var(--primary-dark);">${F(rep.saldoLibros)}</div></div>
+        <div style="flex:1;min-width:200px;background:#fff;border:1px solid var(--border);border-radius:10px;padding:10px 14px;"><div style="font-size:0.72rem;font-weight:700;color:var(--text-light);text-transform:uppercase;">Saldo según extracto</div><div style="font-family:'Playfair Display',serif;font-size:1.2rem;font-weight:700;color:var(--primary-dark);">${rep.saldoBanco==null?'<span style="font-size:0.85rem;color:var(--text-light);font-family:Open Sans,sans-serif;">Importá un extracto</span>':F(rep.saldoBanco)}</div>${rep.ultimoLote?`<div style="font-size:0.7rem;color:var(--text-light);">extracto ${esc(rep.ultimoLote.banco||'')} hasta ${fmtFechaCorta(rep.ultimoLote.hasta)}</div>`:''}</div>
+        <div style="flex:1.4;min-width:260px;background:#fff;border:1px solid ${ok?'#9fd8c0':(rep.diferencia==null?'var(--border)':'#e8a1a1')};border-radius:10px;padding:10px 14px;"><div style="font-size:0.72rem;font-weight:700;color:var(--text-light);text-transform:uppercase;">Conciliación</div>
+            <div style="font-size:0.8rem;line-height:1.7;">En el banco y no en libros: <strong>${F(rep.pendNeto)}</strong> (${rep.pend.length})<br>En libros y no en el banco: <strong>${F(rep.sinBancoNeto)}</strong> (${rep.sinBanco.length})<br>${rep.diferencia==null?'':(ok?'<span style="color:#0f6e56;font-weight:700;">&#10003; Cuadra: libros + pendientes − no conciliados = extracto</span>':'<span style="color:#a32d2d;font-weight:700;">Diferencia sin explicar: '+F(rep.diferencia)+'</span>'+((rep.ultimoLote&&rep.ultimoLote.saldoInicial!=null&&Math.abs(rep.diferencia-rep.ultimoLote.saldoInicial)<0.011&&puedeReg)?'<br><span style="font-weight:400;">Coincide con el saldo inicial del extracto: falta el asiento de apertura de esta cuenta.</span> <button class="btn btn-sm btn-ghost" style="padding:2px 8px;font-size:0.7rem;" onclick="contaAperturaDesdeLote(\''+_bcoCuenta+'\')">Registrar saldo inicial</button>':''))}</div></div></div>`;
+    let lineas=getContaBancos().filter(x=>x&&x.cuenta===_bcoCuenta);
+    if(_bcoFiltro==='pendiente')lineas=lineas.filter(x=>x.estado==='pendiente');else if(_bcoFiltro==='periodo')lineas=lineas.filter(x=>x.fecha>=r.desde&&x.fecha<=r.hasta);
+    lineas.sort((a,b)=>a.fecha.localeCompare(b.fecha)||String(a.referencia).localeCompare(String(b.referencia)));
+    const asientoDe=id=>getContaAsientos().find(a=>a.id===id);
+    const rows=lineas.map(x=>{
+        let est='',acc='';
+        if(x.estado==='conciliado'){const a=asientoDe(x.asientoId);est=`<span class="lt-badge" style="background:#e1f5ee;color:#0f6e56;">&#10003; ${x.matchTipo==='auto'?'auto':(x.matchTipo==='creado'?'registrado':'manual')}</span>${a?`<div class="lt-secondary">#${a.numero} · ${esc(a.descripcion||'').slice(0,60)}</div>`:''}`;if(puedeReg)acc=`<button class="btn btn-sm btn-ghost" style="padding:2px 8px;font-size:0.7rem;" onclick="contaDesconciliarLinea('${x.id}');renderContabilidad()">Deshacer</button>`;}
+        else if(x.estado==='ignorado'){est='<span class="lt-badge" style="background:#f1f3f5;color:#4d5c63;">ignorado</span>';if(puedeReg)acc=`<button class="btn btn-sm btn-ghost" style="padding:2px 8px;font-size:0.7rem;" onclick="contaIgnorarLinea('${x.id}');renderContabilidad()">Reactivar</button>`;}
+        else{const a=x.sugeridoId?asientoDe(x.sugeridoId):null;est=a?`<span class="lt-badge" style="background:#faeeda;color:#854f0b;">sugerido${x.sugeridos>1?' ('+x.sugeridos+')':''}</span><div class="lt-secondary">#${a.numero} · ${esc(a.descripcion||'').slice(0,60)}</div>`:'<span class="lt-badge" style="background:#fcebeb;color:#a32d2d;">sin asiento</span>';
+            if(puedeReg){acc=(a?`<button class="btn btn-sm btn-success" style="padding:2px 8px;font-size:0.7rem;" onclick="contaConciliarLinea('${x.id}','${a.id}','manual');renderContabilidad()">Confirmar</button>`:'')+`<button class="btn btn-sm btn-ghost" style="padding:2px 8px;font-size:0.7rem;" onclick="openBancoLineaModal('${x.id}')">Resolver</button>`;}}
+        return `<tr><td style="white-space:nowrap;">${fmtFechaCorta(x.fecha)}</td><td><div>${esc(x.descripcion||'')}</div>${x.referencia?`<div class="lt-secondary">ref. ${esc(x.referencia)}</div>`:''}</td><td style="text-align:right;color:#a32d2d;">${x.debito?F(x.debito):''}</td><td style="text-align:right;color:#0f6e56;">${x.credito?F(x.credito):''}</td><td>${est}</td><td><div class="lt-actions">${acc}</div></td></tr>`;}).join('');
+    const sinBancoHtml=rep.sinBanco.length?`<h3 style="font-size:0.95rem;margin:18px 0 6px;color:var(--primary-dark);">En libros y no en el banco (${rep.sinBanco.length})</h3><table class="list-table"><thead><tr><th>Fecha</th><th>Nº</th><th>Descripción</th><th style="text-align:right;">Monto</th></tr></thead><tbody>${rep.sinBanco.slice(0,40).map(s=>`<tr><td>${fmtFechaCorta(s.asiento.fecha)}</td><td>#${s.asiento.numero}</td><td>${esc(s.asiento.descripcion||'')}</td><td style="text-align:right;">${F(s.monto)}</td></tr>`).join('')}</tbody></table>`:'';
+    return sel+cards+(rows?`<table class="list-table"><thead><tr><th>Fecha</th><th>Movimiento del banco</th><th style="text-align:right;">Débito</th><th style="text-align:right;">Crédito</th><th>Estado</th><th></th></tr></thead><tbody>${rows}</tbody></table>`:`<div class="grid-empty"><h3>${_bcoFiltro==='pendiente'?'Sin movimientos pendientes':'Sin movimientos'}</h3><p>Importá el estado de cuenta del banco (Excel o CSV) y el sistema empareja cada movimiento con los asientos.</p></div>`)+sinBancoHtml;
+}
+function contaImportarArchivo(inp){
+    const f=inp.files&&inp.files[0];if(!f)return;
+    if(!exigirPermiso('contabilidad.registrar','importar extractos'))return;
+    const rd=new FileReader();
+    rd.onload=e=>{
+        try{
+            const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array',raw:true,cellDates:false});
+            let mejor=null;
+            wb.SheetNames.forEach(n=>{const filas=XLSX.utils.sheet_to_json(wb.Sheets[n],{header:1,raw:true,defval:''});const p=contaParsearExtracto(filas);if(!p.error&&(!mejor||p.lineas.length>mejor.lineas.length))mejor=p;if(!mejor&&p.error)mejor=p;});
+            inp.value='';
+            if(!mejor||mejor.error){alert(mejor?mejor.error:'No se pudo leer el archivo.');return;}
+            _contaConfirmarImport(mejor);
+        }catch(err){console.error(err);alert('No se pudo leer el archivo: '+err.message);inp.value='';}
+    };
+    rd.readAsArrayBuffer(f);
+}
+function _contaConfirmarImport(p){
+    const mapeo=_contaBancosMapeo();const conocido=p.iban&&mapeo[p.iban]?mapeo[p.iban]:null;
+    const ctas=_contaCuentasBancarias().filter(c=>!p.moneda||!c.moneda||c.moneda===p.moneda);
+    const ov=document.getElementById('modalContaDoc');
+    ov.innerHTML=`<div class="modal" style="max-width:560px;"><div class="modal-header"><h3>Importar extracto ${esc(p.banco)}</h3><button class="modal-close" onclick="closeModal('modalContaDoc')">&times;</button></div>
+    <div class="modal-body" style="font-size:0.86rem;">
+        <p style="margin:0 0 10px;">Se leyeron <strong>${p.lineas.length}</strong> movimientos${p.lineas.length?' del '+fmtFechaCorta(p.lineas[0].fecha)+' al '+fmtFechaCorta(p.lineas[p.lineas.length-1].fecha):''}.${p.iban?' Cuenta '+esc(p.iban)+'.':''}${p.moneda?' Moneda '+esc(p.moneda)+'.':''}${p.saldoFinal!=null?' Saldo final del extracto: '+esc(String(p.saldoFinal))+'.':''}</p>
+        <div class="form-group"><label>¿A qué cuenta contable corresponde?</label><select id="impCuenta">${ctas.map(c=>`<option value="${esc(c.codigo)}"${(conocido&&conocido.cuenta===c.codigo)||(!conocido&&_bcoCuenta===c.codigo)?' selected':''}>${esc(c.codigo+' · '+c.nombre+(c.moneda?' ('+c.moneda+')':''))}</option>`).join('')}</select></div>
+        <p style="font-size:0.76rem;color:var(--text-light);margin:0;">${conocido?'Esta cuenta bancaria ya está asociada; se recordó de una importación anterior.':'La asociación se recuerda para las próximas importaciones. Los movimientos ya importados no se duplican.'}</p>
+    </div>
+    <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modalContaDoc')">Cancelar</button><button class="btn btn-success" onclick="_contaEjecutarImport()">Importar</button></div></div>`;
+    window._impParse=p;ov.classList.add('open');
+}
+function _contaEjecutarImport(){
+    const p=window._impParse;if(!p)return;const cuenta=document.getElementById('impCuenta').value;
+    if(p.iban)contaGuardarMapeoBanco(p.iban,cuenta,p.banco);
+    const r=contaImportarExtracto(p,cuenta,p.banco);
+    closeModal('modalContaDoc');if(r.error){alert(r.error);return;}
+    _bcoCuenta=cuenta;_bcoFiltro='pendiente';
+    const e=contaEmparejar(cuenta,false);
+    alert('Importados '+r.nuevas+' movimientos nuevos ('+r.repetidas+' ya estaban).\n\nEmparejamiento: '+e.confirmadas+' conciliados por referencia, '+e.sugeridas+' con sugerencia para confirmar.');
+    _contaTab='bancos';renderContabilidad();
+}
+function contaEmparejarUI(confirmar){if(!exigirPermiso('contabilidad.registrar','conciliar'))return;const e=contaEmparejar(_bcoCuenta,confirmar);alert((confirmar?'Conciliados: '+e.confirmadas+'. ':'')+'Con sugerencia: '+e.sugeridas+'.');renderContabilidad();}
+function contaExportarBancos(){const rows=getContaBancos().filter(x=>x&&x.cuenta===_bcoCuenta).sort((a,b)=>a.fecha.localeCompare(b.fecha)).map(x=>{const a=x.asientoId?getContaAsientos().find(y=>y.id===x.asientoId):null;return {'Fecha':x.fecha,'Referencia':x.referencia,'Descripción':x.descripcion,'Débito':x.debito||'','Crédito':x.credito||'','Estado':x.estado,'Asiento':a?('#'+a.numero+' '+a.descripcion):'','Tipo':x.matchTipo||''};});if(!rows.length){alert('No hay movimientos.');return;}const ws=XLSX.utils.json_to_sheet(rows);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Banco');XLSX.writeFile(wb,'Conciliacion_'+_bcoCuenta+'.xlsx');}
+// --- Resolver una línea del banco ---
+function openBancoLineaModal(id){
+    const x=getContaBancos().find(y=>y.id===id);if(!x)return;
+    const cta=contaCuenta(x.cuenta);const m=cta.moneda||'CRC';const F=n=>_contaFmtOrig(n,m);
+    const cands=contaCandidatos(x,30);
+    const regla=contaReglaPara(x.descripcion);
+    const ventas=getVentas().filter(v=>v&&v.estado!=='cancelada'&&v.estado!=='completada').slice().sort((a,b)=>String(b.fechaInicio||'').localeCompare(String(a.fechaInicio||'')));
+    const ov=document.getElementById('modalContaPago');
+    ov.innerHTML=`<div class="modal" style="max-width:640px;"><div class="modal-header"><h3>Movimiento del banco</h3><button class="modal-close" onclick="closeModal('modalContaPago')">&times;</button></div>
+    <div class="modal-body" style="font-size:0.86rem;">
+        <div style="background:var(--bg);border-radius:8px;padding:10px 12px;margin-bottom:12px;"><strong>${fmtFechaCorta(x.fecha)}</strong> · ${esc(x.descripcion||'')}${x.referencia?' · ref. '+esc(x.referencia):''}<br><span style="color:${x.credito?'#0f6e56':'#a32d2d'};font-weight:700;">${x.credito?'Entró '+F(x.credito):'Salió '+F(x.debito)}</span> en ${esc(contaCuentaNombre(x.cuenta))}</div>
+        <h4 style="font-size:0.9rem;margin:0 0 6px;">1. ¿Ya está en los libros? Elegí el asiento</h4>
+        ${cands.length?`<table class="list-table" style="margin-bottom:12px;"><tbody>${cands.slice(0,8).map(c=>`<tr><td>${fmtFechaCorta(c.asiento.fecha)}</td><td>#${c.asiento.numero}</td><td>${esc(c.asiento.descripcion||'')}</td><td><button class="btn btn-sm btn-success" style="padding:2px 8px;font-size:0.7rem;" onclick="contaConciliarLinea('${x.id}','${c.asiento.id}','manual');closeModal('modalContaPago');renderContabilidad()">Es este</button></td></tr>`).join('')}</tbody></table>`:'<p style="color:var(--text-light);margin:0 0 12px;">No hay asientos con este monto en ±30 días.</p>'}
+        <h4 style="font-size:0.9rem;margin:0 0 6px;">2. Si no está, registralo desde acá</h4>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+            ${x.debito?`<button class="btn btn-sm btn-primary" onclick="closeModal('modalContaPago');openContaDocModal({tipo:'gasto',lineaBancoId:'${x.id}'})">Es un gasto${regla?' → '+esc(contaCuentaNombre(regla.cuentaGasto)):''}</button><button class="btn btn-sm btn-ghost" onclick="closeModal('modalContaPago');contaPagoProveedorDesdeLinea('${x.id}')">Es un pago a proveedor</button>`:''}
+            ${x.credito?`<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;"><select id="blVenta" style="max-width:320px;"><option value="">-- Es un cobro de la venta… --</option>${ventas.map(v=>`<option value="${esc(v.id)}">${esc(_contaVentaEtiqueta(v))}${v.fechaInicio?' · '+fmtFechaCorta(v.fechaInicio):''} (${esc((v.cobranza&&v.cobranza.moneda)||'USD')})</option>`).join('')}</select><button class="btn btn-sm btn-primary" onclick="contaCobroDesdeLineaUI('${x.id}')">Registrar cobro</button></div>`:''}
+            <button class="btn btn-sm btn-ghost" onclick="closeModal('modalContaPago');openAsientoModalDesdeLinea('${x.id}')">Otro asiento manual</button>
+        </div>
+        <h4 style="font-size:0.9rem;margin:0 0 6px;">3. O dejalo fuera</h4>
+        <button class="btn btn-sm btn-ghost" onclick="contaIgnorarLinea('${x.id}',prompt('Motivo (opcional):','')||'');closeModal('modalContaPago');renderContabilidad()">Ignorar este movimiento</button>
+    </div>
+    <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modalContaPago')">Cerrar</button></div></div>`;
+    ov.classList.add('open');
+}
+function contaCobroDesdeLineaUI(lineaId){
+    const sel=document.getElementById('blVenta');const ventaId=sel&&sel.value;if(!ventaId){alert('Elegí la venta.');return;}
+    const x=getContaBancos().find(y=>y.id===lineaId);const v=getVentas().find(y=>y.id===ventaId);if(!x||!v)return;
+    const mv=(v.cobranza&&v.cobranza.moneda)||'USD';const mc=(contaCuenta(x.cuenta)||{}).moneda||'CRC';
+    let monto=x.credito;
+    if(mv!==mc){const t=contaTCPara(x.fecha);const tcC=mc==='CRC'?1:(mc==='USD'?t.usd:t.eur);const tcV=mv==='CRC'?1:(mv==='USD'?t.usd:t.eur);const sug=_contaRound(x.credito*tcC/tcV);const r=prompt('La venta está en '+mv+' y el depósito en '+mc+'. ¿Cuánto se abona a la venta en '+mv+'? (sugerido al tipo de cambio del día)',String(sug));if(r===null)return;monto=parseFloat(r)||0;if(!(monto>0))return;}
+    if(contaFechaBloqueada(x.fecha)){alert('El mes de ese movimiento está cerrado en Contabilidad.');return;}
+    const a=contaCobroDesdeLinea(lineaId,ventaId,monto);
+    if(!a){alert('No se pudo registrar el cobro (revisá el tipo de cambio de esa fecha).');return;}
+    closeModal('modalContaPago');renderContabilidad();try{renderVentas();}catch(e){}
+}
+function contaPagoProveedorDesdeLinea(lineaId){
+    const x=getContaBancos().find(y=>y.id===lineaId);if(!x)return;
+    const pend=getContaDocs().filter(d=>d&&d.tipo==='factura'&&d.estado!=='anulada'&&contaDocSaldo(d)>0.005);
+    if(!pend.length){alert('No hay facturas de proveedor pendientes. Registrá primero la factura en la pestaña Proveedores y después pagala desde ahí.');return;}
+    const ov=document.getElementById('modalContaPago');
+    ov.innerHTML=`<div class="modal" style="max-width:560px;"><div class="modal-header"><h3>¿Qué factura se pagó?</h3><button class="modal-close" onclick="closeModal('modalContaPago')">&times;</button></div><div class="modal-body"><table class="list-table"><tbody>${pend.map(d=>`<tr><td>${esc(d.proveedorNombre||'')}</td><td>${esc(d.descripcion||'')}${d.numero?' · '+esc(d.numero):''}</td><td style="text-align:right;">${_contaFmtOrig(contaDocSaldo(d),d.moneda)}</td><td><button class="btn btn-sm btn-success" style="padding:2px 8px;font-size:0.7rem;" onclick="closeModal('modalContaPago');window._cpLinea='${x.id}';openContaPagoModal('${d.id}')">Esta</button></td></tr>`).join('')}</tbody></table><p style="font-size:0.74rem;color:var(--text-light);margin-top:8px;">Al registrar el pago con la fecha y el monto del extracto, el movimiento queda conciliado solo.</p></div><div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modalContaPago')">Cerrar</button></div></div>`;
+    ov.classList.add('open');
+}
+function contaAperturaDesdeLote(cuenta){
+    if(!exigirPermiso('contabilidad.registrar','registrar asientos'))return;
+    const lotes=_contaLotes().filter(l=>l.cuenta===cuenta&&l.saldoInicial!=null).sort((a,b)=>String(a.desde).localeCompare(String(b.desde)));if(!lotes.length)return;
+    const l=lotes[0];const cta=contaCuenta(cuenta);const m=cta.moneda||'CRC';
+    const ini=contaCfg().fechaInicio;const f=l.desde&&l.desde>ini?l.desde:ini;
+    const patr=contaCuenta('3201')?'3201':'3101';
+    if(!confirm('Se registrará el saldo inicial de '+contaCuentaNombre(cuenta)+' por '+_contaFmtOrig(l.saldoInicial,m)+' al '+fmtFechaCorta(f)+', contra '+contaCuentaNombre(patr)+'.\n\nEs un asiento de apertura: no se compara con el extracto. ¿Continuar?'))return;
+    const conv=contaACRC(Math.abs(l.saldoInicial),m,f);if(!(conv.crc>0)){alert('No hay tipo de cambio para esa fecha.');return;}
+    const lineas=l.saldoInicial>=0?[{cuenta,debe:conv.crc,haber:0},{cuenta:patr,debe:0,haber:conv.crc}]:[{cuenta:patr,debe:conv.crc,haber:0},{cuenta,debe:0,haber:conv.crc}];
+    lineas.forEach(x=>Object.assign(x,{moneda:m,montoOrig:Math.abs(l.saldoInicial),tc:conv.tc,detalle:'Saldo inicial'}));
+    const a=contaRegistrarAsiento({fecha:f,origen:'apertura',refId:cuenta,silencioso:false,descripcion:'Saldo inicial según extracto '+(l.banco||'')+' · '+(cta.nombre||''),lineas});
+    if(a){_contaBitacora('Registró saldo inicial de '+contaCuentaNombre(cuenta));renderContabilidad();}
+}
+function openAsientoModalDesdeLinea(lineaId){
+    const x=getContaBancos().find(y=>y.id===lineaId);if(!x)return;
+    openAsientoModal();
+    const cta=contaCuenta(x.cuenta);const m=cta.moneda||'CRC';
+    document.getElementById('asFecha').value=x.fecha;document.getElementById('asMoneda').value=m;document.getElementById('asTC').value='';
+    document.getElementById('asDesc').value=(x.descripcion||'')+(x.referencia?' · ref. '+x.referencia:'');
+    _asLineas=x.credito?[{cuenta:x.cuenta,debe:String(x.credito),haber:''},{cuenta:'',debe:'',haber:String(x.credito)}]:[{cuenta:'',debe:String(x.debito),haber:''},{cuenta:x.cuenta,debe:'',haber:String(x.debito)}];
+    window._asLinea=lineaId;_asRender();
 }
 
 // ===== PANEL "HITOS" EN INICIO =====
