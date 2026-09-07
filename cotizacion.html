@@ -1125,7 +1125,7 @@ onAuthStateChanged(fbAuth, (user) => {
             <button class="tipo-cliente-btn" data-tipo="empresa" onclick="switchTipoCliente('empresa')">Empresa</button>
         </div>
         <div id="clientePersonaFields">
-            <div class="form-group"><label>Nombre</label><input type="text" id="clienteNombre" placeholder="Nombre completo" oninput="updatePreview()"></div>
+            <div class="form-group"><label>Nombre</label><input type="text" id="clienteNombre" placeholder="Escrib&iacute; para buscar un contacto o cargar uno nuevo" list="clientesDatalist" autocomplete="off" oninput="onClienteNombreInput()" onfocus="updateClientesDatalist()"><datalist id="clientesDatalist"></datalist><div id="clienteVinculadoHint" style="display:none;font-size:0.72rem;color:#0f6e56;margin:2px 0 0;"></div></div>
             <div class="form-row"><div class="form-group"><label>Tel&eacute;fono</label><input type="text" id="clienteTelefono" placeholder="8888-8888" oninput="updatePreview()"></div><div class="form-group"><label>Email</label><input type="email" id="clienteEmail" placeholder="correo@ejemplo.com" oninput="updatePreview()"></div></div>
         </div>
         <div id="clienteEmpresaFields" style="display:none;">
@@ -8605,6 +8605,31 @@ function onPaisChange(){const p=document.getElementById('paisSelect').value;cons
 function onDestinoSelect(){const ds=document.getElementById('destinoSelect');const di=document.getElementById('destino');const pv=document.getElementById('destinoPreviewImg');const pi=document.getElementById('destinoPreviewImgTag');const p=document.getElementById('paisSelect').value;if(ds.value==='__custom'){di.style.display='';ds.style.display='none';di.focus();selectedHeaderImg=null;pv.classList.remove('visible');}else if(ds.value){di.value=ds.value;di.style.display='none';const img=getDestinoImage(p,ds.value);selectedHeaderImg=img;if(img){pi.src=img;pv.classList.add('visible');}else{pv.classList.remove('visible');}}else{di.style.display='none';selectedHeaderImg=null;pv.classList.remove('visible');}updateHotelesDatalist();updatePreview();}
 // Pobla la lista de sugerencias de hoteles para los inputs op-nombre, segun pais+destino actual.
 // Si no hay destino, muestra todos los hoteles del pais. Si tampoco hay pais, muestra todos.
+// --- Buscador de contactos en el editor: sugiere al escribir, completa teléfono/email y vincula la cotización al contacto ---
+let _editorClienteId='';
+function updateClientesDatalist(){
+    const dl=document.getElementById('clientesDatalist');if(!dl)return;
+    const lista=getClientes().filter(x=>x&&x.nombreCompleto).slice().sort((a,b)=>String(a.nombreCompleto).localeCompare(String(b.nombreCompleto),'es'));
+    dl.innerHTML=lista.map(x=>`<option value="${esc(x.nombreCompleto)}">${esc([x.telefono,x.email,(typeof _esContactoAcomp==='function'&&_esContactoAcomp(x))?'acompañante':''].filter(Boolean).join(' · '))}</option>`).join('');
+}
+function _mostrarClienteVinculado(x){
+    const el=document.getElementById('clienteVinculadoHint');if(!el)return;
+    if(!x){el.style.display='none';el.innerHTML='';return;}
+    el.style.display='';el.innerHTML=`&#10003; Contacto existente: <span class="cliente-link" onclick="openClienteModal('${x.id}')">${esc(x.nombreCompleto||'')}</span>${x.numeroPasaporte?' · pasaporte '+esc(x.numeroPasaporte):''}. La cotizaci&oacute;n queda ligada a su ficha.`;
+}
+function onClienteNombreInput(){
+    const inp=document.getElementById('clienteNombre');if(!inp)return;
+    const n=normalizarParaMatch(inp.value||'');
+    const x=n?getClientes().find(y=>y&&y.nombreCompleto&&normalizarParaMatch(y.nombreCompleto)===n):null;
+    if(x){
+        _editorClienteId=x.id;
+        const t=document.getElementById('clienteTelefono'),e=document.getElementById('clienteEmail');
+        if(t&&!t.value&&x.telefono)t.value=x.telefono;
+        if(e&&!e.value&&x.email)e.value=x.email;
+        _mostrarClienteVinculado(x);
+    }else{_editorClienteId='';_mostrarClienteVinculado(null);}
+    updatePreview();
+}
 function updateHotelesDatalist(){
     const dl=document.getElementById('hotelesDatalist');
     if(!dl)return;
@@ -8645,7 +8670,7 @@ function isoToDmy(s){
 function formatDateRange(sRaw,eRaw){const s=normalizeFechaIso(sRaw),e=normalizeFechaIso(eRaw);if(!s||!e)return'';const sd=new Date(s+'T12:00:00'),ed=new Date(e+'T12:00:00');if(isNaN(sd)||isNaN(ed))return'';const m=['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];if(sd.getMonth()===ed.getMonth()&&sd.getFullYear()===ed.getFullYear())return`${sd.getDate()} al ${ed.getDate()} de ${m[sd.getMonth()]} ${sd.getFullYear()}`;return`${sd.getDate()} de ${m[sd.getMonth()]} al ${ed.getDate()} de ${m[ed.getMonth()]} ${ed.getFullYear()}`;}
 
 // ===== COLLECT FORM DATA =====
-function collectFormData(){const data={formato:currentFormat,tipoCliente,mostrarCliente:document.getElementById('mostrarClienteEnCot')?.checked!==false,clienteNombre:document.getElementById('clienteNombre').value,clienteTelefono:document.getElementById('clienteTelefono').value,clienteEmail:document.getElementById('clienteEmail').value,empresaNombre:document.getElementById('empresaNombre').value,empresaContacto:document.getElementById('empresaContacto').value,empresaTelefono:document.getElementById('empresaTelefono').value,empresaEmail:document.getElementById('empresaEmail').value,pais:document.getElementById('paisSelect').value,destinoSelect:document.getElementById('destinoSelect').value,destino:document.getElementById('destinoSelect').value&&document.getElementById('destinoSelect').value!=='__custom'?document.getElementById('destinoSelect').value:document.getElementById('destino').value,fechaInicio:normalizeFechaIso(document.getElementById('fechaInicio').value),fechaFin:normalizeFechaIso(document.getElementById('fechaFin').value),destinoTexto:document.getElementById('destinoTexto')?.value||'',alerta:document.getElementById('alertaDestino').value,infoDestino:document.getElementById('infoDestino').value,moneda:document.getElementById('moneda').value,pax:getPkgPax(),precioReserva:loadedReservaLegacy.ad||'',precioReservaNino:loadedReservaLegacy.n||'',precioReservaBebe:loadedReservaLegacy.b||'',razonSocial:document.getElementById('razonSocial').value,cedulaEmpresa:document.getElementById('cedulaEmpresa').value,encargado:document.getElementById('encargado').value,adjuntos:adjuntos.map(a=>({id:a.id,categoria:a.categoria,descripcion:a.descripcion,dataUrl:a.dataUrl}))};
+function collectFormData(){const data={formato:currentFormat,tipoCliente,mostrarCliente:document.getElementById('mostrarClienteEnCot')?.checked!==false,clienteNombre:document.getElementById('clienteNombre').value,clienteId:_editorClienteId||'',clienteTelefono:document.getElementById('clienteTelefono').value,clienteEmail:document.getElementById('clienteEmail').value,empresaNombre:document.getElementById('empresaNombre').value,empresaContacto:document.getElementById('empresaContacto').value,empresaTelefono:document.getElementById('empresaTelefono').value,empresaEmail:document.getElementById('empresaEmail').value,pais:document.getElementById('paisSelect').value,destinoSelect:document.getElementById('destinoSelect').value,destino:document.getElementById('destinoSelect').value&&document.getElementById('destinoSelect').value!=='__custom'?document.getElementById('destinoSelect').value:document.getElementById('destino').value,fechaInicio:normalizeFechaIso(document.getElementById('fechaInicio').value),fechaFin:normalizeFechaIso(document.getElementById('fechaFin').value),destinoTexto:document.getElementById('destinoTexto')?.value||'',alerta:document.getElementById('alertaDestino').value,infoDestino:document.getElementById('infoDestino').value,moneda:document.getElementById('moneda').value,pax:getPkgPax(),precioReserva:loadedReservaLegacy.ad||'',precioReservaNino:loadedReservaLegacy.n||'',precioReservaBebe:loadedReservaLegacy.b||'',razonSocial:document.getElementById('razonSocial').value,cedulaEmpresa:document.getElementById('cedulaEmpresa').value,encargado:document.getElementById('encargado').value,adjuntos:adjuntos.map(a=>({id:a.id,categoria:a.categoria,descripcion:a.descripcion,dataUrl:a.dataUrl}))};
 data.servicios=[];document.querySelectorAll('#serviciosContainer .service-item').forEach(it=>{const cb=it.querySelector('input[type="checkbox"]'),tx=it.querySelector('input[type="text"]').value;if(cb.checked&&tx.trim())data.servicios.push(tx);});
 data.opciones=[];document.querySelectorAll('#opcionesBody tr.opcion-row').forEach(tr=>{const nombre=tr.querySelector('.op-nombre')?.value||'';const adulto=tr.querySelector('.op-adulto')?.value||'';const nino=tr.querySelector('.op-nino')?.value||'';const bebe=tr.querySelector('.op-bebe')?.value||'';if(nombre.trim()){let calc=null;try{calc=JSON.parse(tr.dataset.calc||'null');}catch(e){}data.opciones.push({nombre,adulto,nino,bebe,calc,manualOverride:tr.dataset.manualOverride==='1'});}});
 data.noIncluye=[];document.querySelectorAll('#noIncluyeContainer .service-item').forEach(it=>{const cb=it.querySelector('input[type="checkbox"]');const t=it.querySelector('input[type="text"]').value;if(t.trim()&&(!cb||cb.checked))data.noIncluye.push(t);});
@@ -8755,7 +8780,7 @@ function guardarCotizacion(){
 function cargarCotizacion(id,readOnly){const hist=getHistorial();const entry=hist.find(h=>h.id===id);if(!entry)return;const d=entry.data;editingId=readOnly?null:id;
 switchFormat(d.formato||'america');switchTipoCliente(d.tipoCliente||'persona');
 document.getElementById('mostrarClienteEnCot').checked=d.mostrarCliente!==false;
-document.getElementById('clienteNombre').value=d.clienteNombre||'';document.getElementById('clienteTelefono').value=d.clienteTelefono||'';document.getElementById('clienteEmail').value=d.clienteEmail||'';document.getElementById('empresaNombre').value=d.empresaNombre||'';document.getElementById('empresaContacto').value=d.empresaContacto||'';document.getElementById('empresaTelefono').value=d.empresaTelefono||'';document.getElementById('empresaEmail').value=d.empresaEmail||'';
+document.getElementById('clienteNombre').value=d.clienteNombre||'';_editorClienteId=d.clienteId||'';try{_mostrarClienteVinculado(_editorClienteId?getClientes().find(x=>x.id===_editorClienteId)||null:null);}catch(e){}document.getElementById('clienteTelefono').value=d.clienteTelefono||'';document.getElementById('clienteEmail').value=d.clienteEmail||'';document.getElementById('empresaNombre').value=d.empresaNombre||'';document.getElementById('empresaContacto').value=d.empresaContacto||'';document.getElementById('empresaTelefono').value=d.empresaTelefono||'';document.getElementById('empresaEmail').value=d.empresaEmail||'';
 populatePaisSelect();if(d.pais){document.getElementById('paisSelect').value=d.pais;onPaisChange();if(d.destinoSelect&&d.destinoSelect!=='__custom'){document.getElementById('destinoSelect').value=d.destinoSelect;onDestinoSelect();}else{document.getElementById('destinoSelect').value='__custom';onDestinoSelect();document.getElementById('destino').value=d.destino||'';}}else{document.getElementById('destino').style.display='';document.getElementById('destinoSelect').style.display='none';document.getElementById('destino').value=d.destino||'';selectedHeaderImg=null;}
 // Cargar fechas viaje. Importante: el rangePlugin de flatpickr formatea setDate([d1,d2])
 // como "d1 a d2" en el primer input, dejando el segundo vacio. Para evitar eso, formateamos
@@ -11180,8 +11205,9 @@ function autoCreateCliente(data){
     const ahora=new Date().toISOString();
     const usuarioEmail=(window.currentUser&&window.currentUser.email)||'';
     let found=null;
-    if(email)found=clientes.find(c=>c.email&&c.email.toLowerCase()===email.toLowerCase());
-    if(!found&&nombre)found=clientes.find(c=>c.nombreCompleto&&c.nombreCompleto.toLowerCase()===nombre.toLowerCase());
+    if(data.clienteId)found=clientes.find(c=>c.id===data.clienteId)||null;   // elegido en el buscador del editor
+    if(!found&&email)found=clientes.find(c=>c.email&&c.email.toLowerCase()===email.toLowerCase());
+    if(!found&&nombre){const nn=normalizarParaMatch(nombre);found=clientes.find(c=>c.nombreCompleto&&normalizarParaMatch(c.nombreCompleto)===nn);}
     const destinoTxt=data.destino||'sin destino';
     if(found){
         if(telefono&&telefono!==found.telefono)found.telefono=telefono;
@@ -13009,7 +13035,7 @@ function syncFechaViajePicker(){
         else _fpFechaViaje.clear(false);
     }catch(e){}
 }
-function resetForm(){if(!confirm('\u00bfLimpiar todos los campos?'))return;editingId=null;selectedHeaderImg=null;adjuntos=[];renderAdjuntos();setEditorReadOnly(false);
+function resetForm(){if(!confirm('\u00bfLimpiar todos los campos?'))return;editingId=null;_editorClienteId='';_mostrarClienteVinculado(null);selectedHeaderImg=null;adjuntos=[];renderAdjuntos();setEditorReadOnly(false);
 loadedReservaLegacy={ad:'',n:'',b:''};
 ['destino','destinoTexto','fechaInicio','fechaFin','alertaDestino','infoDestino','clienteNombre','clienteTelefono','clienteEmail','empresaNombre','empresaContacto','empresaTelefono','empresaEmail','lineaCrucero','nombreBarco','puertoSalida','duracionCrucero','planPagos','cruceroRecomendaciones'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
 document.getElementById('hospedajeContainer').innerHTML='';
