@@ -1264,7 +1264,7 @@ onAuthStateChanged(fbAuth, (user) => {
 <!-- VIEW: REPORTE DE PAGOS -->
 <div class="app-view view-list" id="viewContabilidad">
     <div class="list-search" style="flex-wrap:wrap;align-items:center;">
-        <div class="cal-seg" id="contaSeg"><button class="active" data-ct="diario" onclick="contaTab('diario')">Diario</button><button data-ct="mayor" onclick="contaTab('mayor')">Mayor</button><button data-ct="cxp" onclick="contaTab('cxp')">Proveedores</button><button data-ct="gastos" onclick="contaTab('gastos')">Gastos</button><button data-ct="margen" onclick="contaTab('margen')">M&aacute;rgenes</button><button data-ct="bancos" onclick="contaTab('bancos')">Bancos</button><button data-ct="tc" onclick="contaTab('tc')">Tipo de cambio</button><button data-ct="cierres" onclick="contaTab('cierres')">Cierres</button></div>
+        <div class="cal-seg" id="contaSeg"><button class="active" data-ct="diario" onclick="contaTab('diario')">Diario</button><button data-ct="mayor" onclick="contaTab('mayor')">Mayor</button><button data-ct="cxp" onclick="contaTab('cxp')">Proveedores</button><button data-ct="gastos" onclick="contaTab('gastos')">Gastos</button><button data-ct="margen" onclick="contaTab('margen')">M&aacute;rgenes</button><button data-ct="bancos" onclick="contaTab('bancos')">Bancos</button><button data-ct="reportes" onclick="contaTab('reportes')">Reportes</button><button data-ct="activos" onclick="contaTab('activos')">Activos</button><button data-ct="tc" onclick="contaTab('tc')">Tipo de cambio</button><button data-ct="cierres" onclick="contaTab('cierres')">Cierres</button></div>
         <label style="font-size:0.78rem;color:var(--text-light);margin-left:8px;">Per&iacute;odo</label><input type="month" id="contaPeriodo" onchange="renderContabilidad()" style="width:170px;">
         <span style="flex:1;"></span><span id="contaTCHoy" style="font-size:0.78rem;color:var(--text-light);"></span>
     </div>
@@ -2124,10 +2124,11 @@ function contaCerrarPeriodo(periodo){
     if(contaPeriodoCerrado(periodo))return false;
     const fin=(function(){const y=parseInt(periodo.slice(0,4),10),m=parseInt(periodo.slice(5,7),10);const d=new Date(y,m,0);return periodo+'-'+String(d.getDate()).padStart(2,'0');})();
     const nRec=contaReconocerIngresosHasta(fin);
+    let rDep=null,rRev=null;try{rDep=contaDepreciarPeriodo(periodo,true);}catch(e){console.error('[conta dep]',e);}try{rRev=contaRevaluarPeriodo(periodo,true);}catch(e){console.error('[conta rev]',e);}
     const c=getConfig();if(!Array.isArray(c.contaCierres))c.contaCierres=[];
     c.contaCierres.push({periodo,por:(window.currentUser&&window.currentUser.email)||'',ts:Date.now()});
     saveConfig(c);
-    _contaBitacora('Cerró el mes '+periodo+(nRec?' (reconoció ingresos de '+nRec+' viaje'+(nRec===1?'':'s')+')':''));
+    _contaBitacora('Cerró el mes '+periodo+(nRec?' · reconoció ingresos de '+nRec+' viaje'+(nRec===1?'':'s'):'')+((rDep&&rDep.asiento)?' · depreciación '+fmtCRC2(rDep.total):'')+((rRev&&rRev.asiento)?' · revaluación neta '+fmtCRC2(rRev.neto):''));
     return true;
 }
 function contaReabrirPeriodo(periodo,motivo){
@@ -2385,6 +2386,145 @@ function contaReporteConciliacion(cuenta,hasta){
     const explicado=saldoBanco==null?null:_contaRound(saldoLibros+pendNeto-sinBancoNeto);
     return {cuenta:cta,saldoLibros,saldoBanco,pend,pendNeto,ign,sinBanco,sinBancoNeto,explicado,diferencia:saldoBanco==null?null:_contaRound(saldoBanco-explicado),ultimoLote,conciliadas:lineas.filter(x=>x.estado==='conciliado').length};
 }
+// ===== CONTABILIDAD (fase 4): estados financieros, revaluación, activos fijos, cierre anual =====
+const CONTA_ORIGENES_RESULTADO_EXCL=['cierre_anual'];
+// Saldos por cuenta en [desde,hasta] excluyendo orígenes (p. ej. el cierre anual, que no es actividad del período)
+function contaSaldosEx(desde,hasta,excluir){
+    const ex=new Set(excluir||[]);const out={};
+    getContaAsientos().forEach(a=>{if(!a||!Array.isArray(a.lineas))return;if(ex.has(a.origen))return;if(desde&&a.fecha<desde)return;if(hasta&&a.fecha>hasta)return;a.lineas.forEach(l=>{const o=out[l.cuenta]||(out[l.cuenta]={debe:0,haber:0});o.debe=_contaRound(o.debe+l.debe);o.haber=_contaRound(o.haber+l.haber);});});
+    const cuentas=contaCfg().cuentas;
+    Object.keys(out).forEach(k=>{const c=cuentas.find(x=>x.codigo===k);const deudora=!c||c.tipo==='activo'||c.tipo==='costo'||c.tipo==='gasto';out[k].saldo=_contaRound(deudora?(out[k].debe-out[k].haber):(out[k].haber-out[k].debe));});
+    return out;
+}
+function _contaSumaTipo(saldos,tipo){return _contaRound(contaCfg().cuentas.filter(c=>c.tipo===tipo).reduce((s,c)=>s+((saldos[c.codigo]||{}).saldo||0),0));}
+function _contaFilasTipo(saldos,tipo){return contaCfg().cuentas.filter(c=>c.tipo===tipo).map(c=>({codigo:c.codigo,nombre:c.nombre,saldo:(saldos[c.codigo]||{}).saldo||0})).filter(f=>Math.abs(f.saldo)>=0.005);}
+// Estado de resultados del rango
+function contaEstadoResultados(desde,hasta){
+    const s=contaSaldosEx(desde,hasta,CONTA_ORIGENES_RESULTADO_EXCL);
+    const ing=_contaFilasTipo(s,'ingreso'),cos=_contaFilasTipo(s,'costo'),gas=_contaFilasTipo(s,'gasto');
+    const tI=_contaSumaTipo(s,'ingreso'),tC=_contaSumaTipo(s,'costo'),tG=_contaSumaTipo(s,'gasto');
+    return {desde,hasta,ingresos:ing,costos:cos,gastos:gas,totalIngresos:tI,totalCostos:tC,margenBruto:_contaRound(tI-tC),totalGastos:tG,utilidad:_contaRound(tI-tC-tG)};
+}
+// Balance general a una fecha. La utilidad no cerrada = resultados acumulados de todo lo que no pasó por cierre anual.
+function contaBalance(hasta){
+    const s=contaSaldosEx('',hasta,[]);
+    const act=_contaFilasTipo(s,'activo'),pas=_contaFilasTipo(s,'pasivo'),pat=_contaFilasTipo(s,'patrimonio');
+    const tA=_contaSumaTipo(s,'activo'),tP=_contaSumaTipo(s,'pasivo'),tPat=_contaSumaTipo(s,'patrimonio');
+    const util=_contaRound(_contaSumaTipo(s,'ingreso')-_contaSumaTipo(s,'costo')-_contaSumaTipo(s,'gasto'));
+    return {hasta,activos:act,pasivos:pas,patrimonio:pat,totalActivo:tA,totalPasivo:tP,totalPatrimonio:tPat,utilidadNoCerrada:util,totalPasivoPatrimonio:_contaRound(tP+tPat+util),cuadra:Math.abs(tA-(tP+tPat+util))<0.01};
+}
+// Flujo de efectivo (método directo) sobre cuentas bancarias y cajas (activo 11xx)
+const CONTA_FLUJO_GRUPOS={cobro:'Cobros de clientes',pago_proveedor:'Pagos a proveedores',gasto:'Gastos pagados',manual:'Otros movimientos',ingreso_venta:'Otros movimientos',planilla:'Planilla',apertura:'Saldo inicial',revaluacion:'Revaluación cambiaria',reversion:'Reversiones',traspaso:'Traspasos entre cuentas',depreciacion:'Otros movimientos',cierre_anual:'Otros movimientos',proveedor:'Otros movimientos',activo_fijo:'Compra de activos fijos'};
+function contaFlujoEfectivo(desde,hasta){
+    const bancos=contaCfg().cuentas.filter(c=>c.tipo==='activo'&&/^11/.test(c.codigo));const setB=new Set(bancos.map(c=>c.codigo));
+    const ini=contaSaldosEx('',_addDiasISO(desde,-1),[]);
+    const grupos={};const porCuenta={};
+    bancos.forEach(c=>{porCuenta[c.codigo]={cuenta:c,inicial:(ini[c.codigo]||{}).saldo||0,entradas:0,salidas:0};});
+    getContaAsientos().forEach(a=>{if(!a||a.fecha<desde||a.fecha>hasta)return;const lb=a.lineas.filter(l=>setB.has(l.cuenta));if(!lb.length)return;const todoBanco=lb.length===a.lineas.length&&lb.some(l=>l.debe>0)&&lb.some(l=>l.haber>0);const g=todoBanco?'traspaso':(CONTA_FLUJO_GRUPOS[a.origen]?a.origen:'manual');const nombre=CONTA_FLUJO_GRUPOS[g]||'Otros movimientos';const G=grupos[nombre]||(grupos[nombre]={entradas:0,salidas:0});lb.forEach(l=>{G.entradas=_contaRound(G.entradas+l.debe);G.salidas=_contaRound(G.salidas+l.haber);const pc=porCuenta[l.cuenta];if(pc){pc.entradas=_contaRound(pc.entradas+l.debe);pc.salidas=_contaRound(pc.salidas+l.haber);}});});
+    const lista=Object.keys(grupos).map(k=>({grupo:k,entradas:grupos[k].entradas,salidas:grupos[k].salidas,neto:_contaRound(grupos[k].entradas-grupos[k].salidas)})).sort((a,b)=>Math.abs(b.neto)-Math.abs(a.neto));
+    const cuentas=Object.values(porCuenta).map(x=>Object.assign(x,{final:_contaRound(x.inicial+x.entradas-x.salidas),finalOrig:contaSaldoLibrosOrig(x.cuenta.codigo,hasta)}));
+    const tE=_contaRound(lista.reduce((s,x)=>s+x.entradas,0)),tS=_contaRound(lista.reduce((s,x)=>s+x.salidas,0));
+    return {desde,hasta,grupos:lista,cuentas,totalEntradas:tE,totalSalidas:tS,neto:_contaRound(tE-tS),inicial:_contaRound(cuentas.reduce((s,x)=>s+x.inicial,0)),final:_contaRound(cuentas.reduce((s,x)=>s+x.final,0))};
+}
+// Detalle de cuentas por cobrar (ventas activas con saldo) y por pagar (facturas con saldo)
+function contaCxCDetalle(){
+    const hoy=_hitoHoyISO();
+    return getVentas().filter(v=>v&&v.estado!=='cancelada'&&v.estado!=='completada').map(v=>{const total=contaTotalVenta(v);const pag=_contaRound(((v.cobranza&&v.cobranza.pagos)||[]).reduce((s,p)=>s+(num(p&&p.monto)||0),0));const saldo=_contaRound(total-pag);const moneda=(v.cobranza&&v.cobranza.moneda)||'USD';return {venta:v,cliente:v.clienteNombre||'',etiqueta:_contaVentaEtiqueta(v),salida:String(v.fechaInicio||'').slice(0,10),moneda,total,pagado:pag,saldo,saldoCRC:contaACRC(saldo,moneda,hoy).crc,dias:v.fechaInicio?_diasEntreISO(String(v.fechaInicio).slice(0,10),hoy):0};}).filter(x=>x.saldo>0.005).sort((a,b)=>b.dias-a.dias);
+}
+function contaCxPDetalle(){
+    const hoy=_hitoHoyISO();
+    return getContaDocs().filter(d=>d&&d.tipo==='factura'&&d.estado!=='anulada'&&contaDocSaldo(d)>0.005).map(d=>({doc:d,proveedor:d.proveedorNombre||'',moneda:d.moneda,monto:d.monto,pagado:contaDocPagado(d),saldo:contaDocSaldo(d),saldoCRC:_contaRound(contaDocSaldo(d)*(num(d.tc)||1)),vence:d.vence||d.fecha,dias:_diasEntreISO(d.vence||d.fecha,hoy)})).sort((a,b)=>b.dias-a.dias);
+}
+// --- Revaluación mensual de saldos en moneda extranjera ---
+// Por cada cuenta de activo/pasivo con líneas en USD/EUR: saldo en moneda original × TC de cierre vs saldo en colones → diferencia a ganancia/pérdida cambiaria.
+function contaRevaluarPeriodo(periodo,silencioso){
+    if(!/^\d{4}-\d{2}$/.test(periodo))return null;
+    const r=_contaRangoPeriodo(periodo);const t=contaTCPara(r.hasta);if(!(t.usd>0)){if(!silencioso)alert('No hay tipo de cambio para el '+fmtFechaCorta(r.hasta)+'.');return null;}
+    if(contaAsientoExiste('revaluacion',periodo,'')){if(!silencioso)alert('El mes '+periodo+' ya tiene revaluación registrada.');return null;}
+    const cuentas=contaCfg().cuentas.filter(c=>c.tipo==='activo'||c.tipo==='pasivo');
+    const acc={};
+    getContaAsientos().forEach(a=>{if(!a||a.fecha>r.hasta)return;a.lineas.forEach(l=>{const c=acc[l.cuenta]||(acc[l.cuenta]={crc:0,orig:{}});c.crc=_contaRound(c.crc+l.debe-l.haber);const m=(l.moneda||'CRC').toUpperCase();const o=(l.debe>0?1:-1)*(num(l.montoOrig)||0);c.orig[m]=_contaRound((c.orig[m]||0)+o);});});
+    const lineas=[];const detalle=[];
+    cuentas.forEach(c=>{const x=acc[c.codigo];if(!x)return;let objetivo=0;let tieneExt=false;Object.keys(x.orig).forEach(m=>{const tc=m==='CRC'?1:(m==='USD'?t.usd:(m==='EUR'?(t.eur||0):0));if(m!=='CRC'&&Math.abs(x.orig[m])>=0.005)tieneExt=true;objetivo+=x.orig[m]*tc;});if(!tieneExt)return;const dif=_contaRound(objetivo-x.crc);if(Math.abs(dif)<1)return;detalle.push({cuenta:c.codigo,dif});if(dif>0)lineas.push({cuenta:c.codigo,debe:dif,haber:0,moneda:'CRC',montoOrig:dif,tc:1,detalle:'Revaluación al TC '+t.usd});else lineas.push({cuenta:c.codigo,debe:0,haber:-dif,moneda:'CRC',montoOrig:-dif,tc:1,detalle:'Revaluación al TC '+t.usd});});
+    if(!lineas.length){if(!silencioso)alert('No hay saldos en moneda extranjera que revaluar en '+periodo+'.');return {lineas:0};}
+    const mp=contaCfg().mapeo;const neto=_contaRound(lineas.reduce((s,l)=>s+l.debe-l.haber,0));
+    if(neto>0)lineas.push({cuenta:mp.difCambGanancia,debe:0,haber:neto,moneda:'CRC',montoOrig:neto,tc:1,detalle:'Ganancia cambiaria por revaluación'});else if(neto<0)lineas.push({cuenta:mp.difCambPerdida,debe:-neto,haber:0,moneda:'CRC',montoOrig:-neto,tc:1,detalle:'Pérdida cambiaria por revaluación'});
+    const a=contaRegistrarAsiento({fecha:r.hasta,origen:'revaluacion',refId:periodo,subRef:'',silencioso:!!silencioso,descripcion:'Revaluación de saldos en moneda extranjera · '+periodo+' · $1 = '+fmtCRC2(t.usd),lineas});
+    if(a)_contaBitacora('Revaluó saldos de '+periodo+' ('+detalle.length+' cuenta'+(detalle.length===1?'':'s')+', neto '+fmtCRC2(neto)+')');
+    return a?{asiento:a,detalle,neto}:null;
+}
+// --- Activos fijos ---
+const CONTA_ACTIVO_CATS=[['computo','Equipo de cómputo','1401',3],['mobiliario','Mobiliario y equipo de oficina','1402',10],['fotografico','Equipo fotográfico','1403',5],['otro','Otro activo','1402',5]];
+function getContaActivos(){return getLS('dv_conta_activos');}
+function saveContaActivos(arr){return setLS('dv_conta_activos',Array.isArray(arr)?arr:[]);}
+function _contaActivoCat(id){return CONTA_ACTIVO_CATS.find(x=>x[0]===id)||CONTA_ACTIVO_CATS[3];}
+function contaActivoDepMensual(a){const meses=Math.max(1,Math.round((num(a.vidaAnios)||1)*12));return _contaRound((num(a.valorCRC)||0)/meses);}
+// Depreciación acumulada registrada en libros para el activo (suma de líneas de depreciación con su id)
+function contaActivoDepreciado(a){let s=0;getContaAsientos().forEach(x=>{if(!x||x.origen!=='depreciacion'||x.reversadoPor)return;x.lineas.forEach(l=>{if(l.activoId===a.id&&l.haber>0)s+=l.haber;});});return _contaRound(Math.min(s,num(a.valorCRC)||0));}
+function contaRegistrarActivo(o){
+    o=o||{};const cat=_contaActivoCat(o.categoria);const fecha=String(o.fechaCompra||'').slice(0,10);
+    if(!o.nombre||!String(o.nombre).trim()){alert('Escribí el nombre del activo.');return null;}
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(fecha)){alert('Indicá la fecha de compra.');return null;}
+    const moneda=(o.moneda||'CRC').toUpperCase();const valor=_contaRound(o.valor);if(!(valor>0)){alert('Indicá el valor.');return null;}
+    const conv=contaACRC(valor,moneda,fecha);if(!(conv.crc>0)){alert('No hay tipo de cambio para esa fecha.');return null;}
+    const cuenta=o.cuenta&&contaCuenta(o.cuenta)?o.cuenta:cat[2];
+    const a={id:'af_'+Date.now()+'_'+Math.random().toString(36).slice(2,5),nombre:String(o.nombre).trim(),categoria:cat[0],cuenta,fechaCompra:fecha,moneda,valor,tc:conv.tc,valorCRC:conv.crc,vidaAnios:num(o.vidaAnios)||cat[3],responsable:String(o.responsable||''),serie:String(o.serie||''),notas:String(o.notas||''),estado:'activo',asientoCompraId:'',creadoPor:(window.currentUser&&window.currentUser.email)||'',creadoTs:Date.now()};
+    if(o.cuentaPago&&contaCuenta(o.cuentaPago)){
+        if(contaFechaBloqueada(fecha)){alert('El mes de la compra está cerrado en Contabilidad.');return null;}
+        const as=contaRegistrarAsiento({fecha,origen:'activo_fijo',refId:a.id,silencioso:false,descripcion:'Compra de activo fijo · '+a.nombre,lineas:[{cuenta,debe:conv.crc,haber:0,moneda,montoOrig:valor,tc:conv.tc,detalle:a.nombre},{cuenta:o.cuentaPago,debe:0,haber:conv.crc,moneda,montoOrig:valor,tc:conv.tc,detalle:'Pago de '+a.nombre}]});
+        if(!as)return null;a.asientoCompraId=as.id;
+    }
+    const arr=getContaActivos().map(x=>Object.assign({},x));arr.push(a);saveContaActivos(arr);
+    _contaBitacora('Registró activo fijo: '+a.nombre+' ('+fmtCRC2(a.valorCRC)+')');
+    return a;
+}
+function contaEditarActivo(id,campos){const arr=getContaActivos().map(x=>Object.assign({},x));const a=arr.find(x=>x.id===id);if(!a)return false;['nombre','responsable','serie','notas'].forEach(k=>{if(campos[k]!=null)a[k]=String(campos[k]);});if(campos.vidaAnios!=null&&num(campos.vidaAnios)>0)a.vidaAnios=num(campos.vidaAnios);saveContaActivos(arr);return true;}
+// Depreciación del mes: un asiento con una línea por activo (Debe gasto depreciación / Haber depreciación acumulada)
+function contaDepreciarPeriodo(periodo,silencioso){
+    if(!/^\d{4}-\d{2}$/.test(periodo))return null;
+    if(contaAsientoExiste('depreciacion',periodo,'')){if(!silencioso)alert('El mes '+periodo+' ya tiene la depreciación registrada.');return null;}
+    const r=_contaRangoPeriodo(periodo);const gastoDep=contaCuenta('6210')?'6210':contaCfg().cuentas.find(c=>c.tipo==='gasto').codigo;const depAcum=contaCuenta('1490')?'1490':null;
+    if(!depAcum){if(!silencioso)alert('Falta la cuenta 1490 Depreciación acumulada en el plan de cuentas.');return null;}
+    const lineas=[];let total=0;
+    getContaActivos().forEach(a=>{if(!a||a.estado!=='activo')return;if(String(a.fechaCompra).slice(0,7)>=periodo)return; // empieza el mes siguiente a la compra
+        const dep=contaActivoDepMensual(a);const acum=contaActivoDepreciado(a);const resta=_contaRound((num(a.valorCRC)||0)-acum);if(resta<=0.005)return;const m=Math.min(dep,resta);lineas.push({cuenta:depAcum,debe:0,haber:m,moneda:'CRC',montoOrig:m,tc:1,detalle:a.nombre,activoId:a.id});total=_contaRound(total+m);});
+    if(!lineas.length){if(!silencioso)alert('No hay activos que depreciar en '+periodo+'.');return {lineas:0};}
+    lineas.unshift({cuenta:gastoDep,debe:total,haber:0,moneda:'CRC',montoOrig:total,tc:1,detalle:'Depreciación del mes'});
+    const a=contaRegistrarAsiento({fecha:r.hasta,origen:'depreciacion',refId:periodo,subRef:'',silencioso:!!silencioso,descripcion:'Depreciación de activos fijos · '+periodo,lineas});
+    if(a){const arr=getContaAsientos().map(x=>Object.assign({},x));const a2=arr.find(x=>x.id===a.id);if(a2){a2.lineas=lineas;saveContaAsientos(arr);}_contaBitacora('Registró depreciación de '+periodo+' por '+fmtCRC2(total));}
+    return a?{asiento:a,total,n:lineas.length-1}:null;
+}
+// Baja de un activo: saca el costo y la depreciación acumulada; el valor en libros restante es pérdida
+function contaBajaActivo(id,fecha,motivo){
+    const arr=getContaActivos().map(x=>Object.assign({},x));const a=arr.find(x=>x.id===id);if(!a||a.estado!=='activo')return null;
+    const f=String(fecha||_hitoHoyISO()).slice(0,10);if(contaFechaBloqueada(f)){alert('El mes de esa fecha está cerrado en Contabilidad.');return null;}
+    const acum=contaActivoDepreciado(a);const neto=_contaRound((num(a.valorCRC)||0)-acum);const perd=contaCuenta('6290')?'6290':contaCfg().cuentas.find(c=>c.tipo==='gasto').codigo;
+    const lineas=[];if(acum>0)lineas.push({cuenta:'1490',debe:acum,haber:0,moneda:'CRC',montoOrig:acum,tc:1,detalle:'Depreciación acumulada de '+a.nombre});if(neto>0)lineas.push({cuenta:perd,debe:neto,haber:0,moneda:'CRC',montoOrig:neto,tc:1,detalle:'Valor en libros dado de baja'});lineas.push({cuenta:a.cuenta,debe:0,haber:num(a.valorCRC)||0,moneda:'CRC',montoOrig:num(a.valorCRC)||0,tc:1,detalle:'Baja de '+a.nombre});
+    const as=contaRegistrarAsiento({fecha:f,origen:'activo_fijo',refId:a.id,subRef:'baja',silencioso:false,descripcion:'Baja de activo fijo · '+a.nombre+(motivo?' · '+motivo:''),lineas});
+    if(!as)return null;
+    a.estado='baja';a.bajaFecha=f;a.bajaMotivo=String(motivo||'');a.asientoBajaId=as.id;saveContaActivos(arr);
+    _contaBitacora('Dio de baja el activo '+a.nombre+(motivo?' ('+motivo+')':''));return as;
+}
+// --- Cierre anual: resultados del año → utilidades acumuladas ---
+function contaCierreAnual(anio){
+    const y=String(anio);if(!/^\d{4}$/.test(y))return null;
+    if(contaAsientoExiste('cierre_anual',y,'')){alert('El año '+y+' ya tiene cierre anual.');return null;}
+    if(!contaPeriodoCerrado(y+'-12')){alert('Primero cerrá el mes de diciembre de '+y+'.');return null;}
+    const s=contaSaldosEx('',y+'-12-31',['cierre_anual']);
+    const cuentas=contaCfg().cuentas.filter(c=>c.tipo==='ingreso'||c.tipo==='costo'||c.tipo==='gasto');
+    const lineas=[];let neto=0;
+    cuentas.forEach(c=>{const x=s[c.codigo];if(!x)return;const bal=_contaRound(x.debe-x.haber);if(Math.abs(bal)<0.005)return;if(bal>0)lineas.push({cuenta:c.codigo,debe:0,haber:bal,moneda:'CRC',montoOrig:bal,tc:1,detalle:'Cierre del año'});else lineas.push({cuenta:c.codigo,debe:-bal,haber:0,moneda:'CRC',montoOrig:-bal,tc:1,detalle:'Cierre del año'});neto=_contaRound(neto+bal);});
+    if(!lineas.length){alert('No hay resultados que cerrar en '+y+'.');return null;}
+    const patr=contaCuenta('3201')?'3201':'3101';
+    // neto = Σ(debe−haber) de resultados: si es negativo hubo utilidad (haber > debe) → va al haber de utilidades acumuladas
+    if(neto<0)lineas.push({cuenta:patr,debe:0,haber:-neto,moneda:'CRC',montoOrig:-neto,tc:1,detalle:'Utilidad del año '+y});else lineas.push({cuenta:patr,debe:neto,haber:0,moneda:'CRC',montoOrig:neto,tc:1,detalle:'Pérdida del año '+y});
+    // El cierre se registra aunque diciembre esté cerrado: es el único asiento permitido en un mes cerrado
+    const c=getConfig();const cierres=Array.isArray(c.contaCierres)?c.contaCierres:[];const idx=cierres.findIndex(x=>x&&x.periodo===y+'-12');const bak=idx>=0?cierres.splice(idx,1)[0]:null;saveConfig(c);
+    const a=contaRegistrarAsiento({fecha:y+'-12-31',origen:'cierre_anual',refId:y,subRef:'',silencioso:false,descripcion:'Cierre anual '+y+' · resultados a '+contaCuentaNombre(patr),lineas});
+    if(bak){const c2=getConfig();if(!Array.isArray(c2.contaCierres))c2.contaCierres=[];c2.contaCierres.push(bak);saveConfig(c2);}
+    if(a)_contaBitacora('Cierre anual '+y+': '+(neto<0?'utilidad ':'pérdida ')+fmtCRC2(Math.abs(neto)));
+    return a;
+}
 
 // ===== ESTADOS Y ORIGENES DEL PIPELINE DE CONTACTOS =====
 const CONTACTO_ESTADOS=[
@@ -2448,7 +2588,7 @@ let _idb=null,_idbReady=false;
 const _IDB_DB='dv_store',_IDB_STORE='kv';
 // Claves de DATOS (colecciones) que migramos a IndexedDB. El resto de claves dv_ (preferencias de UI,
 // respaldos, estado de vistas) se quedan en localStorage tal como estaban.
-const _CLAVES_DATOS=['dv_cotizaciones','dv_ventas','dv_clientes','dv_encabezados','dv_config','dv_grupos','dv_hoteles','dv_rrhh_colillas','dv_rrhh_vacaciones','dv_rrhh_horasextra','dv_eventos','dv_conta_asientos','dv_conta_tc','dv_conta_docs','dv_conta_bancos'];
+const _CLAVES_DATOS=['dv_cotizaciones','dv_ventas','dv_clientes','dv_encabezados','dv_config','dv_grupos','dv_hoteles','dv_rrhh_colillas','dv_rrhh_vacaciones','dv_rrhh_horasextra','dv_eventos','dv_conta_asientos','dv_conta_tc','dv_conta_docs','dv_conta_bancos','dv_conta_activos'];
 function _esClaveDatos(k){return _CLAVES_DATOS.indexOf(k)>=0;}
 function _idbOpen(){return new Promise(resolve=>{try{if(!window.indexedDB)return resolve(null);const req=indexedDB.open(_IDB_DB,1);req.onupgradeneeded=()=>{const db=req.result;if(!db.objectStoreNames.contains(_IDB_STORE))db.createObjectStore(_IDB_STORE);};req.onsuccess=()=>resolve(req.result);req.onerror=()=>resolve(null);}catch(e){resolve(null);}});}
 function _idbSet(k,str){if(!_idb)return;try{_idb.transaction(_IDB_STORE,'readwrite').objectStore(_IDB_STORE).put(str,k);}catch(e){console.warn('[idb] set',k,e);}}
@@ -2510,7 +2650,7 @@ function setLSObj(k,v){
 //   destinos/{pais}/{ciudad}_{timestamp}
 
 // Tracking de IDs que ya subimos a Firestore (para poder detectar eliminaciones)
-const _fsDocIds={cotizaciones:new Set(),ventas:new Set(),clientes:new Set(),destinos:new Set(),hoteles:new Set(),grupos:new Set(),rrhh_colillas:new Set(),rrhh_vacaciones:new Set(),rrhh_horasextra:new Set(),notificaciones:new Set(),tareas:new Set(),eventos:new Set(),conta_asientos:new Set(),conta_tc:new Set(),conta_docs:new Set(),conta_bancos:new Set()};
+const _fsDocIds={cotizaciones:new Set(),ventas:new Set(),clientes:new Set(),destinos:new Set(),hoteles:new Set(),grupos:new Set(),rrhh_colillas:new Set(),rrhh_vacaciones:new Set(),rrhh_horasextra:new Set(),notificaciones:new Set(),tareas:new Set(),eventos:new Set(),conta_asientos:new Set(),conta_tc:new Set(),conta_docs:new Set(),conta_bancos:new Set(),conta_activos:new Set()};
 
 // ===== METADATA (timestamp + autor en cada save) =====
 // Agrega _lastModifiedAt y _lastModifiedBy a un objeto antes de guardarlo.
@@ -2550,6 +2690,7 @@ function guardarSnapshotRespaldo(motivo){
             conta_tc:getLS('dv_conta_tc'),
             conta_docs:getLS('dv_conta_docs'),
             conta_bancos:getLS('dv_conta_bancos'),
+            conta_activos:getLS('dv_conta_activos'),
             config:getLSObj('dv_config')
         };
         localStorage.setItem(key,JSON.stringify(snap));
@@ -2648,6 +2789,8 @@ async function pushToFirestore(key,value){
             await syncArrayCollection('conta_docs',value,true);
         }else if(key==='dv_conta_bancos'){
             await syncArrayCollection('conta_bancos',value,false);
+        }else if(key==='dv_conta_activos'){
+            await syncArrayCollection('conta_activos',value,false);
         }
     }catch(e){
         console.error('[FS] error en pushToFirestore para',key,':',e);
@@ -2957,7 +3100,7 @@ async function loadAllFromFirestore(){
         guardarLocal('dv_eventos',eventos);
         if(mergedEv.recovered>0)setTimeout(()=>{if(_fsEnabled)pushToFirestore('dv_eventos',eventos).catch(e=>console.error(e));},14500);
         // contabilidad: asientos (inmutables) y tipos de cambio
-        for(const par of [['conta_asientos','dv_conta_asientos',15500],['conta_tc','dv_conta_tc',16000],['conta_docs','dv_conta_docs',16500],['conta_bancos','dv_conta_bancos',17000]]){
+        for(const par of [['conta_asientos','dv_conta_asientos',15500],['conta_tc','dv_conta_tc',16000],['conta_docs','dv_conta_docs',16500],['conta_bancos','dv_conta_bancos',17000],['conta_activos','dv_conta_activos',17500]]){
             const localC=getLS(par[1]);
             const cSnap=await h.getDocs(h.collection(db,par[0]));
             let itemsC=[];cSnap.forEach(dd=>{itemsC.push(dd.data());_fsDocIds[par[0]].add(dd.id);});
@@ -6159,7 +6302,7 @@ function iniciarRecordatorios(){
 }
 // ===== CONTABILIDAD: pantalla =====
 let _contaTab='diario';
-const CONTA_ORIGEN_LABEL={apertura:'Apertura',pago_proveedor:'Pago a proveedor',manual:'Manual',cobro:'Cobro',planilla:'Planilla',ingreso_venta:'Ingreso por viaje',reversion:'Reversión',gasto:'Gasto',proveedor:'Proveedor',ajuste:'Ajuste'};
+const CONTA_ORIGEN_LABEL={apertura:'Apertura',pago_proveedor:'Pago a proveedor',revaluacion:'Revaluación',depreciacion:'Depreciación',activo_fijo:'Activo fijo',cierre_anual:'Cierre anual',manual:'Manual',cobro:'Cobro',planilla:'Planilla',ingreso_venta:'Ingreso por viaje',reversion:'Reversión',gasto:'Gasto',proveedor:'Proveedor',ajuste:'Ajuste'};
 function contaTab(t){_contaTab=t;const seg=document.getElementById('contaSeg');if(seg)seg.querySelectorAll('button').forEach(b=>b.classList.toggle('active',b.getAttribute('data-ct')===t));renderContabilidad();}
 function _contaPeriodoUI(){const el=document.getElementById('contaPeriodo');if(el&&!el.value)el.value=_hitoHoyISO().slice(0,7);return el?el.value:_hitoHoyISO().slice(0,7);}
 function _contaRangoPeriodo(p){const y=parseInt(p.slice(0,4),10),m=parseInt(p.slice(5,7),10);const fin=new Date(y,m,0).getDate();return {desde:p+'-01',hasta:p+'-'+String(fin).padStart(2,'0')};}
@@ -6177,6 +6320,8 @@ function renderContabilidad(){
     else if(_contaTab==='gastos')body.innerHTML=banner+_contaGastosHtml(p);
     else if(_contaTab==='margen')body.innerHTML=_contaMargenHtml(p);
     else if(_contaTab==='bancos')body.innerHTML=banner+_contaBancosHtml(p);
+    else if(_contaTab==='reportes')body.innerHTML=_contaReportesHtml(p);
+    else if(_contaTab==='activos')body.innerHTML=banner+_contaActivosHtml(p);
     else if(_contaTab==='tc')body.innerHTML=_contaTCHtml();
     else body.innerHTML=_contaCierresHtml();
 }
@@ -6278,6 +6423,7 @@ function _contaCierresHtml(){
         return `<tr><td>${p}</td><td>${n} asiento${n===1?'':'s'}${pend?` · <span style="color:#854f0b;">${pend} viaje${pend===1?'':'s'} sin reconocer ingreso</span>`:''}</td><td>${c?`<span class="lt-badge" style="background:#fcebeb;color:#a32d2d;">&#128274; cerrado</span> <span style="font-size:0.72rem;color:var(--text-light);">por ${esc(c.por||'')} el ${fmtFechaCorta(new Date(c.ts||0).toISOString().slice(0,10))}</span>`:'<span class="lt-badge" style="background:#e1f5ee;color:#0f6e56;">abierto</span>'}</td><td>${puedeCerrar?(c?`<button class="btn btn-sm btn-ghost" onclick="contaReabrirUI('${p}')">Reabrir</button>`:`<button class="btn btn-sm btn-primary" onclick="contaCerrarUI('${p}')">Cerrar mes</button>`):''}</td></tr>`;}).join('');
     const bit=(contaCfg().bitacora||[]).slice(-30).reverse().map(b=>`<div style="font-size:0.78rem;padding:4px 0;border-bottom:1px solid var(--border);"><span style="color:var(--text-light);">${fmtFechaCorta(new Date(b.ts||0).toISOString().slice(0,10))} · ${esc(b.por||'')}</span> — ${esc(b.txt||'')}</div>`).join('');
     return `<p style="font-size:0.78rem;color:var(--text-light);margin:0 0 10px;">Al cerrar un mes se reconocen los ingresos de los viajes que salieron hasta fin de ese mes (el anticipo del cliente pasa a ingreso) y el mes queda con candado: nadie puede registrar ni reversar en él sin reabrirlo. ${tienePermiso('contabilidad.registrar')?'<button class="btn btn-sm btn-ghost" style="margin-left:6px;" onclick="contaReconocerUI()">Reconocer ingresos de viajes realizados hasta hoy</button>':''}</p>
+    <p style="font-size:0.78rem;color:var(--text-light);margin:0 0 10px;">Al cerrar un mes también se registran solas la <strong>depreciación</strong> de los activos fijos y la <strong>revaluación</strong> de los saldos en dólares y euros al tipo de cambio de fin de mes. ${tienePermiso('contabilidad.registrar')?'<button class="btn btn-sm btn-ghost" onclick="contaRevaluarUI()">Revaluar saldos de '+_contaPeriodoUI()+'</button> <button class="btn btn-sm btn-ghost" onclick="contaDepreciarUI()">Depreciar activos de '+_contaPeriodoUI()+'</button>':''} ${tienePermiso('contabilidad.cerrar')?'<button class="btn btn-sm btn-outline" style="color:var(--primary-dark);border-color:var(--primary);" onclick="contaCierreAnualUI()">Cierre anual '+_contaPeriodoUI().slice(0,4)+'</button>':''}</p>
     <table class="list-table"><thead><tr><th>Mes</th><th>Movimiento</th><th>Estado</th><th></th></tr></thead><tbody>${rows}</tbody></table>
     <h3 style="font-size:0.95rem;margin:18px 0 6px;color:var(--primary-dark);">Bitácora</h3>${bit||'<div style="font-size:0.78rem;color:var(--text-light);">Sin registros todavía.</div>'}`;
 }
@@ -6743,6 +6889,106 @@ function openAsientoModalDesdeLinea(lineaId){
     _asLineas=x.credito?[{cuenta:x.cuenta,debe:String(x.credito),haber:''},{cuenta:'',debe:'',haber:String(x.credito)}]:[{cuenta:'',debe:String(x.debito),haber:''},{cuenta:x.cuenta,debe:'',haber:String(x.debito)}];
     window._asLinea=lineaId;_asRender();
 }
+
+// ===== CONTABILIDAD fase 4: pantallas Reportes y Activos =====
+let _repTipo='resultados',_repAcum=false;
+function _repRango(p){const r=_contaRangoPeriodo(p);return _repAcum?{desde:p.slice(0,4)+'-01-01',hasta:r.hasta}:r;}
+function _repTabla(filas,neg){return filas.map(f=>`<tr><td style="color:var(--text-light);">${esc(f.codigo)}</td><td>${esc(f.nombre)}</td><td style="text-align:right;">${fmtCRC2(neg?-f.saldo:f.saldo)}</td></tr>`).join('');}
+function _repFilaTotal(t,v,strong){return `<tr style="background:var(--bg);${strong?'font-weight:700;':''}"><td colspan="2">${t}</td><td style="text-align:right;">${fmtCRC2(v)}</td></tr>`;}
+function _contaReportesHtml(p){
+    const r=_repRango(p);
+    const sel=`<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">
+        <select onchange="_repTipo=this.value;renderContabilidad()" style="padding:4px 8px;">${[['resultados','Estado de resultados'],['balance','Balance general'],['flujo','Flujo de efectivo'],['cxc','Cuentas por cobrar (detalle)'],['cxp','Cuentas por pagar (detalle)']].map(o=>`<option value="${o[0]}"${_repTipo===o[0]?' selected':''}>${o[1]}</option>`).join('')}</select>
+        ${(_repTipo==='resultados'||_repTipo==='flujo')?`<label style="display:flex;align-items:center;gap:4px;font-size:0.8rem;"><input type="checkbox" ${_repAcum?'checked':''} onchange="_repAcum=this.checked;renderContabilidad()"> Acumulado del año</label>`:''}
+        <span style="flex:1;"></span><button class="btn btn-sm btn-ghost" onclick="contaExportarReporte()">&#128196; Excel</button><button class="btn btn-sm btn-ghost" onclick="contaImprimirReporte()">&#128424; Imprimir / PDF</button></div>`;
+    return sel+`<div id="repCuerpo">${_repCuerpoHtml(p)}</div>`;
+}
+function _repCuerpoHtml(p){
+    const r=_repRango(p);const titRango=_repAcum?('del '+fmtFechaCorta(r.desde)+' al '+fmtFechaCorta(r.hasta)):('mes '+p);
+    if(_repTipo==='resultados'){
+        const e=contaEstadoResultados(r.desde,r.hasta);
+        const prevP=(function(){const y=parseInt(p.slice(0,4),10),m=parseInt(p.slice(5,7),10);const d=new Date(y,m-2,1);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');})();
+        const pr=_contaRangoPeriodo(prevP);const ep=_repAcum?null:contaEstadoResultados(pr.desde,pr.hasta);
+        const cmp=ep?`<div style="font-size:0.78rem;color:var(--text-light);margin-bottom:8px;">Mes anterior (${prevP}): ingresos ${fmtCRC2(ep.totalIngresos)} · utilidad ${fmtCRC2(ep.utilidad)}</div>`:'';
+        return `<h3 style="margin:0 0 4px;color:var(--primary-dark);">Estado de resultados · ${titRango}</h3>${cmp}<table class="list-table"><thead><tr><th style="width:70px;">Código</th><th>Cuenta</th><th style="text-align:right;">Colones</th></tr></thead><tbody>
+        <tr><td colspan="3" style="font-weight:700;background:var(--teal-soft,#dff1f3);">Ingresos</td></tr>${_repTabla(e.ingresos)}${_repFilaTotal('Total ingresos',e.totalIngresos,true)}
+        <tr><td colspan="3" style="font-weight:700;background:var(--teal-soft,#dff1f3);">Costos de los viajes</td></tr>${_repTabla(e.costos)}${_repFilaTotal('Total costos',e.totalCostos,true)}${_repFilaTotal('Margen bruto',e.margenBruto,true)}
+        <tr><td colspan="3" style="font-weight:700;background:var(--teal-soft,#dff1f3);">Gastos</td></tr>${_repTabla(e.gastos)}${_repFilaTotal('Total gastos',e.totalGastos,true)}
+        <tr style="font-weight:700;font-size:1rem;color:${e.utilidad>=0?'#0f6e56':'#a32d2d'};"><td colspan="2">${e.utilidad>=0?'Utilidad':'Pérdida'} del período</td><td style="text-align:right;">${fmtCRC2(e.utilidad)}</td></tr></tbody></table>`;
+    }
+    if(_repTipo==='balance'){
+        const b=contaBalance(r.hasta);
+        return `<h3 style="margin:0 0 8px;color:var(--primary-dark);">Balance general al ${fmtFechaCorta(r.hasta)}</h3><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:14px;">
+        <table class="list-table"><thead><tr><th colspan="3">Activo</th></tr></thead><tbody>${_repTabla(b.activos)}${_repFilaTotal('Total activo',b.totalActivo,true)}</tbody></table>
+        <table class="list-table"><thead><tr><th colspan="3">Pasivo y patrimonio</th></tr></thead><tbody>${_repTabla(b.pasivos)}${_repFilaTotal('Total pasivo',b.totalPasivo,true)}${_repTabla(b.patrimonio)}<tr><td></td><td>${b.utilidadNoCerrada>=0?'Utilidad':'Pérdida'} del ejercicio (sin cerrar)</td><td style="text-align:right;">${fmtCRC2(b.utilidadNoCerrada)}</td></tr>${_repFilaTotal('Total patrimonio',_contaRound(b.totalPatrimonio+b.utilidadNoCerrada),true)}${_repFilaTotal('Total pasivo + patrimonio',b.totalPasivoPatrimonio,true)}</tbody></table></div>
+        <div style="margin-top:8px;font-weight:700;color:${b.cuadra?'#0f6e56':'#a32d2d'};">${b.cuadra?'&#10003; Activo = Pasivo + Patrimonio':'&#9888; No cuadra: diferencia '+fmtCRC2(b.totalActivo-b.totalPasivoPatrimonio)}</div>`;
+    }
+    if(_repTipo==='flujo'){
+        const f=contaFlujoEfectivo(r.desde,r.hasta);
+        return `<h3 style="margin:0 0 8px;color:var(--primary-dark);">Flujo de efectivo · ${titRango}</h3>
+        <table class="list-table"><thead><tr><th>Concepto</th><th style="text-align:right;">Entradas</th><th style="text-align:right;">Salidas</th><th style="text-align:right;">Neto</th></tr></thead><tbody>${f.grupos.map(g=>`<tr><td>${esc(g.grupo)}</td><td style="text-align:right;">${fmtCRC2(g.entradas)}</td><td style="text-align:right;">${fmtCRC2(g.salidas)}</td><td style="text-align:right;font-weight:600;color:${g.neto>=0?'#0f6e56':'#a32d2d'};">${fmtCRC2(g.neto)}</td></tr>`).join('')||'<tr><td colspan="4" style="color:var(--text-light);text-align:center;">Sin movimientos</td></tr>'}<tr style="background:var(--bg);font-weight:700;"><td>Total</td><td style="text-align:right;">${fmtCRC2(f.totalEntradas)}</td><td style="text-align:right;">${fmtCRC2(f.totalSalidas)}</td><td style="text-align:right;">${fmtCRC2(f.neto)}</td></tr></tbody></table>
+        <h4 style="margin:14px 0 6px;font-size:0.95rem;">Por cuenta</h4><table class="list-table"><thead><tr><th>Cuenta</th><th style="text-align:right;">Saldo inicial</th><th style="text-align:right;">Entradas</th><th style="text-align:right;">Salidas</th><th style="text-align:right;">Saldo final</th><th style="text-align:right;">En su moneda</th></tr></thead><tbody>${f.cuentas.filter(c=>c.inicial||c.entradas||c.salidas).map(c=>`<tr><td>${esc(c.cuenta.codigo+' · '+c.cuenta.nombre)}</td><td style="text-align:right;">${fmtCRC2(c.inicial)}</td><td style="text-align:right;">${fmtCRC2(c.entradas)}</td><td style="text-align:right;">${fmtCRC2(c.salidas)}</td><td style="text-align:right;font-weight:600;">${fmtCRC2(c.final)}</td><td style="text-align:right;">${c.cuenta.moneda&&c.cuenta.moneda!=='CRC'?_contaFmtOrig(c.finalOrig,c.cuenta.moneda):''}</td></tr>`).join('')}<tr style="background:var(--bg);font-weight:700;"><td>Total efectivo</td><td style="text-align:right;">${fmtCRC2(f.inicial)}</td><td style="text-align:right;">${fmtCRC2(f.totalEntradas)}</td><td style="text-align:right;">${fmtCRC2(f.totalSalidas)}</td><td style="text-align:right;">${fmtCRC2(f.final)}</td><td></td></tr></tbody></table>`;
+    }
+    if(_repTipo==='cxc'){
+        const l=contaCxCDetalle();const t=_contaRound(l.reduce((s,x)=>s+x.saldoCRC,0));
+        return `<h3 style="margin:0 0 8px;color:var(--primary-dark);">Cuentas por cobrar a clientes · ${l.length} venta${l.length===1?'':'s'} con saldo</h3><table class="list-table"><thead><tr><th>Cliente / venta</th><th>Salida</th><th style="text-align:right;">Total</th><th style="text-align:right;">Cobrado</th><th style="text-align:right;">Saldo</th><th style="text-align:right;">Saldo ₡</th><th>Estado</th></tr></thead><tbody>${l.map(x=>`<tr><td><span class="cliente-link" onclick="openCobranza('${x.venta.id}')">${esc(x.etiqueta)}</span>${x.venta.encargado?'<div class="lt-secondary">'+esc(x.venta.encargado)+'</div>':''}</td><td>${x.salida?fmtFechaCorta(x.salida):'-'}</td><td style="text-align:right;">${_contaFmtOrig(x.total,x.moneda)}</td><td style="text-align:right;">${_contaFmtOrig(x.pagado,x.moneda)}</td><td style="text-align:right;font-weight:600;">${_contaFmtOrig(x.saldo,x.moneda)}</td><td style="text-align:right;">${fmtCRC2(x.saldoCRC)}</td><td>${x.dias>0?'<span class="lt-badge" style="background:#fcebeb;color:#a32d2d;">viajó hace '+x.dias+' d</span>':'<span class="lt-badge" style="background:#e1f5ee;color:#0f6e56;">sale en '+(-x.dias)+' d</span>'}</td></tr>`).join('')||'<tr><td colspan="7" style="color:var(--text-light);text-align:center;">Sin saldos pendientes</td></tr>'}<tr style="background:var(--bg);font-weight:700;"><td colspan="5">Total en colones (al TC de hoy)</td><td style="text-align:right;">${fmtCRC2(t)}</td><td></td></tr></tbody></table>`;
+    }
+    const l=contaCxPDetalle();const t=_contaRound(l.reduce((s,x)=>s+x.saldoCRC,0));
+    return `<h3 style="margin:0 0 8px;color:var(--primary-dark);">Cuentas por pagar a proveedores · ${l.length} factura${l.length===1?'':'s'} con saldo</h3><table class="list-table"><thead><tr><th>Proveedor / factura</th><th>Vence</th><th style="text-align:right;">Monto</th><th style="text-align:right;">Pagado</th><th style="text-align:right;">Saldo</th><th style="text-align:right;">Saldo ₡</th><th>Estado</th></tr></thead><tbody>${l.map(x=>`<tr><td><span class="cliente-link" onclick="verContaDoc('${x.doc.id}')">${esc(x.proveedor)}</span><div class="lt-secondary">${esc(x.doc.descripcion||'')}${x.doc.numero?' · '+esc(x.doc.numero):''}${x.doc.ventaEtiqueta?' · '+esc(x.doc.ventaEtiqueta):''}</div></td><td>${fmtFechaCorta(x.vence)}</td><td style="text-align:right;">${_contaFmtOrig(x.monto,x.moneda)}</td><td style="text-align:right;">${_contaFmtOrig(x.pagado,x.moneda)}</td><td style="text-align:right;font-weight:600;">${_contaFmtOrig(x.saldo,x.moneda)}</td><td style="text-align:right;">${fmtCRC2(x.saldoCRC)}</td><td>${x.dias>0?'<span class="lt-badge" style="background:#fcebeb;color:#a32d2d;">vencida hace '+x.dias+' d</span>':'<span class="lt-badge" style="background:#faeeda;color:#854f0b;">vence en '+(-x.dias)+' d</span>'}</td></tr>`).join('')||'<tr><td colspan="7" style="color:var(--text-light);text-align:center;">Sin facturas pendientes</td></tr>'}<tr style="background:var(--bg);font-weight:700;"><td colspan="5">Total en colones (al TC de cada factura)</td><td style="text-align:right;">${fmtCRC2(t)}</td><td></td></tr></tbody></table>`;
+}
+function contaExportarReporte(){
+    const p=_contaPeriodoUI();const r=_repRango(p);let rows=[],nombre='Reporte';
+    if(_repTipo==='resultados'){const e=contaEstadoResultados(r.desde,r.hasta);nombre='Estado_resultados_'+p;rows=[].concat(e.ingresos.map(f=>({'Sección':'Ingresos','Código':f.codigo,'Cuenta':f.nombre,'Colones':f.saldo})),[{'Sección':'Ingresos','Cuenta':'TOTAL INGRESOS','Colones':e.totalIngresos}],e.costos.map(f=>({'Sección':'Costos','Código':f.codigo,'Cuenta':f.nombre,'Colones':f.saldo})),[{'Sección':'Costos','Cuenta':'TOTAL COSTOS','Colones':e.totalCostos},{'Sección':'','Cuenta':'MARGEN BRUTO','Colones':e.margenBruto}],e.gastos.map(f=>({'Sección':'Gastos','Código':f.codigo,'Cuenta':f.nombre,'Colones':f.saldo})),[{'Sección':'Gastos','Cuenta':'TOTAL GASTOS','Colones':e.totalGastos},{'Sección':'','Cuenta':'UTILIDAD DEL PERÍODO','Colones':e.utilidad}]);}
+    else if(_repTipo==='balance'){const b=contaBalance(r.hasta);nombre='Balance_'+r.hasta;rows=[].concat(b.activos.map(f=>({'Sección':'Activo','Código':f.codigo,'Cuenta':f.nombre,'Colones':f.saldo})),[{'Sección':'Activo','Cuenta':'TOTAL ACTIVO','Colones':b.totalActivo}],b.pasivos.map(f=>({'Sección':'Pasivo','Código':f.codigo,'Cuenta':f.nombre,'Colones':f.saldo})),[{'Sección':'Pasivo','Cuenta':'TOTAL PASIVO','Colones':b.totalPasivo}],b.patrimonio.map(f=>({'Sección':'Patrimonio','Código':f.codigo,'Cuenta':f.nombre,'Colones':f.saldo})),[{'Sección':'Patrimonio','Cuenta':'Utilidad del ejercicio (sin cerrar)','Colones':b.utilidadNoCerrada},{'Sección':'','Cuenta':'TOTAL PASIVO + PATRIMONIO','Colones':b.totalPasivoPatrimonio}]);}
+    else if(_repTipo==='flujo'){const f=contaFlujoEfectivo(r.desde,r.hasta);nombre='Flujo_efectivo_'+p;rows=f.grupos.map(g=>({'Concepto':g.grupo,'Entradas':g.entradas,'Salidas':g.salidas,'Neto':g.neto})).concat([{'Concepto':'TOTAL','Entradas':f.totalEntradas,'Salidas':f.totalSalidas,'Neto':f.neto}],f.cuentas.map(c=>({'Concepto':'Cuenta '+c.cuenta.codigo+' '+c.cuenta.nombre,'Saldo inicial':c.inicial,'Entradas':c.entradas,'Salidas':c.salidas,'Saldo final':c.final})));}
+    else if(_repTipo==='cxc'){nombre='Cuentas_por_cobrar';rows=contaCxCDetalle().map(x=>({'Cliente / venta':x.etiqueta,'Encargada':x.venta.encargado||'','Salida':x.salida,'Moneda':x.moneda,'Total':x.total,'Cobrado':x.pagado,'Saldo':x.saldo,'Saldo ₡':x.saldoCRC,'Días desde la salida':x.dias}));}
+    else{nombre='Cuentas_por_pagar';rows=contaCxPDetalle().map(x=>({'Proveedor':x.proveedor,'Descripción':x.doc.descripcion||'','Nº factura':x.doc.numero||'','Venta':x.doc.ventaEtiqueta||'','Vence':x.vence,'Moneda':x.moneda,'Monto':x.monto,'Pagado':x.pagado,'Saldo':x.saldo,'Saldo ₡':x.saldoCRC,'Días vencida':x.dias}));}
+    if(!rows.length){alert('No hay datos para exportar.');return;}
+    const ws=XLSX.utils.json_to_sheet(rows);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Reporte');XLSX.writeFile(wb,nombre+'.xlsx');
+}
+function contaImprimirReporte(){
+    const cuerpo=document.getElementById('repCuerpo');if(!cuerpo)return;
+    const ag=(cfgGet().agencyInfo||{});const w=window.open('','_blank');if(!w){alert('El navegador bloqueó la ventana. Permití las ventanas emergentes para imprimir.');return;}
+    w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(ag.nombre||'Reporte')}</title><style>body{font-family:'Open Sans',Arial,sans-serif;font-size:12px;color:#222;padding:24px;} h2{margin:0;font-size:18px;} .sub{color:#666;font-size:11px;margin-bottom:14px;} h3{font-size:14px;margin:0 0 6px;} h4{font-size:12px;margin:12px 0 4px;} table{border-collapse:collapse;width:100%;margin-bottom:10px;} th,td{border-bottom:1px solid #ddd;padding:4px 6px;text-align:left;font-size:11px;} th{background:#eef5f6;} .lt-badge{font-size:10px;padding:1px 6px;border-radius:8px;} .lt-secondary{color:#666;font-size:10px;} .cliente-link{color:#036672;} @page{size:A4;margin:14mm;} </style></head><body><h2>${esc(ag.nombre||'')}</h2><div class="sub">${esc(ag.razonSocial||'')}${ag.cedula?' · Cédula '+esc(ag.cedula):''} · Generado el ${fmtFechaCorta(_hitoHoyISO())} · Libros en colones</div>${cuerpo.innerHTML}</body></html>`);
+    w.document.close();setTimeout(()=>{try{w.focus();w.print();}catch(e){}},400);
+}
+// --- Activos fijos ---
+function _contaActivosHtml(p){
+    const puedeReg=tienePermiso('contabilidad.registrar');
+    const lista=getContaActivos().slice().sort((a,b)=>String(b.fechaCompra).localeCompare(String(a.fechaCompra)));
+    const tools=`<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">${puedeReg?`<button class="btn btn-sm btn-primary" onclick="openActivoModal()">+ Activo fijo</button><button class="btn btn-sm btn-ghost" onclick="contaDepreciarUI()" title="Registra el asiento de depreciación del período elegido arriba">Depreciar ${p}</button>`:''}<span style="flex:1;"></span><button class="btn btn-sm btn-ghost" onclick="contaExportarActivos()">&#128196; Exportar a Excel</button></div>`;
+    if(!lista.length)return tools+'<div class="grid-empty"><h3>Sin activos fijos</h3><p>Registrá computadoras, cámaras, mobiliario y demás equipo de la agencia. Cada mes, al cerrar, se deprecian solos.</p></div>';
+    let tV=0,tD=0;
+    const rows=lista.map(a=>{const dep=contaActivoDepreciado(a);const neto=_contaRound((num(a.valorCRC)||0)-dep);if(a.estado==='activo'){tV+=num(a.valorCRC)||0;tD+=dep;}const cat=_contaActivoCat(a.categoria);
+        return `<tr style="${a.estado==='baja'?'opacity:0.6;':''}"><td><div style="font-weight:600;">${esc(a.nombre)}</div><div class="lt-secondary">${esc(cat[1])}${a.serie?' · serie '+esc(a.serie):''}${a.responsable?' · '+esc(a.responsable):''}</div></td><td>${fmtFechaCorta(a.fechaCompra)}</td><td style="text-align:right;">${fmtCRC2(a.valorCRC)}${a.moneda!=='CRC'?'<div class="lt-secondary">'+_contaFmtOrig(a.valor,a.moneda)+'</div>':''}</td><td style="text-align:right;">${num(a.vidaAnios)} años<div class="lt-secondary">${fmtCRC2(contaActivoDepMensual(a))}/mes</div></td><td style="text-align:right;">${fmtCRC2(dep)}</td><td style="text-align:right;font-weight:600;">${fmtCRC2(neto)}</td><td>${a.estado==='baja'?'<span class="lt-badge" style="background:#f1f3f5;color:#4d5c63;">baja '+fmtFechaCorta(a.bajaFecha)+'</span>':(neto<=0.005?'<span class="lt-badge" style="background:#e1f5ee;color:#0f6e56;">depreciado</span>':'<span class="lt-badge" style="background:#dff1f3;color:#036672;">activo</span>')}</td><td><div class="lt-actions">${puedeReg?`<button class="btn btn-sm btn-ghost" style="padding:2px 8px;font-size:0.7rem;" onclick="openActivoModal('${a.id}')">Editar</button>${a.estado==='activo'?`<button class="btn btn-sm btn-danger" style="padding:2px 8px;font-size:0.7rem;" onclick="contaBajaActivoUI('${a.id}')">Dar de baja</button>`:''}`:''}</div></td></tr>`;}).join('');
+    return tools+`<table class="list-table"><thead><tr><th>Activo</th><th>Compra</th><th style="text-align:right;">Valor</th><th style="text-align:right;">Vida útil</th><th style="text-align:right;">Depreciado</th><th style="text-align:right;">En libros</th><th>Estado</th><th></th></tr></thead><tbody>${rows}<tr style="background:var(--bg);font-weight:700;"><td colspan="2">Activos vigentes</td><td style="text-align:right;">${fmtCRC2(tV)}</td><td></td><td style="text-align:right;">${fmtCRC2(tD)}</td><td style="text-align:right;">${fmtCRC2(tV-tD)}</td><td colspan="2"></td></tr></tbody></table>`;
+}
+function openActivoModal(id){
+    if(!exigirPermiso('contabilidad.registrar','registrar activos fijos'))return;
+    const a=id?getContaActivos().find(x=>x.id===id):null;const ov=document.getElementById('modalContaDoc');
+    ov.innerHTML=`<div class="modal" style="max-width:640px;"><div class="modal-header"><h3>${a?'Editar activo':'Nuevo activo fijo'}</h3><button class="modal-close" onclick="closeModal('modalContaDoc')">&times;</button></div>
+    <div class="modal-body">
+        <div class="form-row"><div class="form-group" style="flex:2;"><label>Nombre</label><input type="text" id="afNombre" value="${esc(a?a.nombre:'')}" placeholder="Ej: MacBook Air de Susana"></div><div class="form-group"><label>Categoría</label><select id="afCat" ${a?'disabled':''} onchange="_afCatChange()">${CONTA_ACTIVO_CATS.map(c=>`<option value="${c[0]}"${a&&a.categoria===c[0]?' selected':''}>${c[1]}</option>`).join('')}</select></div></div>
+        <div class="form-row"><div class="form-group"><label>Fecha de compra</label><input type="date" id="afFecha" value="${esc(a?a.fechaCompra:_hitoHoyISO())}" ${a?'disabled':''}></div><div class="form-group"><label>Moneda</label><select id="afMoneda" ${a?'disabled':''}><option value="CRC"${a&&a.moneda==='CRC'?' selected':''}>Colones</option><option value="USD"${a&&a.moneda==='USD'?' selected':''}>Dólares</option><option value="EUR"${a&&a.moneda==='EUR'?' selected':''}>Euros</option></select></div><div class="form-group"><label>Valor</label><input type="number" step="0.01" id="afValor" value="${a?a.valor:''}" ${a?'disabled':''}></div><div class="form-group"><label>Vida útil (años)</label><input type="number" step="1" min="1" id="afVida" value="${a?a.vidaAnios:CONTA_ACTIVO_CATS[0][3]}"></div></div>
+        <div class="form-row"><div class="form-group"><label>Responsable</label><input type="text" id="afResp" value="${esc(a?a.responsable||'':'')}" placeholder="Quién lo usa"></div><div class="form-group"><label>Nº de serie</label><input type="text" id="afSerie" value="${esc(a?a.serie||'':'')}"></div></div>
+        ${a?'':`<div class="form-row"><div class="form-group"><label>Cuenta contable</label>${_contaSelectCuentas('afCuenta',CONTA_ACTIVO_CATS[0][2],['activo'])}</div><div class="form-group"><label>¿Cómo se registra la compra?</label><select id="afPago"><option value="">Ya estaba en libros (solo inventario)</option>${contaCfg().cuentas.filter(c=>c.tipo==='activo'&&/^11/.test(c.codigo)).map(c=>`<option value="${esc(c.codigo)}">Pagado desde ${esc(c.nombre)}</option>`).join('')}</select></div></div>`}
+        <div class="form-group"><label>Notas</label><input type="text" id="afNotas" value="${esc(a?a.notas||'':'')}"></div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modalContaDoc')">Cancelar</button><button class="btn btn-success" onclick="guardarActivo('${a?a.id:''}')">Guardar</button></div></div>`;
+    ov.classList.add('open');
+}
+function _afCatChange(){const c=_contaActivoCat(document.getElementById('afCat').value);const cu=document.getElementById('afCuenta');if(cu&&contaCuenta(c[2]))cu.value=c[2];document.getElementById('afVida').value=c[3];}
+function guardarActivo(id){
+    const g=k=>document.getElementById(k);
+    if(id){if(contaEditarActivo(id,{nombre:g('afNombre').value,responsable:g('afResp').value,serie:g('afSerie').value,notas:g('afNotas').value,vidaAnios:g('afVida').value})){closeModal('modalContaDoc');renderContabilidad();}return;}
+    const a=contaRegistrarActivo({nombre:g('afNombre').value,categoria:g('afCat').value,fechaCompra:g('afFecha').value,moneda:g('afMoneda').value,valor:parseFloat(g('afValor').value)||0,vidaAnios:parseFloat(g('afVida').value)||0,responsable:g('afResp').value,serie:g('afSerie').value,notas:g('afNotas').value,cuenta:g('afCuenta').value,cuentaPago:g('afPago').value});
+    if(!a)return;closeModal('modalContaDoc');renderContabilidad();
+}
+function contaBajaActivoUI(id){if(!exigirPermiso('contabilidad.registrar','dar de baja activos'))return;const a=getContaActivos().find(x=>x.id===id);if(!a)return;const f=prompt('Fecha de la baja (AAAA-MM-DD):',_hitoHoyISO());if(f===null)return;const m=prompt('Motivo (venta, robo, desecho…):','');if(m===null)return;if(contaBajaActivo(id,f,m))renderContabilidad();}
+function contaDepreciarUI(){if(!exigirPermiso('contabilidad.registrar','registrar depreciación'))return;const p=_contaPeriodoUI();const r=contaDepreciarPeriodo(p,false);if(r&&r.asiento)alert('Depreciación de '+p+' registrada: '+fmtCRC2(r.total)+' en '+r.n+' activo'+(r.n===1?'':'s')+'.');renderContabilidad();}
+function contaRevaluarUI(){if(!exigirPermiso('contabilidad.registrar','revaluar saldos'))return;const p=_contaPeriodoUI();const r=contaRevaluarPeriodo(p,false);if(r&&r.asiento)alert('Revaluación de '+p+' registrada: '+r.detalle.length+' cuenta(s), neto '+fmtCRC2(r.neto)+'.');renderContabilidad();}
+function contaCierreAnualUI(){if(!exigirPermiso('contabilidad.cerrar','hacer el cierre anual'))return;const y=_contaPeriodoUI().slice(0,4);if(!confirm('¿Hacer el cierre anual de '+y+'?\n\nLas cuentas de ingresos, costos y gastos pasan a Utilidades acumuladas al 31/12/'+y+'. Conviene hacerlo cuando el contador lo indique.'))return;if(contaCierreAnual(y))renderContabilidad();}
+function contaExportarActivos(){const rows=getContaActivos().map(a=>({'Activo':a.nombre,'Categoría':_contaActivoCat(a.categoria)[1],'Compra':a.fechaCompra,'Moneda':a.moneda,'Valor':a.valor,'Valor ₡':a.valorCRC,'Vida útil (años)':a.vidaAnios,'Depreciado ₡':contaActivoDepreciado(a),'En libros ₡':_contaRound((num(a.valorCRC)||0)-contaActivoDepreciado(a)),'Responsable':a.responsable||'','Serie':a.serie||'','Estado':a.estado,'Baja':a.bajaFecha||''}));if(!rows.length){alert('No hay activos.');return;}const ws=XLSX.utils.json_to_sheet(rows);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Activos');XLSX.writeFile(wb,'Activos_fijos.xlsx');}
 
 // ===== PANEL "HITOS" EN INICIO =====
 let _dashHitosScope=(function(){try{return localStorage.getItem('dv_dash_hitos_scope')||'';}catch(e){return '';}})();
