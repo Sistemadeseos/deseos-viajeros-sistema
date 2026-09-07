@@ -1066,6 +1066,7 @@ onAuthStateChanged(fbAuth, (user) => {
     <div class="sidebar-section">
         <div class="sidebar-section-label">Contabilidad</div>
         <div class="sidebar-item" onclick="nav('reportePagos')"><span class="si-icon">&#129534;</span>Reporte de pagos</div>
+        <div class="sidebar-item" onclick="nav('contabilidad')"><span class="si-icon">&#128213;</span>Contabilidad</div>
     </div>
     <div class="sidebar-section">
         <div class="sidebar-section-label">Sistema</div>
@@ -1261,6 +1262,15 @@ onAuthStateChanged(fbAuth, (user) => {
 </div>
 
 <!-- VIEW: REPORTE DE PAGOS -->
+<div class="app-view view-list" id="viewContabilidad">
+    <div class="list-search" style="flex-wrap:wrap;align-items:center;">
+        <div class="cal-seg" id="contaSeg"><button class="active" data-ct="diario" onclick="contaTab('diario')">Diario</button><button data-ct="mayor" onclick="contaTab('mayor')">Mayor</button><button data-ct="tc" onclick="contaTab('tc')">Tipo de cambio</button><button data-ct="cierres" onclick="contaTab('cierres')">Cierres</button></div>
+        <label style="font-size:0.78rem;color:var(--text-light);margin-left:8px;">Per&iacute;odo</label><input type="month" id="contaPeriodo" onchange="renderContabilidad()" style="width:170px;">
+        <span style="flex:1;"></span><span id="contaTCHoy" style="font-size:0.78rem;color:var(--text-light);"></span>
+    </div>
+    <div class="list-view" id="contaBody"></div>
+</div>
+<div class="modal-overlay" id="modalAsiento"></div>
 <div class="app-view view-list" id="viewTareas"></div>
 <div class="app-view view-list" id="viewCalendario"></div>
 
@@ -1307,6 +1317,7 @@ onAuthStateChanged(fbAuth, (user) => {
         <button class="config-tab" data-cfgtab="recibo" onclick="switchConfigTab('recibo')">Recibo de pago</button>
         <button class="config-tab" data-cfgtab="edc" onclick="switchConfigTab('edc')">Estado de cuenta</button>
         <button class="config-tab" data-cfgtab="cruceros" onclick="switchConfigTab('cruceros')">Cruceros</button>
+        <button class="config-tab" data-cfgtab="contabilidad" onclick="switchConfigTab('contabilidad')">Contabilidad</button>
         <button class="config-tab" data-cfgtab="usuarios" data-perm-maestro="1" onclick="switchConfigTab('usuarios')" style="display:none;">Usuarios y permisos</button>
     </div>
     <div class="config-panes">
@@ -1337,6 +1348,7 @@ onAuthStateChanged(fbAuth, (user) => {
         <div class="config-pane" id="cfgPane-recibo"></div>
         <div class="config-pane" id="cfgPane-edc"></div>
         <div class="config-pane" id="cfgPane-cruceros"></div>
+        <div class="config-pane" id="cfgPane-contabilidad"></div>
         <div class="config-pane" id="cfgPane-usuarios"></div>
     </div>
 </div>
@@ -1802,6 +1814,336 @@ function _normHitos(h,checklist){
 }
 const defaultAlertas=['A partir del 11 de enero 2025 es obligatoria la vacuna de la fiebre amarilla para el ingreso a este pa\u00eds.'];
 
+// =====================================================================================
+// ===== CONTABILIDAD (fase 1): plan de cuentas, tipo de cambio, diario, mayor, cierres =====
+// Libros en COLONES. Cada línea guarda moneda y monto original + tipo de cambio usado.
+// Los asientos NUNCA se editan ni se borran: se reversan (asiento espejo que apunta al original).
+// =====================================================================================
+const CONTA_TIPOS=[['activo','Activo'],['pasivo','Pasivo'],['patrimonio','Patrimonio'],['ingreso','Ingresos'],['costo','Costos'],['gasto','Gastos']];
+const CONTA_MONEDAS=['CRC','USD','EUR'];
+const defaultContaCuentas=[
+    {codigo:'1101',nombre:'Caja colones',tipo:'activo',moneda:'CRC'},
+    {codigo:'1102',nombre:'Caja dólares',tipo:'activo',moneda:'USD'},
+    {codigo:'1110',nombre:'BAC colones',tipo:'activo',moneda:'CRC'},
+    {codigo:'1111',nombre:'BAC dólares',tipo:'activo',moneda:'USD'},
+    {codigo:'1112',nombre:'BAC euros',tipo:'activo',moneda:'EUR'},
+    {codigo:'1113',nombre:'SINPE Móvil',tipo:'activo',moneda:'CRC'},
+    {codigo:'1120',nombre:'BCR colones',tipo:'activo',moneda:'CRC'},
+    {codigo:'1121',nombre:'BCR dólares',tipo:'activo',moneda:'USD'},
+    {codigo:'1201',nombre:'Cuentas por cobrar clientes',tipo:'activo',moneda:''},
+    {codigo:'1202',nombre:'Anticipos a proveedores',tipo:'activo',moneda:''},
+    {codigo:'1301',nombre:'IVA por recuperar',tipo:'activo',moneda:'CRC'},
+    {codigo:'1401',nombre:'Equipo de cómputo',tipo:'activo',moneda:'CRC'},
+    {codigo:'1402',nombre:'Mobiliario y equipo de oficina',tipo:'activo',moneda:'CRC'},
+    {codigo:'1403',nombre:'Equipo fotográfico',tipo:'activo',moneda:'CRC'},
+    {codigo:'1490',nombre:'Depreciación acumulada',tipo:'activo',moneda:'CRC'},
+    {codigo:'2101',nombre:'Cuentas por pagar hoteles',tipo:'pasivo',moneda:''},
+    {codigo:'2102',nombre:'Cuentas por pagar aerolíneas',tipo:'pasivo',moneda:''},
+    {codigo:'2103',nombre:'Cuentas por pagar seguros',tipo:'pasivo',moneda:''},
+    {codigo:'2104',nombre:'Cuentas por pagar traslados y tours',tipo:'pasivo',moneda:''},
+    {codigo:'2105',nombre:'Cuentas por pagar otros proveedores',tipo:'pasivo',moneda:''},
+    {codigo:'2110',nombre:'Anticipos de clientes',tipo:'pasivo',moneda:''},
+    {codigo:'2201',nombre:'IVA por pagar',tipo:'pasivo',moneda:'CRC'},
+    {codigo:'2202',nombre:'Retenciones de renta por pagar',tipo:'pasivo',moneda:'CRC'},
+    {codigo:'2203',nombre:'CCSS por pagar',tipo:'pasivo',moneda:'CRC'},
+    {codigo:'2204',nombre:'Salarios por pagar',tipo:'pasivo',moneda:'CRC'},
+    {codigo:'2205',nombre:'Otras deducciones por pagar',tipo:'pasivo',moneda:'CRC'},
+    {codigo:'2301',nombre:'Provisión de aguinaldo',tipo:'pasivo',moneda:'CRC'},
+    {codigo:'2302',nombre:'Provisión de vacaciones',tipo:'pasivo',moneda:'CRC'},
+    {codigo:'3101',nombre:'Capital social',tipo:'patrimonio',moneda:'CRC'},
+    {codigo:'3201',nombre:'Utilidades acumuladas',tipo:'patrimonio',moneda:'CRC'},
+    {codigo:'3301',nombre:'Utilidad del período',tipo:'patrimonio',moneda:'CRC'},
+    {codigo:'4101',nombre:'Ventas de paquetes',tipo:'ingreso',moneda:''},
+    {codigo:'4102',nombre:'Ventas de boletos aéreos',tipo:'ingreso',moneda:''},
+    {codigo:'4103',nombre:'Ventas de hospedaje',tipo:'ingreso',moneda:''},
+    {codigo:'4104',nombre:'Ventas de seguros de viaje',tipo:'ingreso',moneda:''},
+    {codigo:'4105',nombre:'Ventas de traslados y tours',tipo:'ingreso',moneda:''},
+    {codigo:'4106',nombre:'Ventas de cruceros',tipo:'ingreso',moneda:''},
+    {codigo:'4201',nombre:'Comisiones ganadas',tipo:'ingreso',moneda:''},
+    {codigo:'4301',nombre:'Otros ingresos',tipo:'ingreso',moneda:''},
+    {codigo:'4401',nombre:'Ganancia por diferencial cambiario',tipo:'ingreso',moneda:'CRC'},
+    {codigo:'5101',nombre:'Costo de hospedaje',tipo:'costo',moneda:''},
+    {codigo:'5102',nombre:'Costo de boletos aéreos',tipo:'costo',moneda:''},
+    {codigo:'5103',nombre:'Costo de seguros',tipo:'costo',moneda:''},
+    {codigo:'5104',nombre:'Costo de traslados y tours',tipo:'costo',moneda:''},
+    {codigo:'5105',nombre:'Costo de cruceros',tipo:'costo',moneda:''},
+    {codigo:'5190',nombre:'Otros costos de viaje',tipo:'costo',moneda:''},
+    {codigo:'6101',nombre:'Salarios',tipo:'gasto',moneda:'CRC'},
+    {codigo:'6102',nombre:'Cargas sociales patronales',tipo:'gasto',moneda:'CRC'},
+    {codigo:'6103',nombre:'Aguinaldo',tipo:'gasto',moneda:'CRC'},
+    {codigo:'6104',nombre:'Vacaciones',tipo:'gasto',moneda:'CRC'},
+    {codigo:'6201',nombre:'Alquiler',tipo:'gasto',moneda:''},
+    {codigo:'6202',nombre:'Servicios públicos',tipo:'gasto',moneda:'CRC'},
+    {codigo:'6203',nombre:'Internet y telefonía',tipo:'gasto',moneda:'CRC'},
+    {codigo:'6204',nombre:'Publicidad y redes',tipo:'gasto',moneda:''},
+    {codigo:'6205',nombre:'Comisiones bancarias',tipo:'gasto',moneda:''},
+    {codigo:'6206',nombre:'Honorarios profesionales',tipo:'gasto',moneda:''},
+    {codigo:'6207',nombre:'Papelería y oficina',tipo:'gasto',moneda:'CRC'},
+    {codigo:'6208',nombre:'Transporte y viáticos',tipo:'gasto',moneda:''},
+    {codigo:'6209',nombre:'Software y suscripciones',tipo:'gasto',moneda:''},
+    {codigo:'6210',nombre:'Depreciación',tipo:'gasto',moneda:'CRC'},
+    {codigo:'6290',nombre:'Otros gastos',tipo:'gasto',moneda:''},
+    {codigo:'6401',nombre:'Pérdida por diferencial cambiario',tipo:'gasto',moneda:'CRC'}
+];
+// Cuentas por defecto para los asientos automáticos (se ajustan en Configuración → Contabilidad)
+const defaultContaMapeo={
+    bancoPorMetodo:{
+        'Efectivo':{CRC:'1101',USD:'1102',EUR:'1102'},
+        'Tarjeta de crédito':{CRC:'1110',USD:'1111',EUR:'1112'},
+        'Depósito':{CRC:'1110',USD:'1111',EUR:'1112'},
+        'Otro':{CRC:'1110',USD:'1111',EUR:'1112'}
+    },
+    cxcClientes:'1201',anticiposClientes:'2110',
+    ingresoPorTipo:{personalizada:'4101',grupal:'4101',crucero:'4106',servicio_boleto:'4102',servicio_hospedaje:'4103',servicio_seguro:'4104',servicio_transporte:'4105',servicio_tour:'4105',servicio_otro:'4301'},
+    planilla:{salarios:'6101',cargas:'6102',ccssPorPagar:'2203',rentaPorPagar:'2202',otrasDedPorPagar:'2205',salariosPorPagar:'2204'},
+    cargaPatronalPct:26.67,
+    difCambGanancia:'4401',difCambPerdida:'6401'
+};
+function _normContaCuentas(arr){
+    const src=(Array.isArray(arr)&&arr.length)?arr:defaultContaCuentas;
+    const vistos=new Set();const out=[];
+    src.forEach(c=>{if(!c)return;const codigo=String(c.codigo||'').trim();const nombre=String(c.nombre||'').trim();if(!codigo||!nombre||vistos.has(codigo))return;vistos.add(codigo);out.push({codigo,nombre,tipo:CONTA_TIPOS.some(t=>t[0]===c.tipo)?c.tipo:'gasto',moneda:CONTA_MONEDAS.includes(c.moneda)?c.moneda:''});});
+    return out.sort((a,b)=>a.codigo.localeCompare(b.codigo));
+}
+function _normContaMapeo(m){
+    m=m||{};const d=defaultContaMapeo;
+    const out={bancoPorMetodo:{},cxcClientes:m.cxcClientes||d.cxcClientes,anticiposClientes:m.anticiposClientes||d.anticiposClientes,ingresoPorTipo:Object.assign({},d.ingresoPorTipo,m.ingresoPorTipo||{}),planilla:Object.assign({},d.planilla,m.planilla||{}),cargaPatronalPct:(m.cargaPatronalPct!=null&&m.cargaPatronalPct!=='')?parseFloat(m.cargaPatronalPct):d.cargaPatronalPct,difCambGanancia:m.difCambGanancia||d.difCambGanancia,difCambPerdida:m.difCambPerdida||d.difCambPerdida};
+    Object.keys(d.bancoPorMetodo).forEach(k=>{out.bancoPorMetodo[k]=Object.assign({},d.bancoPorMetodo[k],(m.bancoPorMetodo||{})[k]||{});});
+    Object.keys(m.bancoPorMetodo||{}).forEach(k=>{if(!out.bancoPorMetodo[k])out.bancoPorMetodo[k]=Object.assign({},d.bancoPorMetodo['Otro'],m.bancoPorMetodo[k]);});
+    return out;
+}
+function _contaPrimerDiaMesActual(){const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-01';}
+// --- Colecciones sincronizadas ---
+function getContaAsientos(){return getLS('dv_conta_asientos');}
+function saveContaAsientos(arr){return setLS('dv_conta_asientos',Array.isArray(arr)?arr:[]);}
+function getContaTC(){return getLS('dv_conta_tc');}
+function saveContaTC(arr){return setLS('dv_conta_tc',Array.isArray(arr)?arr:[]);}
+// --- Helpers ---
+function contaCfg(){const c=cfgGet();return {cuentas:c.contaCuentas,mapeo:c.contaMapeo,fechaInicio:c.contaFechaInicio,cierres:c.contaCierres,bitacora:c.contaBitacora};}
+function contaCuenta(codigo){return contaCfg().cuentas.find(c=>c.codigo===String(codigo))||null;}
+function contaCuentaNombre(codigo){const c=contaCuenta(codigo);return c?(c.codigo+' · '+c.nombre):String(codigo||'');}
+function contaPeriodoDe(fecha){return String(fecha||'').slice(0,7);}
+function contaPeriodoCerrado(periodo){return (contaCfg().cierres||[]).some(x=>x&&x.periodo===periodo);}
+function contaFechaBloqueada(fecha){const f=String(fecha||'').slice(0,10);if(!f)return false;if(f<contaCfg().fechaInicio)return false;return contaPeriodoCerrado(contaPeriodoDe(f));}
+function contaFechaEnLibros(fecha){const f=String(fecha||'').slice(0,10);return !!f&&f>=contaCfg().fechaInicio;}
+function _contaRound(n){return Math.round((num(n)||0)*100)/100;}
+function fmtCRC2(n){const v=num(n)||0;return (v<0?'-':'')+'₡'+Math.abs(v).toLocaleString('es-CR',{minimumFractionDigits:2,maximumFractionDigits:2});}
+function _contaBitacora(txt){
+    try{const c=getConfig();if(!Array.isArray(c.contaBitacora))c.contaBitacora=[];c.contaBitacora.push({ts:Date.now(),por:(window.currentUser&&window.currentUser.email)||'',txt:String(txt||'')});if(c.contaBitacora.length>400)c.contaBitacora=c.contaBitacora.slice(-400);saveConfig(c);}catch(e){console.error('[conta bitacora]',e);}
+}
+// --- Tipo de cambio (venta del día, Hacienda/BCCR). Guardado por fecha; se puede corregir a mano. ---
+function contaTCRegistro(fecha){const f=String(fecha||'').slice(0,10);return getContaTC().find(x=>x&&x.fecha===f)||null;}
+// Devuelve {usd,eur,fecha,exacto}. Si no hay TC de esa fecha, usa el último anterior; si no hay ninguno, el más reciente.
+function contaTCPara(fecha){
+    const f=String(fecha||'').slice(0,10);
+    const lista=getContaTC().filter(x=>x&&x.fecha&&num(x.usd)>0).sort((a,b)=>a.fecha.localeCompare(b.fecha));
+    if(!lista.length)return {usd:0,eur:0,fecha:'',exacto:false};
+    let r=lista.filter(x=>x.fecha<=f).pop();
+    if(!r)r=lista[0];
+    return {usd:num(r.usd),eur:num(r.eur)||0,fecha:r.fecha,exacto:r.fecha===f};
+}
+function contaGuardarTC(fecha,usd,eur,fuente,usdCompra){
+    const f=String(fecha||'').slice(0,10);if(!f||!(num(usd)>0))return false;
+    const arr=getContaTC().map(x=>Object.assign({},x));
+    let r=arr.find(x=>x.fecha===f);
+    if(r){if(r.fuente==='manual'&&fuente!=='manual')return false;r.usd=num(usd);r.eur=num(eur)||r.eur||0;r.usdCompra=num(usdCompra)||r.usdCompra||0;r.fuente=fuente||'manual';r.ts=Date.now();r.por=(window.currentUser&&window.currentUser.email)||'';}
+    else arr.push({id:'tc_'+f,fecha:f,usd:num(usd),eur:num(eur)||0,usdCompra:num(usdCompra)||0,fuente:fuente||'manual',ts:Date.now(),por:(window.currentUser&&window.currentUser.email)||''});
+    saveContaTC(arr);return true;
+}
+async function contaActualizarTCHoy(forzar){
+    const hoy=_hitoHoyISO();
+    const ya=contaTCRegistro(hoy);
+    if(ya&&!forzar)return ya;
+    try{
+        const r=await fetch('https://api.hacienda.go.cr/indicadores/tc',{cache:'no-store'});
+        if(!r.ok)throw new Error('HTTP '+r.status);
+        const j=await r.json();
+        const usd=num(j&&j.dolar&&j.dolar.venta&&j.dolar.venta.valor),usdC=num(j&&j.dolar&&j.dolar.compra&&j.dolar.compra.valor),eur=num(j&&j.euro&&j.euro.colones);
+        const fechaApi=String((j&&j.dolar&&j.dolar.venta&&j.dolar.venta.fecha)||hoy).slice(0,10);
+        if(usd>0){contaGuardarTC(fechaApi,usd,eur,'hacienda',usdC);if(fechaApi!==hoy&&!contaTCRegistro(hoy))contaGuardarTC(hoy,usd,eur,'hacienda',usdC);}
+        return contaTCRegistro(hoy);
+    }catch(e){console.warn('[conta tc]',e.message);return ya||null;}
+}
+// Convierte un monto en moneda a colones con el TC de la fecha. Devuelve {crc,tc,tcFecha}
+function contaACRC(monto,moneda,fecha){
+    const m=(moneda||'CRC').toUpperCase();const v=num(monto)||0;
+    if(m==='CRC')return {crc:_contaRound(v),tc:1,tcFecha:String(fecha||'').slice(0,10)};
+    const t=contaTCPara(fecha);
+    const tc=m==='USD'?t.usd:(m==='EUR'?(t.eur||0):0);
+    return {crc:_contaRound(v*tc),tc,tcFecha:t.fecha};
+}
+// --- Asientos ---
+function _contaNumeroSiguiente(arr){return arr.reduce((m,a)=>Math.max(m,parseInt(a&&a.numero||0,10)||0),0)+1;}
+function contaAsientoExiste(origen,refId,subRef){return getContaAsientos().find(a=>a&&a.origen===origen&&String(a.refId||'')===String(refId||'')&&String(a.subRef||'')===String(subRef||'')&&!a.reversadoPor)||null;}
+// Registra un asiento. opts:{fecha,descripcion,origen,refId,subRef,lineas:[{cuenta,debe,haber,moneda,montoOrig,tc,detalle}],silencioso}
+// Devuelve el asiento o null (y explica el motivo por alert salvo silencioso).
+function contaRegistrarAsiento(opts){
+    opts=opts||{};
+    const fecha=String(opts.fecha||'').slice(0,10);
+    const fallo=msg=>{if(!opts.silencioso)alert(msg);else console.warn('[conta]',msg);return null;};
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(fecha))return fallo('El asiento necesita una fecha válida.');
+    if(fecha<contaCfg().fechaInicio)return fallo('La fecha es anterior al inicio de la contabilidad ('+fmtFechaCorta(contaCfg().fechaInicio)+'). Cambiá la fecha de inicio en Configuración → Contabilidad si corresponde.');
+    if(contaPeriodoCerrado(contaPeriodoDe(fecha)))return fallo('El mes '+contaPeriodoDe(fecha)+' está cerrado. Reabrilo desde Contabilidad → Cierres para registrar en él.');
+    const cuentas=contaCfg().cuentas;
+    const lineas=(opts.lineas||[]).map(l=>({cuenta:String(l.cuenta||''),debe:_contaRound(l.debe),haber:_contaRound(l.haber),moneda:(l.moneda||'CRC').toUpperCase(),montoOrig:_contaRound(l.montoOrig!=null?l.montoOrig:(num(l.debe)||num(l.haber))),tc:num(l.tc)||1,detalle:String(l.detalle||'')})).filter(l=>l.cuenta&&(l.debe>0||l.haber>0));
+    if(lineas.length<2)return fallo('Un asiento necesita al menos dos líneas con monto.');
+    const faltan=lineas.filter(l=>!cuentas.some(c=>c.codigo===l.cuenta)).map(l=>l.cuenta);
+    if(faltan.length)return fallo('Cuenta(s) inexistente(s) en el plan de cuentas: '+faltan.join(', '));
+    const td=_contaRound(lineas.reduce((s,l)=>s+l.debe,0)),th=_contaRound(lineas.reduce((s,l)=>s+l.haber,0));
+    if(Math.abs(td-th)>0.01)return fallo('El asiento no cuadra: Debe '+fmtCRC2(td)+' vs Haber '+fmtCRC2(th)+'.');
+    const arr=getContaAsientos().map(x=>Object.assign({},x));
+    const a={id:'as_'+Date.now()+'_'+Math.random().toString(36).slice(2,6),numero:_contaNumeroSiguiente(arr),fecha,periodo:contaPeriodoDe(fecha),descripcion:String(opts.descripcion||'').trim(),origen:opts.origen||'manual',refId:String(opts.refId||''),subRef:String(opts.subRef||''),lineas,totalDebe:td,totalHaber:th,creadoPor:(window.currentUser&&window.currentUser.email)||'',creadoTs:Date.now(),reversaDe:String(opts.reversaDe||''),reversadoPor:''};
+    arr.push(a);saveContaAsientos(arr);
+    return a;
+}
+// Reversa un asiento: crea el espejo y marca el original. Devuelve el asiento de reversión o null.
+function contaReversarAsiento(id,motivo,silencioso){
+    const arr=getContaAsientos().map(x=>Object.assign({},x));
+    const o=arr.find(x=>x.id===id);
+    if(!o){if(!silencioso)alert('No se encontró el asiento.');return null;}
+    if(o.reversadoPor){if(!silencioso)alert('Ese asiento ya fue reversado.');return null;}
+    const hoy=_hitoHoyISO();
+    // La reversión va en el mes del original si está abierto; si ya se cerró, va en el primer mes abierto (hoy)
+    const fecha=contaPeriodoCerrado(o.periodo)?hoy:o.fecha;
+    const r=contaRegistrarAsiento({fecha,descripcion:'Reversión de asiento #'+o.numero+(motivo?' · '+motivo:'')+' · '+(o.descripcion||''),origen:'reversion',refId:o.refId,subRef:o.subRef,reversaDe:o.id,silencioso,lineas:o.lineas.map(l=>({cuenta:l.cuenta,debe:l.haber,haber:l.debe,moneda:l.moneda,montoOrig:l.montoOrig,tc:l.tc,detalle:l.detalle}))});
+    if(!r)return null;
+    const arr2=getContaAsientos().map(x=>Object.assign({},x));
+    const o2=arr2.find(x=>x.id===id);if(o2){o2.reversadoPor=r.id;o2.reversadoTs=Date.now();o2.reversadoMotivo=String(motivo||'');}
+    saveContaAsientos(arr2);
+    _contaBitacora('Reversó el asiento #'+o.numero+(motivo?' ('+motivo+')':''));
+    return r;
+}
+// --- Asientos automáticos: COBROS ---
+function _contaCuentaBanco(metodo,moneda){
+    const bp=contaCfg().mapeo.bancoPorMetodo;const m=(moneda||'CRC').toUpperCase();
+    const fila=bp[metodo]||bp['Otro']||{};
+    return fila[m]||fila.CRC||'1110';
+}
+function _contaIngresoCuentaVenta(v){
+    const ip=contaCfg().mapeo.ingresoPorTipo;
+    if(v.tipo==='servicio'){const k='servicio_'+(v.servicioCat||'otro');return ip[k]||ip.servicio_otro;}
+    return ip[v.tipo]||ip.personalizada;
+}
+function _contaVentaEtiqueta(v){return (v.clienteNombre||'')+(v.destino||v.grupoNombre||v.naviera?' · '+(v.destino||v.grupoNombre||v.naviera):'');}
+// Crea (o reemplaza) el asiento del cobro. Si el pago ya tenía asiento, lo reversa y crea el nuevo.
+function contaSyncPago(v,pago){
+    if(!v||!pago||!pago.fecha)return null;
+    if(!contaFechaEnLibros(pago.fecha))return null;
+    const prev=contaAsientoExiste('cobro',v.id,pago.id);
+    if(prev){
+        const igual=Math.abs(num(prev.montoOrig)-num(pago.monto))<0.005&&prev.fecha===String(pago.fecha).slice(0,10)&&prev.metodo===(pago.metodo||'');
+        if(igual)return prev;
+        contaReversarAsiento(prev.id,'pago modificado',true);
+    }
+    const moneda=(v.cobranza&&v.cobranza.moneda)||'USD';
+    const conv=contaACRC(pago.monto,moneda,pago.fecha);
+    if(!(conv.crc>0)){console.warn('[conta] sin tipo de cambio para',pago.fecha);return null;}
+    const banco=_contaCuentaBanco(pago.metodo,moneda);
+    const contra=v.contaIngresoReconocido?contaCfg().mapeo.cxcClientes:contaCfg().mapeo.anticiposClientes;
+    const a=contaRegistrarAsiento({fecha:pago.fecha,origen:'cobro',refId:v.id,subRef:pago.id,silencioso:true,
+        descripcion:'Cobro · '+_contaVentaEtiqueta(v)+' · '+(pago.metodo||'')+(pago.referencia?' · ref. '+pago.referencia:''),
+        lineas:[{cuenta:banco,debe:conv.crc,haber:0,moneda,montoOrig:pago.monto,tc:conv.tc,detalle:'Ingreso a '+contaCuentaNombre(banco)},
+                {cuenta:contra,debe:0,haber:conv.crc,moneda,montoOrig:pago.monto,tc:conv.tc,detalle:v.contaIngresoReconocido?'Abono a cuenta por cobrar':'Anticipo del cliente'}]});
+    if(a){const arr=getContaAsientos().map(x=>Object.assign({},x));const a2=arr.find(x=>x.id===a.id);if(a2){a2.montoOrig=num(pago.monto);a2.metodo=pago.metodo||'';saveContaAsientos(arr);}}
+    return a;
+}
+function contaReversarPago(v,pagoId){const prev=contaAsientoExiste('cobro',v&&v.id,pagoId);if(prev)contaReversarAsiento(prev.id,'pago eliminado',true);}
+// --- Asientos automáticos: PLANILLA (solo colillas EMITIDAS) ---
+function contaSyncColilla(c){
+    if(!c||!c.id)return null;
+    const prev=contaAsientoExiste('planilla','',c.id);
+    if(c.estado!=='emitida'){if(prev)contaReversarAsiento(prev.id,'colilla ya no está emitida',true);return null;}
+    const fecha=String(c.fechaPago||c.periodoHasta||'').slice(0,10);
+    if(!contaFechaEnLibros(fecha))return null;
+    const bruto=_contaRound(c.brutoTotal),ccss=_contaRound(c.deduccionCCSS),renta=_contaRound(c.deduccionRenta),otras=_contaRound(c.totalOtrasDeducciones),neto=_contaRound(c.neto);
+    const mp=contaCfg().mapeo;
+    const patr=_contaRound(num(c.cargaPatronalCCSS)>0?c.cargaPatronalCCSS:bruto*(num(mp.cargaPatronalPct)||0)/100);
+    const firma=[fecha,bruto,ccss,renta,otras,neto,patr].join('|');
+    if(prev){if(prev.firma===firma)return prev;contaReversarAsiento(prev.id,'colilla modificada',true);}
+    const ajuste=_contaRound(bruto-(ccss+renta+otras+neto)); // redondeos: va al neto por pagar
+    const lineas=[
+        {cuenta:mp.planilla.salarios,debe:bruto,haber:0,detalle:'Salario bruto'},
+        {cuenta:mp.planilla.cargas,debe:patr,haber:0,detalle:'Carga patronal CCSS'},
+        {cuenta:mp.planilla.ccssPorPagar,debe:0,haber:_contaRound(ccss+patr),detalle:'CCSS obrera + patronal'},
+        {cuenta:mp.planilla.rentaPorPagar,debe:0,haber:renta,detalle:'Retención de renta'},
+        {cuenta:mp.planilla.otrasDedPorPagar,debe:0,haber:otras,detalle:'Otras deducciones'},
+        {cuenta:mp.planilla.salariosPorPagar,debe:0,haber:_contaRound(neto+ajuste),detalle:'Neto a pagar'}
+    ].map(l=>Object.assign(l,{moneda:'CRC',montoOrig:l.debe||l.haber,tc:1}));
+    const a=contaRegistrarAsiento({fecha,origen:'planilla',refId:'',subRef:c.id,silencioso:true,descripcion:'Planilla · '+(c.empleadoNombre||'')+' · '+(typeof _rrhhColillaPeriodoTexto==='function'?_rrhhColillaPeriodoTexto(c):(c.periodoEtiqueta||c.periodoHasta||'')),lineas});
+    if(a){const arr=getContaAsientos().map(x=>Object.assign({},x));const a2=arr.find(x=>x.id===a.id);if(a2){a2.firma=firma;saveContaAsientos(arr);}}
+    return a;
+}
+function contaReversarColilla(c){const prev=contaAsientoExiste('planilla','',c&&c.id);if(prev)contaReversarAsiento(prev.id,'colilla eliminada',true);}
+// --- Reconocimiento de ingresos: cuando el viaje se realiza, el anticipo pasa a ingreso ---
+function contaTotalVenta(v){const cob=(v&&v.cobranza)||{};const ad=Array.isArray(cob.adicionales)?cob.adicionales.reduce((s,a)=>s+(num(a&&a.monto)||0),0):0;return _contaRound((num(cob.montoTotal)||0)+ad);}
+function contaReconocerVenta(v,fechaAsiento){
+    if(!v||v.contaIngresoReconocido||v.estado==='cancelada')return null;
+    const fi=String(v.fechaInicio||'').slice(0,10);
+    if(!contaFechaEnLibros(fi))return null;
+    const total=contaTotalVenta(v);if(!(total>0))return null;
+    const moneda=(v.cobranza&&v.cobranza.moneda)||'USD';
+    const fecha=fechaAsiento||fi;
+    // Anticipos ya contabilizados de esta venta (en colones, tal como se registraron)
+    const asCobros=getContaAsientos().filter(a=>a&&a.origen==='cobro'&&a.refId===v.id&&!a.reversadoPor);
+    const anticipoCRC=_contaRound(asCobros.reduce((s,a)=>s+a.totalDebe,0));
+    const cobradoOrig=_contaRound(asCobros.reduce((s,a)=>s+(num(a.montoOrig)||0),0));
+    const conv=contaACRC(total,moneda,fi);
+    if(!(conv.crc>0))return null;
+    const pendienteOrig=Math.max(0,_contaRound(total-cobradoOrig));
+    const cxcCRC=_contaRound(pendienteOrig*conv.tc);
+    const mp=contaCfg().mapeo;
+    const lineas=[{cuenta:_contaIngresoCuentaVenta(v),debe:0,haber:conv.crc,moneda,montoOrig:total,tc:conv.tc,detalle:'Ingreso del viaje'}];
+    if(anticipoCRC>0)lineas.push({cuenta:mp.anticiposClientes,debe:anticipoCRC,haber:0,moneda,montoOrig:cobradoOrig,tc:cobradoOrig?anticipoCRC/cobradoOrig:1,detalle:'Anticipos aplicados'});
+    if(cxcCRC>0)lineas.push({cuenta:mp.cxcClientes,debe:cxcCRC,haber:0,moneda,montoOrig:pendienteOrig,tc:conv.tc,detalle:'Saldo pendiente del cliente'});
+    const dif=_contaRound(conv.crc-anticipoCRC-cxcCRC); // >0: falta debe → pérdida cambiaria; <0: sobra debe → ganancia
+    if(Math.abs(dif)>=0.01){if(dif>0)lineas.push({cuenta:mp.difCambPerdida,debe:dif,haber:0,moneda:'CRC',montoOrig:dif,tc:1,detalle:'Diferencial cambiario'});else lineas.push({cuenta:mp.difCambGanancia,debe:0,haber:-dif,moneda:'CRC',montoOrig:-dif,tc:1,detalle:'Diferencial cambiario'});}
+    const a=contaRegistrarAsiento({fecha,origen:'ingreso_venta',refId:v.id,subRef:'',silencioso:true,descripcion:'Ingreso por viaje realizado · '+_contaVentaEtiqueta(v)+' · salida '+fmtFechaCorta(fi),lineas});
+    if(a){const ventas=getVentas();const vv=ventas.find(x=>x.id===v.id);if(vv){vv.contaIngresoReconocido={ts:Date.now(),asientoId:a.id,fecha};saveVentas(ventas);}}
+    return a;
+}
+// Reconoce todas las ventas con salida hasta la fecha dada (inclusive). Devuelve cuántas.
+function contaReconocerIngresosHasta(fechaHasta){
+    const h=String(fechaHasta||_hitoHoyISO()).slice(0,10);let n=0;
+    getVentas().slice().forEach(v=>{if(!v||v.contaIngresoReconocido||v.estado==='cancelada')return;const fi=String(v.fechaInicio||'').slice(0,10);if(!fi||fi>h)return;if(!contaFechaEnLibros(fi))return;const fechaAs=contaPeriodoCerrado(contaPeriodoDe(fi))?_hitoHoyISO():fi;if(contaReconocerVenta(v,fechaAs))n++;});
+    return n;
+}
+// --- Regenerar asientos automáticos que falten (cobros y planillas desde la fecha de inicio) ---
+function contaGenerarPendientes(){
+    let cobros=0,planillas=0;
+    getVentas().forEach(v=>{if(!v||!v.cobranza||!Array.isArray(v.cobranza.pagos))return;v.cobranza.pagos.forEach(p=>{if(!p||!p.fecha||!contaFechaEnLibros(p.fecha))return;if(contaAsientoExiste('cobro',v.id,p.id))return;if(contaPeriodoCerrado(contaPeriodoDe(p.fecha)))return;if(contaSyncPago(v,p))cobros++;});});
+    (getRrhhColillas()||[]).forEach(c=>{if(!c||c.estado!=='emitida')return;const f=String(c.fechaPago||c.periodoHasta||'').slice(0,10);if(!contaFechaEnLibros(f)||contaPeriodoCerrado(contaPeriodoDe(f)))return;if(contaAsientoExiste('planilla','',c.id))return;if(contaSyncColilla(c))planillas++;});
+    return {cobros,planillas};
+}
+// --- Cierres de mes ---
+function contaCerrarPeriodo(periodo){
+    if(!/^\d{4}-\d{2}$/.test(periodo))return false;
+    if(contaPeriodoCerrado(periodo))return false;
+    const fin=(function(){const y=parseInt(periodo.slice(0,4),10),m=parseInt(periodo.slice(5,7),10);const d=new Date(y,m,0);return periodo+'-'+String(d.getDate()).padStart(2,'0');})();
+    const nRec=contaReconocerIngresosHasta(fin);
+    const c=getConfig();if(!Array.isArray(c.contaCierres))c.contaCierres=[];
+    c.contaCierres.push({periodo,por:(window.currentUser&&window.currentUser.email)||'',ts:Date.now()});
+    saveConfig(c);
+    _contaBitacora('Cerró el mes '+periodo+(nRec?' (reconoció ingresos de '+nRec+' viaje'+(nRec===1?'':'s')+')':''));
+    return true;
+}
+function contaReabrirPeriodo(periodo,motivo){
+    const c=getConfig();if(!Array.isArray(c.contaCierres))return false;
+    const antes=c.contaCierres.length;c.contaCierres=c.contaCierres.filter(x=>!(x&&x.periodo===periodo));
+    if(c.contaCierres.length===antes)return false;
+    saveConfig(c);_contaBitacora('Reabrió el mes '+periodo+(motivo?' · '+motivo:''));return true;
+}
+// --- Saldos (mayor) ---
+// Devuelve {cuenta:{debe,haber,saldo}} para el rango [desde,hasta] inclusive. Saldo con signo natural: activo/costo/gasto positivo al debe.
+function contaSaldos(desde,hasta){
+    const out={};
+    getContaAsientos().forEach(a=>{if(!a||!Array.isArray(a.lineas))return;if(desde&&a.fecha<desde)return;if(hasta&&a.fecha>hasta)return;a.lineas.forEach(l=>{const o=out[l.cuenta]||(out[l.cuenta]={debe:0,haber:0});o.debe=_contaRound(o.debe+l.debe);o.haber=_contaRound(o.haber+l.haber);});});
+    const cuentas=contaCfg().cuentas;
+    Object.keys(out).forEach(k=>{const c=cuentas.find(x=>x.codigo===k);const deudora=!c||c.tipo==='activo'||c.tipo==='costo'||c.tipo==='gasto';out[k].saldo=_contaRound(deudora?(out[k].debe-out[k].haber):(out[k].haber-out[k].debe));});
+    return out;
+}
+// Al arrancar: asegurar el TC de hoy (en segundo plano)
+function contaInit(){try{contaActualizarTCHoy(false).then(()=>{try{const el=document.getElementById('contaTCHoy');if(el&&document.getElementById('viewContabilidad').classList.contains('active'))renderContabilidad();}catch(e){}});}catch(e){}}
+
 // ===== ESTADOS Y ORIGENES DEL PIPELINE DE CONTACTOS =====
 const CONTACTO_ESTADOS=[
     {id:'nuevo',label:'Nuevo'},
@@ -1864,7 +2206,7 @@ let _idb=null,_idbReady=false;
 const _IDB_DB='dv_store',_IDB_STORE='kv';
 // Claves de DATOS (colecciones) que migramos a IndexedDB. El resto de claves dv_ (preferencias de UI,
 // respaldos, estado de vistas) se quedan en localStorage tal como estaban.
-const _CLAVES_DATOS=['dv_cotizaciones','dv_ventas','dv_clientes','dv_encabezados','dv_config','dv_grupos','dv_hoteles','dv_rrhh_colillas','dv_rrhh_vacaciones','dv_rrhh_horasextra','dv_eventos'];
+const _CLAVES_DATOS=['dv_cotizaciones','dv_ventas','dv_clientes','dv_encabezados','dv_config','dv_grupos','dv_hoteles','dv_rrhh_colillas','dv_rrhh_vacaciones','dv_rrhh_horasextra','dv_eventos','dv_conta_asientos','dv_conta_tc'];
 function _esClaveDatos(k){return _CLAVES_DATOS.indexOf(k)>=0;}
 function _idbOpen(){return new Promise(resolve=>{try{if(!window.indexedDB)return resolve(null);const req=indexedDB.open(_IDB_DB,1);req.onupgradeneeded=()=>{const db=req.result;if(!db.objectStoreNames.contains(_IDB_STORE))db.createObjectStore(_IDB_STORE);};req.onsuccess=()=>resolve(req.result);req.onerror=()=>resolve(null);}catch(e){resolve(null);}});}
 function _idbSet(k,str){if(!_idb)return;try{_idb.transaction(_IDB_STORE,'readwrite').objectStore(_IDB_STORE).put(str,k);}catch(e){console.warn('[idb] set',k,e);}}
@@ -1926,7 +2268,7 @@ function setLSObj(k,v){
 //   destinos/{pais}/{ciudad}_{timestamp}
 
 // Tracking de IDs que ya subimos a Firestore (para poder detectar eliminaciones)
-const _fsDocIds={cotizaciones:new Set(),ventas:new Set(),clientes:new Set(),destinos:new Set(),hoteles:new Set(),grupos:new Set(),rrhh_colillas:new Set(),rrhh_vacaciones:new Set(),rrhh_horasextra:new Set(),notificaciones:new Set(),tareas:new Set(),eventos:new Set()};
+const _fsDocIds={cotizaciones:new Set(),ventas:new Set(),clientes:new Set(),destinos:new Set(),hoteles:new Set(),grupos:new Set(),rrhh_colillas:new Set(),rrhh_vacaciones:new Set(),rrhh_horasextra:new Set(),notificaciones:new Set(),tareas:new Set(),eventos:new Set(),conta_asientos:new Set(),conta_tc:new Set()};
 
 // ===== METADATA (timestamp + autor en cada save) =====
 // Agrega _lastModifiedAt y _lastModifiedBy a un objeto antes de guardarlo.
@@ -1962,6 +2304,8 @@ function guardarSnapshotRespaldo(motivo){
             notificaciones:getLS('dv_notificaciones'),
             tareas:getLS('dv_tareas'),
             eventos:getLS('dv_eventos'),
+            conta_asientos:getLS('dv_conta_asientos'),
+            conta_tc:getLS('dv_conta_tc'),
             config:getLSObj('dv_config')
         };
         localStorage.setItem(key,JSON.stringify(snap));
@@ -2052,6 +2396,10 @@ async function pushToFirestore(key,value){
             await syncArrayCollection('tareas',value,false);
         }else if(key==='dv_eventos'){
             await syncArrayCollection('eventos',value,false);
+        }else if(key==='dv_conta_asientos'){
+            await syncArrayCollection('conta_asientos',value,false);
+        }else if(key==='dv_conta_tc'){
+            await syncArrayCollection('conta_tc',value,false);
         }
     }catch(e){
         console.error('[FS] error en pushToFirestore para',key,':',e);
@@ -2360,6 +2708,16 @@ async function loadAllFromFirestore(){
         eventos=mergedEv.merged;recuperadosTotal+=mergedEv.recovered;
         guardarLocal('dv_eventos',eventos);
         if(mergedEv.recovered>0)setTimeout(()=>{if(_fsEnabled)pushToFirestore('dv_eventos',eventos).catch(e=>console.error(e));},14500);
+        // contabilidad: asientos (inmutables) y tipos de cambio
+        for(const par of [['conta_asientos','dv_conta_asientos',15500],['conta_tc','dv_conta_tc',16000]]){
+            const localC=getLS(par[1]);
+            const cSnap=await h.getDocs(h.collection(db,par[0]));
+            let itemsC=[];cSnap.forEach(dd=>{itemsC.push(dd.data());_fsDocIds[par[0]].add(dd.id);});
+            const mergedC=mergeArrayDefensivo(par[0],itemsC,localC);
+            itemsC=mergedC.merged;recuperadosTotal+=mergedC.recovered;
+            guardarLocal(par[1],itemsC);
+            if(mergedC.recovered>0)setTimeout(()=>{if(_fsEnabled)pushToFirestore(par[1],itemsC).catch(e=>console.error(e));},par[2]);
+        }
         console.log(`[FS] datos cargados: ${cots.length} cotizaciones, ${ventas.length} ventas, ${clientes.length} clientes, ${Object.keys(destObj).length} pa\u00edses, ${hoteles.length} hoteles${recuperadosTotal>0?' ('+recuperadosTotal+' items recuperados de localStorage)':''}`);
         if(recuperadosTotal>0){
             setTimeout(()=>{
@@ -2495,6 +2853,11 @@ function cfgGet(){
         hitos: _normHitos(c.hitos, c.checklist),
         aerolineas: (Array.isArray(c.aerolineas)&&c.aerolineas.length) ? c.aerolineas : defaultAerolineas,
         supervisorEmail: c.supervisorEmail || SUPERVISOR_EMAIL_DEFAULT,
+        contaCuentas: _normContaCuentas(c.contaCuentas),
+        contaMapeo: _normContaMapeo(c.contaMapeo),
+        contaFechaInicio: /^\d{4}-\d{2}-\d{2}$/.test(c.contaFechaInicio||'') ? c.contaFechaInicio : _contaPrimerDiaMesActual(),
+        contaCierres: Array.isArray(c.contaCierres) ? c.contaCierres : [],
+        contaBitacora: Array.isArray(c.contaBitacora) ? c.contaBitacora : [],
         alertas:   c.alertas   || defaultAlertas,
         fees:      c.fees      || defaultFees,
         agencyInfo: Object.assign({},defaultAgencyInfo,c.agencyInfo||{})
@@ -2536,7 +2899,11 @@ const PERMISOS_CATALOGO=[
     // -- Tareas --
     {clave:'tareas.ver',     nombre:'Ver la sección de Tareas',            modulo:'Tareas'},
     {clave:'tareas.crear',   nombre:'Crear tareas',                            modulo:'Tareas'},
-    {clave:'tareas.ver_todas',nombre:'Ver las tareas de todo el equipo',       modulo:'Tareas'}
+    {clave:'tareas.ver_todas',nombre:'Ver las tareas de todo el equipo',       modulo:'Tareas'},
+    // -- Contabilidad --
+    {clave:'contabilidad.ver',       nombre:'Ver contabilidad (diario, mayor, cierres)', modulo:'Contabilidad'},
+    {clave:'contabilidad.registrar', nombre:'Registrar y reversar asientos, cargar tipo de cambio', modulo:'Contabilidad'},
+    {clave:'contabilidad.cerrar',    nombre:'Cerrar y reabrir meses',            modulo:'Contabilidad'}
 ];
 
 // Permite que un modulo futuro (ej. contabilidad) registre sus permisos sin tocar la UI ni este catalogo.
@@ -2791,7 +3158,7 @@ function puedeVerVista(view){
     if(view==='inicio'||view==='documento'||view==='encabezados')return true;
     if(view==='configuracion')return soyMaestro()||tienePermiso('config.general.gestionar')||tienePermiso('config.usuarios.gestionar');
     if(view==='tareas')return true;   // todos pueden ver sus propias tareas
-    const m={dashboard:'dashboard.ver',editor:'cotizaciones.crear_editar',historial:'cotizaciones.ver',ventas:'ventas.ver',clientes:'contactos.ver',clientesventas:'contactos.ver',reportePagos:'cobranza.ver',rrhh:'rrhh.ver'};
+    const m={contabilidad:'contabilidad.ver',dashboard:'dashboard.ver',editor:'cotizaciones.crear_editar',historial:'cotizaciones.ver',ventas:'ventas.ver',clientes:'contactos.ver',clientesventas:'contactos.ver',reportePagos:'cobranza.ver',rrhh:'rrhh.ver'};
     const p=m[view];
     return p?tienePermiso(p):true;
 }
@@ -2804,7 +3171,7 @@ function exigirPermiso(clave,accionTxt){
 // Aplica visibilidad del menú lateral, calculadora de costos y pestaña de usuarios según permisos.
 function aplicarPermisosUI(){
     if(!window.currentUser)return;
-    const views=['inicio','dashboard','editor','historial','ventas','clientes','tareas','calendario','reportePagos','configuracion','rrhh'];
+    const views=['inicio','dashboard','editor','historial','ventas','clientes','tareas','calendario','reportePagos','contabilidad','configuracion','rrhh'];
     const items=document.querySelectorAll('.sidebar-item');
     items.forEach((el,i)=>{if(i<views.length)el.style.display=puedeVerVista(views[i])?'':'none';});
     document.body.classList.toggle('sin-costos',!tienePermiso('cotizaciones.ver_costos'));
@@ -2824,10 +3191,10 @@ function nav(view){
     renderNotifBell();
     document.querySelectorAll('.sidebar-item').forEach(el=>el.classList.remove('active'));
     const items=document.querySelectorAll('.sidebar-item');
-    const map={inicio:0,dashboard:1,editor:2,historial:3,ventas:4,clientes:5,tareas:6,calendario:7,reportePagos:8,configuracion:9,rrhh:10};
+    const map={inicio:0,dashboard:1,editor:2,historial:3,ventas:4,clientes:5,tareas:6,calendario:7,reportePagos:8,contabilidad:9,configuracion:10,rrhh:11};
     if(map[view]!==undefined)items[map[view]].classList.add('active');
     document.querySelectorAll('.app-view').forEach(v=>v.classList.remove('active'));
-    const titles={inicio:'',dashboard:'Dashboard',editor:'Editor de Cotizaci\u00f3n',historial:'Historial de Cotizaciones',encabezados:'Destinos',ventas:'Ventas',clientes:'Clientes',clientesventas:'Clientes',tareas:'Tareas',calendario:'Calendario',reportePagos:'Reporte de pagos',configuracion:'Configuraci\u00f3n',rrhh:'Planilla',documento:'Documento'};
+    const titles={inicio:'',dashboard:'Dashboard',editor:'Editor de Cotizaci\u00f3n',historial:'Historial de Cotizaciones',encabezados:'Destinos',ventas:'Ventas',clientes:'Clientes',clientesventas:'Clientes',tareas:'Tareas',calendario:'Calendario',reportePagos:'Reporte de pagos',contabilidad:'Contabilidad',configuracion:'Configuraci\u00f3n',rrhh:'Planilla',documento:'Documento'};
     document.getElementById('headerTitle').textContent=titles[view]||'';
     const ha=document.getElementById('headerActions');
     if(view==='editor')ha.innerHTML='<button class="btn btn-outline" onclick="resetForm()">&#128260; Nueva</button>'+(tienePermiso('cotizaciones.exportar')?'<button class="btn btn-accent" onclick="window.print()">&#128424; Exportar PDF</button>':'');
@@ -2836,8 +3203,9 @@ function nav(view){
     else if(view==='tareas')ha.innerHTML='<button class="btn btn-accent" onclick="openTareaModal()">+ Nueva Tarea</button>';
     else if(view==='calendario')ha.innerHTML='<button class="btn btn-accent" onclick="openEventoModal()">+ Nuevo evento</button>';
     else if(view==='dashboard')ha.innerHTML='<button class="btn btn-outline" onclick="renderDashboard()">&#8635; Actualizar</button>';
+    else if(view==='contabilidad')ha.innerHTML=tienePermiso('contabilidad.registrar')?'<button class="btn btn-accent" onclick="openAsientoModal()">+ Asiento manual</button>':'';
     else ha.innerHTML='';
-    const viewIds={inicio:'viewInicio',dashboard:'viewDashboard',editor:'viewEditor',historial:'viewHistorial',encabezados:'viewEncabezados',ventas:'viewVentas',clientes:'viewClientes',clientesventas:'viewClientesVentas',tareas:'viewTareas',calendario:'viewCalendario',reportePagos:'viewReportePagos',configuracion:'viewConfiguracion',rrhh:'viewRrhh',documento:'viewDocumento'};
+    const viewIds={inicio:'viewInicio',dashboard:'viewDashboard',editor:'viewEditor',historial:'viewHistorial',encabezados:'viewEncabezados',ventas:'viewVentas',clientes:'viewClientes',clientesventas:'viewClientesVentas',tareas:'viewTareas',calendario:'viewCalendario',reportePagos:'viewReportePagos',contabilidad:'viewContabilidad',configuracion:'viewConfiguracion',rrhh:'viewRrhh',documento:'viewDocumento'};
     document.getElementById(viewIds[view]).classList.add('active');
     if(view==='dashboard')renderDashboard();
     if(view==='historial')renderHistorial();
@@ -2848,6 +3216,7 @@ function nav(view){
     if(view==='tareas')renderTareas();
     if(view==='calendario')renderCalendario();
     if(view==='reportePagos')renderReportePagos();
+    if(view==='contabilidad')renderContabilidad();
     if(view==='configuracion')renderConfiguracion();
     if(view==='rrhh')renderRrhh();
     if(view==='ventas')applyVentasHeaderActions();
@@ -3218,6 +3587,7 @@ function renderConfiguracion(){
     renderConfigNoIncluye();
     renderConfigCuentas();
     renderConfigChecklist();
+    try{renderConfigContabilidad();}catch(e){console.error('[cfg conta]',e);}
     renderConfigAlertas();
     renderConfigFees();
     renderConfigTransporte();
@@ -4367,6 +4737,7 @@ function guardarRrhhColilla(){
         colillas.push(datos);colillaId=datos.id;
     }
     saveRrhhColillas(colillas);
+    try{const _cc=colillas.find(x=>x.id===colillaId);if(_cc)contaSyncColilla(_cc);}catch(e){console.error('[conta planilla]',e);}
     // Notificar a la empleada cuando la colilla queda EMITIDA (y no lo estaba antes).
     if((inp.estado||'borrador')==='emitida'&&!prevEmitida){
         const _emC=_emailDeEmpleado(inp.empleadoId);
@@ -4384,6 +4755,7 @@ function eliminarRrhhColilla(id){
     const c=getRrhhColillas().find(x=>x.id===id);
     if(!c)return;
     if(!confirm('¿Eliminar la colilla de "'+(c.empleadoNombre||'')+'" del período '+_rrhhColillaPeriodoTexto(c)+'? Esta acción no se puede deshacer.'))return;
+    try{contaReversarColilla(c);}catch(e){console.error('[conta planilla]',e);}
     saveRrhhColillas(getRrhhColillas().filter(x=>x.id!==id));
     const cfg=getConfig();
     _appendBitacoraRrhh(cfg,'Eliminó la colilla de "'+(c.empleadoNombre||'')+'" ('+_rrhhColillaPeriodoTexto(c)+')');
@@ -5537,6 +5909,236 @@ function iniciarRecordatorios(){
     setTimeout(()=>{try{mostrarRecordatorios(false);}catch(e){console.error('[recordatorios]',e);}},1500);
     _recTimer=setInterval(()=>{try{mostrarRecordatorios(false);}catch(e){console.error('[recordatorios]',e);}},_REC_INTERVALO_MIN*60000);
 }
+// ===== CONTABILIDAD: pantalla =====
+let _contaTab='diario';
+const CONTA_ORIGEN_LABEL={manual:'Manual',cobro:'Cobro',planilla:'Planilla',ingreso_venta:'Ingreso por viaje',reversion:'Reversión',gasto:'Gasto',proveedor:'Proveedor',ajuste:'Ajuste'};
+function contaTab(t){_contaTab=t;const seg=document.getElementById('contaSeg');if(seg)seg.querySelectorAll('button').forEach(b=>b.classList.toggle('active',b.getAttribute('data-ct')===t));renderContabilidad();}
+function _contaPeriodoUI(){const el=document.getElementById('contaPeriodo');if(el&&!el.value)el.value=_hitoHoyISO().slice(0,7);return el?el.value:_hitoHoyISO().slice(0,7);}
+function _contaRangoPeriodo(p){const y=parseInt(p.slice(0,4),10),m=parseInt(p.slice(5,7),10);const fin=new Date(y,m,0).getDate();return {desde:p+'-01',hasta:p+'-'+String(fin).padStart(2,'0')};}
+function _contaChipOrigen(o){const col={cobro:'#e1f5ee;color:#0f6e56',planilla:'#ede7f6;color:#5e35b1',ingreso_venta:'#dff1f3;color:#036672',reversion:'#fcebeb;color:#a32d2d',manual:'#f1f3f5;color:#4d5c63'};return `<span class="lt-badge" style="background:${col[o]||col.manual};">${esc(CONTA_ORIGEN_LABEL[o]||o)}</span>`;}
+function renderContabilidad(){
+    const body=document.getElementById('contaBody');if(!body)return;
+    const p=_contaPeriodoUI();
+    const tcHoy=document.getElementById('contaTCHoy');
+    if(tcHoy){const t=contaTCPara(_hitoHoyISO());tcHoy.innerHTML=t.usd?('TC hoy: $1 = '+fmtCRC2(t.usd)+(t.eur?' · €1 = '+fmtCRC2(t.eur):'')+(t.exacto?'':' <span style="color:#a32d2d;">(del '+fmtFechaCorta(t.fecha)+')</span>')):'<span style="color:#a32d2d;">Sin tipo de cambio cargado</span>';}
+    const cerrado=contaPeriodoCerrado(p);
+    const banner=cerrado?`<div style="background:#fcebeb;color:#a32d2d;border-radius:8px;padding:8px 12px;font-size:0.8rem;margin-bottom:10px;">&#128274; Mes cerrado. No se pueden registrar ni reversar asientos en ${p}. Para hacerlo, reabrilo en la pestaña Cierres.</div>`:'';
+    if(_contaTab==='diario')body.innerHTML=banner+_contaDiarioHtml(p);
+    else if(_contaTab==='mayor')body.innerHTML=banner+_contaMayorHtml(p);
+    else if(_contaTab==='tc')body.innerHTML=_contaTCHtml();
+    else body.innerHTML=_contaCierresHtml();
+}
+// --- Diario ---
+function _contaDiarioHtml(p){
+    const r=_contaRangoPeriodo(p);
+    const lista=getContaAsientos().filter(a=>a&&a.fecha>=r.desde&&a.fecha<=r.hasta).sort((a,b)=>a.fecha.localeCompare(b.fecha)||(a.numero-b.numero));
+    const puedeReg=tienePermiso('contabilidad.registrar');
+    const tools=`<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">
+        ${puedeReg?`<button class="btn btn-sm btn-primary" onclick="openAsientoModal()">+ Asiento manual</button><button class="btn btn-sm btn-ghost" onclick="contaGenerarPendientesUI()" title="Crea los asientos de cobros y planillas emitidas que todavía no tienen asiento (desde la fecha de inicio)">&#8635; Generar asientos pendientes</button>`:''}
+        <span style="flex:1;"></span>
+        <button class="btn btn-sm btn-ghost" onclick="contaExportarDiario()">&#128196; Exportar a Excel</button>
+        <span style="font-size:0.78rem;color:var(--text-light);">${lista.length} asiento${lista.length===1?'':'s'}</span></div>`;
+    if(!lista.length)return tools+`<div class="grid-empty"><h3>Sin asientos en ${p}</h3><p>Los asientos se crean solos al registrar cobros y emitir colillas (desde el ${fmtFechaCorta(contaCfg().fechaInicio)}). También podés registrar asientos manuales.</p></div>`;
+    const rows=lista.map(a=>{
+        const rev=a.reversadoPor?'<span class="lt-badge" style="background:#fcebeb;color:#a32d2d;">reversado</span>':'';
+        const det=a.lineas.map(l=>`<tr><td style="padding:3px 8px;font-size:0.78rem;">${esc(contaCuentaNombre(l.cuenta))}${l.detalle?'<span style="color:var(--text-light);"> · '+esc(l.detalle)+'</span>':''}${l.moneda&&l.moneda!=='CRC'?`<span style="color:var(--text-light);font-size:0.72rem;"> (${esc(l.moneda)} ${num(l.montoOrig).toLocaleString('es-CR',{minimumFractionDigits:2,maximumFractionDigits:2})} a ${num(l.tc).toLocaleString('es-CR',{minimumFractionDigits:2,maximumFractionDigits:2})})</span>`:''}</td><td style="text-align:right;padding:3px 8px;font-size:0.78rem;">${l.debe?fmtCRC2(l.debe):''}</td><td style="text-align:right;padding:3px 8px;font-size:0.78rem;">${l.haber?fmtCRC2(l.haber):''}</td></tr>`).join('');
+        const acciones=(!a.reversadoPor&&a.origen!=='reversion'&&puedeReg&&!contaPeriodoCerrado(a.periodo))?`<button class="btn btn-sm btn-danger" style="padding:2px 8px;font-size:0.7rem;" onclick="contaReversarUI('${a.id}')" title="Crea un asiento espejo que anula este">Reversar</button>`:'';
+        return `<tr onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'':'none'" style="cursor:pointer;">
+            <td style="white-space:nowrap;">${fmtFechaCorta(a.fecha)}</td><td>#${a.numero}</td><td>${esc(a.descripcion||'')} ${rev}</td><td>${_contaChipOrigen(a.origen)}</td>
+            <td style="text-align:right;white-space:nowrap;">${fmtCRC2(a.totalDebe)}</td><td style="text-align:right;white-space:nowrap;">${fmtCRC2(a.totalHaber)}</td><td onclick="event.stopPropagation()">${acciones}</td></tr>
+            <tr style="display:none;background:var(--bg);"><td colspan="7" style="padding:4px 12px 8px;"><table style="width:100%;border-collapse:collapse;"><tbody>${det}</tbody></table><div style="font-size:0.7rem;color:var(--text-light);margin-top:4px;">Registrado por ${esc(a.creadoPor||'sistema')} el ${fmtFechaCorta(new Date(a.creadoTs||0).toISOString().slice(0,10))}${a.reversaDe?' · reversa un asiento anterior':''}</div></td></tr>`;
+    }).join('');
+    return tools+`<table class="list-table"><thead><tr><th>Fecha</th><th>Nº</th><th>Descripción</th><th>Origen</th><th style="text-align:right;">Debe</th><th style="text-align:right;">Haber</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+function contaReversarUI(id){
+    if(!exigirPermiso('contabilidad.registrar','reversar asientos'))return;
+    const a=getContaAsientos().find(x=>x.id===id);if(!a)return;
+    const motivo=prompt('Motivo de la reversión del asiento #'+a.numero+':','');
+    if(motivo===null)return;
+    if(contaReversarAsiento(id,motivo,false))renderContabilidad();
+}
+function contaGenerarPendientesUI(){
+    if(!exigirPermiso('contabilidad.registrar','registrar asientos'))return;
+    const r=contaGenerarPendientes();
+    alert('Listo. Se crearon '+r.cobros+' asiento(s) de cobros y '+r.planillas+' de planilla.'+((r.cobros+r.planillas)?'':'\n\nNo faltaba ninguno.'));
+    renderContabilidad();
+}
+function contaExportarDiario(){
+    const p=_contaPeriodoUI();const r=_contaRangoPeriodo(p);
+    const rows=[];
+    getContaAsientos().filter(a=>a&&a.fecha>=r.desde&&a.fecha<=r.hasta).sort((a,b)=>a.fecha.localeCompare(b.fecha)||(a.numero-b.numero)).forEach(a=>{a.lineas.forEach(l=>{rows.push({'Fecha':a.fecha,'Nº':a.numero,'Descripción':a.descripcion,'Origen':CONTA_ORIGEN_LABEL[a.origen]||a.origen,'Cuenta':l.cuenta,'Nombre de cuenta':(contaCuenta(l.cuenta)||{}).nombre||'','Detalle':l.detalle||'','Debe ₡':l.debe||0,'Haber ₡':l.haber||0,'Moneda':l.moneda||'CRC','Monto original':l.montoOrig||0,'Tipo de cambio':l.tc||1,'Reversado':a.reversadoPor?'Sí':''});});});
+    if(!rows.length){alert('No hay asientos en '+p+'.');return;}
+    const ws=XLSX.utils.json_to_sheet(rows);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Diario '+p);XLSX.writeFile(wb,'Libro_diario_'+p+'.xlsx');
+}
+// --- Mayor / balance de comprobación ---
+let _contaMayorCuenta='';
+function _contaMayorHtml(p){
+    const r=_contaRangoPeriodo(p);
+    const cuentas=contaCfg().cuentas;
+    const ini=contaSaldos('',_addDiasISO(r.desde,-1));const per=contaSaldos(r.desde,r.hasta);
+    const sel=`<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;"><label style="font-size:0.78rem;color:var(--text-light);">Cuenta</label><select onchange="_contaMayorCuenta=this.value;renderContabilidad()" style="min-width:260px;"><option value="">Todas (balance de comprobación)</option>${cuentas.map(c=>`<option value="${esc(c.codigo)}"${_contaMayorCuenta===c.codigo?' selected':''}>${esc(c.codigo+' · '+c.nombre)}</option>`).join('')}</select><span style="flex:1;"></span><button class="btn btn-sm btn-ghost" onclick="contaExportarMayor()">&#128196; Exportar a Excel</button></div>`;
+    if(_contaMayorCuenta){
+        const c=contaCuenta(_contaMayorCuenta);
+        const movs=[];getContaAsientos().filter(a=>a&&a.fecha>=r.desde&&a.fecha<=r.hasta).sort((a,b)=>a.fecha.localeCompare(b.fecha)||(a.numero-b.numero)).forEach(a=>a.lineas.forEach(l=>{if(l.cuenta===_contaMayorCuenta)movs.push({a,l});}));
+        const deudora=!c||['activo','costo','gasto'].includes(c.tipo);
+        let saldo=(ini[_contaMayorCuenta]||{}).saldo||0;
+        const rows=movs.map(({a,l})=>{saldo=_contaRound(saldo+(deudora?(l.debe-l.haber):(l.haber-l.debe)));return `<tr><td>${fmtFechaCorta(a.fecha)}</td><td>#${a.numero}</td><td>${esc(a.descripcion||'')}${l.detalle?' <span style="color:var(--text-light);">· '+esc(l.detalle)+'</span>':''}</td><td style="text-align:right;">${l.debe?fmtCRC2(l.debe):''}</td><td style="text-align:right;">${l.haber?fmtCRC2(l.haber):''}</td><td style="text-align:right;font-weight:600;">${fmtCRC2(saldo)}</td></tr>`;}).join('');
+        const s0=(ini[_contaMayorCuenta]||{}).saldo||0;
+        return sel+`<table class="list-table"><thead><tr><th>Fecha</th><th>Nº</th><th>Descripción</th><th style="text-align:right;">Debe</th><th style="text-align:right;">Haber</th><th style="text-align:right;">Saldo</th></tr></thead><tbody><tr style="background:var(--bg);"><td colspan="5"><em>Saldo inicial al ${fmtFechaCorta(r.desde)}</em></td><td style="text-align:right;font-weight:600;">${fmtCRC2(s0)}</td></tr>${rows||'<tr><td colspan="6" style="color:var(--text-light);text-align:center;">Sin movimientos en el período</td></tr>'}</tbody></table>`;
+    }
+    let tD=0,tH=0;
+    const rows=cuentas.map(c=>{const i=ini[c.codigo]||{saldo:0};const m=per[c.codigo]||{debe:0,haber:0};const deudora=['activo','costo','gasto'].includes(c.tipo);const fin=_contaRound(i.saldo+(deudora?(m.debe-m.haber):(m.haber-m.debe)));if(!i.saldo&&!m.debe&&!m.haber)return '';tD+=m.debe;tH+=m.haber;return `<tr style="cursor:pointer;" onclick="_contaMayorCuenta='${c.codigo}';renderContabilidad()"><td>${esc(c.codigo)}</td><td>${esc(c.nombre)}</td><td>${esc((CONTA_TIPOS.find(t=>t[0]===c.tipo)||[])[1]||'')}</td><td style="text-align:right;">${fmtCRC2(i.saldo)}</td><td style="text-align:right;">${fmtCRC2(m.debe)}</td><td style="text-align:right;">${fmtCRC2(m.haber)}</td><td style="text-align:right;font-weight:600;">${fmtCRC2(fin)}</td></tr>`;}).join('');
+    return sel+`<table class="list-table"><thead><tr><th>Código</th><th>Cuenta</th><th>Tipo</th><th style="text-align:right;">Saldo inicial</th><th style="text-align:right;">Debe</th><th style="text-align:right;">Haber</th><th style="text-align:right;">Saldo final</th></tr></thead><tbody>${rows||'<tr><td colspan="7" style="color:var(--text-light);text-align:center;">Sin movimientos</td></tr>'}<tr style="background:var(--bg);font-weight:700;"><td colspan="4">Totales del período</td><td style="text-align:right;">${fmtCRC2(tD)}</td><td style="text-align:right;">${fmtCRC2(tH)}</td><td style="text-align:right;${Math.abs(tD-tH)>0.01?'color:#a32d2d;':''}">${Math.abs(tD-tH)>0.01?'Descuadre '+fmtCRC2(tD-tH):'Cuadra'}</td></tr></tbody></table>`;
+}
+function contaExportarMayor(){
+    const p=_contaPeriodoUI();const r=_contaRangoPeriodo(p);
+    const ini=contaSaldos('',_addDiasISO(r.desde,-1));const per=contaSaldos(r.desde,r.hasta);
+    const rows=contaCfg().cuentas.map(c=>{const i=ini[c.codigo]||{saldo:0};const m=per[c.codigo]||{debe:0,haber:0};const deudora=['activo','costo','gasto'].includes(c.tipo);return {'Código':c.codigo,'Cuenta':c.nombre,'Tipo':(CONTA_TIPOS.find(t=>t[0]===c.tipo)||[])[1]||'','Saldo inicial ₡':i.saldo,'Debe ₡':m.debe,'Haber ₡':m.haber,'Saldo final ₡':_contaRound(i.saldo+(deudora?(m.debe-m.haber):(m.haber-m.debe)))};}).filter(x=>x['Saldo inicial ₡']||x['Debe ₡']||x['Haber ₡']);
+    const ws=XLSX.utils.json_to_sheet(rows);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Balance '+p);XLSX.writeFile(wb,'Balance_comprobacion_'+p+'.xlsx');
+}
+// --- Tipo de cambio ---
+function _contaTCHtml(){
+    const lista=getContaTC().filter(x=>x&&x.fecha).sort((a,b)=>b.fecha.localeCompare(a.fecha)).slice(0,90);
+    const puede=tienePermiso('contabilidad.registrar');
+    const form=puede?`<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px;background:#fff;border:1px solid var(--border);border-radius:8px;padding:10px 12px;">
+        <div class="form-group" style="margin:0;"><label>Fecha</label><input type="date" id="tcFecha" value="${_hitoHoyISO()}"></div>
+        <div class="form-group" style="margin:0;"><label>$1 = ₡ (venta)</label><input type="number" step="0.01" id="tcUsd" placeholder="453.69" style="width:120px;"></div>
+        <div class="form-group" style="margin:0;"><label>€1 = ₡</label><input type="number" step="0.01" id="tcEur" placeholder="527.51" style="width:120px;"></div>
+        <button class="btn btn-sm btn-primary" onclick="contaGuardarTCUI()">Guardar manual</button>
+        <button class="btn btn-sm btn-ghost" onclick="contaActualizarTCHoy(true).then(()=>renderContabilidad())" title="Consulta el tipo de cambio de venta de hoy en el Ministerio de Hacienda">&#8635; Traer el de hoy (Hacienda)</button>
+    </div>`:'';
+    const rows=lista.map(t=>`<tr><td>${fmtFechaCorta(t.fecha)}</td><td style="text-align:right;">${fmtCRC2(t.usd)}</td><td style="text-align:right;">${t.usdCompra?fmtCRC2(t.usdCompra):'-'}</td><td style="text-align:right;">${t.eur?fmtCRC2(t.eur):'-'}</td><td>${t.fuente==='manual'?'<span class="lt-badge" style="background:#faeeda;color:#854f0b;">manual</span>':'<span class="lt-badge" style="background:#e1f5ee;color:#0f6e56;">Hacienda</span>'}</td><td style="font-size:0.74rem;color:var(--text-light);">${esc(t.por||'')}</td></tr>`).join('');
+    return `<p style="font-size:0.78rem;color:var(--text-light);margin:0 0 10px;">Se usa el tipo de cambio de <strong>venta</strong> del día para convertir dólares y euros a colones. El sistema lo trae solo cada día al entrar. Si un día no tiene tipo de cambio, se usa el último anterior.</p>${form}<table class="list-table"><thead><tr><th>Fecha</th><th style="text-align:right;">Dólar venta</th><th style="text-align:right;">Dólar compra</th><th style="text-align:right;">Euro</th><th>Fuente</th><th>Cargó</th></tr></thead><tbody>${rows||'<tr><td colspan="6" style="color:var(--text-light);text-align:center;">Todavía no hay tipos de cambio. Apretá "Traer el de hoy".</td></tr>'}</tbody></table>`;
+}
+function contaGuardarTCUI(){
+    if(!exigirPermiso('contabilidad.registrar','cargar tipos de cambio'))return;
+    const f=document.getElementById('tcFecha').value,u=parseFloat(document.getElementById('tcUsd').value),e=parseFloat(document.getElementById('tcEur').value);
+    if(!f||!(u>0)){alert('Indicá la fecha y el valor del dólar.');return;}
+    contaGuardarTC(f,u,e>0?e:0,'manual');_contaBitacora('Cargó tipo de cambio manual del '+f+': $'+u+(e>0?' €'+e:''));renderContabilidad();
+}
+// --- Cierres ---
+function _contaCierresHtml(){
+    const ini=contaCfg().fechaInicio.slice(0,7);const hoy=_hitoHoyISO().slice(0,7);
+    const meses=[];let cur=ini;let g=0;while(cur<=hoy&&g<120){meses.push(cur);const y=parseInt(cur.slice(0,4),10),m=parseInt(cur.slice(5,7),10);const d=new Date(y,m,1);cur=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');g++;}
+    const puedeCerrar=tienePermiso('contabilidad.cerrar');
+    const cierres=contaCfg().cierres||[];
+    const rows=meses.slice().reverse().map(p=>{const c=cierres.find(x=>x&&x.periodo===p);const r=_contaRangoPeriodo(p);const n=getContaAsientos().filter(a=>a&&a.fecha>=r.desde&&a.fecha<=r.hasta).length;const pend=getVentas().filter(v=>v&&!v.contaIngresoReconocido&&v.estado!=='cancelada'&&String(v.fechaInicio||'').slice(0,7)===p&&contaFechaEnLibros(v.fechaInicio)).length;
+        return `<tr><td>${p}</td><td>${n} asiento${n===1?'':'s'}${pend?` · <span style="color:#854f0b;">${pend} viaje${pend===1?'':'s'} sin reconocer ingreso</span>`:''}</td><td>${c?`<span class="lt-badge" style="background:#fcebeb;color:#a32d2d;">&#128274; cerrado</span> <span style="font-size:0.72rem;color:var(--text-light);">por ${esc(c.por||'')} el ${fmtFechaCorta(new Date(c.ts||0).toISOString().slice(0,10))}</span>`:'<span class="lt-badge" style="background:#e1f5ee;color:#0f6e56;">abierto</span>'}</td><td>${puedeCerrar?(c?`<button class="btn btn-sm btn-ghost" onclick="contaReabrirUI('${p}')">Reabrir</button>`:`<button class="btn btn-sm btn-primary" onclick="contaCerrarUI('${p}')">Cerrar mes</button>`):''}</td></tr>`;}).join('');
+    const bit=(contaCfg().bitacora||[]).slice(-30).reverse().map(b=>`<div style="font-size:0.78rem;padding:4px 0;border-bottom:1px solid var(--border);"><span style="color:var(--text-light);">${fmtFechaCorta(new Date(b.ts||0).toISOString().slice(0,10))} · ${esc(b.por||'')}</span> — ${esc(b.txt||'')}</div>`).join('');
+    return `<p style="font-size:0.78rem;color:var(--text-light);margin:0 0 10px;">Al cerrar un mes se reconocen los ingresos de los viajes que salieron hasta fin de ese mes (el anticipo del cliente pasa a ingreso) y el mes queda con candado: nadie puede registrar ni reversar en él sin reabrirlo. ${tienePermiso('contabilidad.registrar')?'<button class="btn btn-sm btn-ghost" style="margin-left:6px;" onclick="contaReconocerUI()">Reconocer ingresos de viajes realizados hasta hoy</button>':''}</p>
+    <table class="list-table"><thead><tr><th>Mes</th><th>Movimiento</th><th>Estado</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+    <h3 style="font-size:0.95rem;margin:18px 0 6px;color:var(--primary-dark);">Bitácora</h3>${bit||'<div style="font-size:0.78rem;color:var(--text-light);">Sin registros todavía.</div>'}`;
+}
+function contaCerrarUI(p){if(!exigirPermiso('contabilidad.cerrar','cerrar meses'))return;if(!confirm('¿Cerrar el mes '+p+'?\n\nSe reconocerán los ingresos de los viajes que salieron hasta fin de ese mes y el mes quedará con candado.'))return;if(contaCerrarPeriodo(p))renderContabilidad();}
+function contaReabrirUI(p){if(!exigirPermiso('contabilidad.cerrar','reabrir meses'))return;const m=prompt('Motivo para reabrir el mes '+p+' (queda en la bitácora):','');if(m===null)return;if(contaReabrirPeriodo(p,m))renderContabilidad();}
+function contaReconocerUI(){if(!exigirPermiso('contabilidad.registrar','registrar asientos'))return;const n=contaReconocerIngresosHasta(_hitoHoyISO());alert(n?('Se reconoció el ingreso de '+n+' viaje'+(n===1?'':'s')+'.'):'No hay viajes pendientes de reconocer.');renderContabilidad();}
+// --- Asiento manual ---
+let _asLineas=[];
+function openAsientoModal(){
+    if(!exigirPermiso('contabilidad.registrar','registrar asientos'))return;
+    _asLineas=[{cuenta:'',debe:'',haber:''},{cuenta:'',debe:'',haber:''}];
+    const ov=document.getElementById('modalAsiento');
+    ov.innerHTML=`<div class="modal" style="max-width:760px;"><div class="modal-header"><h3>Asiento manual</h3><button class="modal-close" onclick="closeModal('modalAsiento')">&times;</button></div>
+    <div class="modal-body">
+        <div class="form-row"><div class="form-group"><label>Fecha</label><input type="date" id="asFecha" value="${_hitoHoyISO()}" onchange="_asRender()"></div><div class="form-group"><label>Moneda de los montos</label><select id="asMoneda" onchange="_asRender()"><option value="CRC">Colones (₡)</option><option value="USD">Dólares ($)</option><option value="EUR">Euros (€)</option></select></div><div class="form-group"><label>Tipo de cambio</label><input type="number" step="0.01" id="asTC" onchange="_asRender()"></div></div>
+        <div class="form-group"><label>Descripción</label><input type="text" id="asDesc" placeholder="Ej: Pago de alquiler de setiembre"></div>
+        <div id="asLineasBox"></div>
+        <button type="button" class="btn btn-sm btn-ghost" onclick="_asLineas.push({cuenta:'',debe:'',haber:''});_asRender()">+ Línea</button>
+        <div id="asTotales" style="margin-top:10px;font-size:0.85rem;"></div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modalAsiento')">Cancelar</button><button class="btn btn-success" onclick="guardarAsientoManual()">Registrar asiento</button></div></div>`;
+    ov.classList.add('open');
+    _asRender();
+}
+function _asTC(){const m=document.getElementById('asMoneda').value;const f=document.getElementById('asFecha').value;const el=document.getElementById('asTC');if(m==='CRC'){el.value='1';el.disabled=true;return 1;}el.disabled=false;if(!el.value){const t=contaTCPara(f);el.value=m==='USD'?(t.usd||''):(t.eur||'');}return parseFloat(el.value)||0;}
+function _asRender(){
+    const tc=_asTC();const m=document.getElementById('asMoneda').value;
+    const cuentas=contaCfg().cuentas;
+    const opts=cuentas.map(c=>`<option value="${esc(c.codigo)}">${esc(c.codigo+' · '+c.nombre)}</option>`).join('');
+    const box=document.getElementById('asLineasBox');
+    box.innerHTML=`<div style="display:grid;grid-template-columns:1fr 130px 130px 28px;gap:6px;font-size:0.68rem;color:var(--text-light);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;"><span>Cuenta</span><span>Debe</span><span>Haber</span><span></span></div>`+_asLineas.map((l,i)=>`<div style="display:grid;grid-template-columns:1fr 130px 130px 28px;gap:6px;margin-bottom:5px;align-items:center;">
+        <select onchange="_asLineas[${i}].cuenta=this.value"><option value="">-- Cuenta --</option>${opts.replace(`value="${l.cuenta}"`,`value="${l.cuenta}" selected`)}</select>
+        <input type="number" step="0.01" min="0" value="${esc(String(l.debe))}" oninput="_asLineas[${i}].debe=this.value;if(this.value)_asLineas[${i}].haber='';" onblur="_asRender()" placeholder="0">
+        <input type="number" step="0.01" min="0" value="${esc(String(l.haber))}" oninput="_asLineas[${i}].haber=this.value;if(this.value)_asLineas[${i}].debe='';" onblur="_asRender()" placeholder="0">
+        <button type="button" class="btn-icon remove" onclick="_asLineas.splice(${i},1);_asRender()">&times;</button></div>`).join('');
+    const d=_asLineas.reduce((s,l)=>s+(parseFloat(l.debe)||0),0),h=_asLineas.reduce((s,l)=>s+(parseFloat(l.haber)||0),0);
+    const dif=Math.round((d-h)*100)/100;
+    const sym=m==='USD'?'$':(m==='EUR'?'€':'₡');
+    document.getElementById('asTotales').innerHTML=`Debe ${sym}${d.toLocaleString('es-CR',{minimumFractionDigits:2})} · Haber ${sym}${h.toLocaleString('es-CR',{minimumFractionDigits:2})} · <strong style="color:${Math.abs(dif)<0.005?'#0f6e56':'#a32d2d'};">${Math.abs(dif)<0.005?'Cuadra':'Diferencia '+sym+dif.toLocaleString('es-CR',{minimumFractionDigits:2})}</strong>${m!=='CRC'?` · en colones: ${fmtCRC2(d*tc)}`:''}`;
+}
+function guardarAsientoManual(){
+    const fecha=document.getElementById('asFecha').value;const m=document.getElementById('asMoneda').value;const tc=_asTC();const desc=(document.getElementById('asDesc').value||'').trim();
+    if(!desc){alert('Escribí una descripción.');return;}
+    if(m!=='CRC'&&!(tc>0)){alert('Indicá el tipo de cambio.');return;}
+    const lineas=_asLineas.filter(l=>l.cuenta&&((parseFloat(l.debe)||0)>0||(parseFloat(l.haber)||0)>0)).map(l=>{const o=(parseFloat(l.debe)||0)||(parseFloat(l.haber)||0);return {cuenta:l.cuenta,debe:_contaRound((parseFloat(l.debe)||0)*tc),haber:_contaRound((parseFloat(l.haber)||0)*tc),moneda:m,montoOrig:o,tc};});
+    const a=contaRegistrarAsiento({fecha,descripcion:desc,origen:'manual',lineas});
+    if(!a)return;
+    _contaBitacora('Registró el asiento manual #'+a.numero+' · '+desc);
+    closeModal('modalAsiento');renderContabilidad();
+}
+
+// ===== CONFIGURACIÓN → CONTABILIDAD =====
+function _cfgCuentaSelect(cls,valor,filtroTipo){
+    const cuentas=contaCfg().cuentas.filter(c=>!filtroTipo||filtroTipo.includes(c.tipo));
+    return `<select class="${cls}" onchange="autoSaveConfigSilently()" style="padding:4px 6px;font-size:0.8rem;border:1px solid var(--border);border-radius:4px;max-width:100%;flex:1;min-width:0;">${cuentas.map(c=>`<option value="${esc(c.codigo)}"${c.codigo===valor?' selected':''}>${esc(c.codigo+' · '+c.nombre)}</option>`).join('')}</select>`;
+}
+function renderCfgContaCuentaItem(c){
+    c=c||{};const inp='padding:5px 8px;font-size:0.82rem;border:1px solid var(--border);border-radius:4px;';
+    return `<div class="service-item config-list-item cfg-cta" draggable="true"><span class="drag-handle" draggable="false">&#9776;</span>
+        <input type="text" class="cfg-cta-codigo" onblur="autoSaveConfigSilently()" value="${esc(c.codigo||'')}" placeholder="Código" style="width:80px;${inp}">
+        <input type="text" class="cfg-cta-nombre" onblur="autoSaveConfigSilently()" value="${esc(c.nombre||'')}" placeholder="Nombre de la cuenta" style="flex:1;${inp}">
+        <select class="cfg-cta-tipo" onchange="autoSaveConfigSilently()" style="width:130px;${inp}">${CONTA_TIPOS.map(t=>`<option value="${t[0]}"${(c.tipo||'gasto')===t[0]?' selected':''}>${t[1]}</option>`).join('')}</select>
+        <select class="cfg-cta-moneda" onchange="autoSaveConfigSilently()" style="width:90px;${inp}"><option value=""${!c.moneda?' selected':''}>Mixta</option>${CONTA_MONEDAS.map(m=>`<option value="${m}"${c.moneda===m?' selected':''}>${m}</option>`).join('')}</select>
+        <button class="btn-icon remove" onclick="this.parentElement.remove();autoSaveConfigSilently();">&times;</button></div>`;
+}
+function _collectContaFromDOM(){
+    const cont=document.getElementById('cfgContaCuentasList');if(!cont)return null;
+    const cuentas=Array.from(cont.querySelectorAll('.cfg-cta')).map(d=>({codigo:(d.querySelector('.cfg-cta-codigo')?.value||'').trim(),nombre:(d.querySelector('.cfg-cta-nombre')?.value||'').trim(),tipo:d.querySelector('.cfg-cta-tipo')?.value||'gasto',moneda:d.querySelector('.cfg-cta-moneda')?.value||''})).filter(c=>c.codigo&&c.nombre);
+    const g=id=>document.getElementById(id)?.value||'';
+    const mapeo={bancoPorMetodo:{},cxcClientes:g('cfgMapCxc'),anticiposClientes:g('cfgMapAnt'),ingresoPorTipo:{},planilla:{salarios:g('cfgMapPlSal'),cargas:g('cfgMapPlCar'),ccssPorPagar:g('cfgMapPlCcss'),rentaPorPagar:g('cfgMapPlRenta'),otrasDedPorPagar:g('cfgMapPlOtras'),salariosPorPagar:g('cfgMapPlNeto')},cargaPatronalPct:parseFloat(g('cfgContaPatronal'))||0,difCambGanancia:g('cfgMapDifG'),difCambPerdida:g('cfgMapDifP')};
+    document.querySelectorAll('#cfgContaBancos [data-metodo]').forEach(row=>{const k=row.getAttribute('data-metodo');mapeo.bancoPorMetodo[k]={};CONTA_MONEDAS.forEach(m=>{const s=row.querySelector('select[data-moneda="'+m+'"]');if(s)mapeo.bancoPorMetodo[k][m]=s.value;});});
+    document.querySelectorAll('#cfgContaIngresos select[data-tipo]').forEach(s=>{mapeo.ingresoPorTipo[s.getAttribute('data-tipo')]=s.value;});
+    return {cuentas,mapeo,fechaInicio:g('cfgContaInicio')};
+}
+function renderConfigContabilidad(){
+    const pane=document.getElementById('cfgPane-contabilidad');if(!pane)return;
+    const cfg=cfgGet();const mp=cfg.contaMapeo;
+    const metodos=Array.from(new Set([].concat(cfg.metodosPagoRecibo||[],Object.keys(mp.bancoPorMetodo))));
+    const tiposIngreso=[['personalizada','Venta personalizada'],['grupal','Venta grupal'],['crucero','Crucero'],['servicio_boleto','Servicio: boleto'],['servicio_hospedaje','Servicio: hospedaje'],['servicio_seguro','Servicio: seguro'],['servicio_transporte','Servicio: transporte'],['servicio_tour','Servicio: tour'],['servicio_otro','Servicio: otro']];
+    const activos=['activo'],pasivos=['pasivo'],ingresos=['ingreso'],gastos=['gasto'];
+    pane.innerHTML=`<p class="config-hint">Los libros se llevan en <strong>colones</strong>. Los asientos se generan solos desde los cobros y las colillas emitidas a partir de la <strong>fecha de inicio</strong>; lo anterior a esa fecha no entra en los libros.</p>
+    <div class="form-row" style="max-width:520px;"><div class="form-group"><label>Fecha de inicio de la contabilidad</label><input type="date" id="cfgContaInicio" value="${esc(cfg.contaFechaInicio||'')}" onchange="autoSaveConfigSilently()"></div><div class="form-group"><label>Carga patronal CCSS (%)</label><input type="number" step="0.01" id="cfgContaPatronal" value="${esc(String(mp.cargaPatronalPct))}" onblur="autoSaveConfigSilently()" title="Se usa si la colilla no trae el monto de carga patronal"></div></div>
+    <h3 style="font-size:0.95rem;margin:14px 0 6px;color:var(--primary-dark);">Cuentas que usan los asientos automáticos</h3>
+    <p class="config-hint">Cobros: a qué cuenta entra el dinero según el método de pago y la moneda de la venta.</p>
+    <div id="cfgContaBancos" style="display:grid;grid-template-columns:150px repeat(3,1fr);gap:6px 10px;align-items:center;max-width:820px;margin-bottom:12px;font-size:0.8rem;"><span></span><strong>Colones</strong><strong>Dólares</strong><strong>Euros</strong>${metodos.map(k=>{const fila=mp.bancoPorMetodo[k]||mp.bancoPorMetodo['Otro'];return `<span data-metodo="${esc(k)}" style="display:contents;"><span>${esc(k)}</span>${CONTA_MONEDAS.map(m=>_cfgCuentaSelect('',fila[m],activos).replace('<select class=""','<select data-moneda="'+m+'"')).join('')}</span>`;}).join('')}</div>
+    <div class="form-row" style="max-width:820px;"><div class="form-group"><label>Anticipos de clientes (cobros antes del viaje)</label><span id="wrapAnt"></span></div><div class="form-group"><label>Cuentas por cobrar clientes</label><span id="wrapCxc"></span></div></div>
+    <p class="config-hint">Ingresos: cuenta de ingreso según el tipo de venta (se usa al reconocer el ingreso cuando el viaje se realiza).</p>
+    <div id="cfgContaIngresos" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:6px 10px;max-width:820px;margin-bottom:12px;font-size:0.8rem;">${tiposIngreso.map(t=>`<label style="display:flex;align-items:center;gap:6px;margin:0;"><span style="min-width:150px;">${t[1]}</span>${_cfgCuentaSelect('',mp.ingresoPorTipo[t[0]],ingresos).replace('<select class=""','<select data-tipo="'+t[0]+'"')}</label>`).join('')}</div>
+    <p class="config-hint">Planilla: cuentas del asiento de cada colilla emitida.</p>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:6px 10px;max-width:820px;margin-bottom:12px;font-size:0.8rem;">
+        <label style="display:flex;align-items:center;gap:6px;margin:0;"><span style="min-width:150px;">Gasto de salarios</span><span id="wrapPlSal"></span></label>
+        <label style="display:flex;align-items:center;gap:6px;margin:0;"><span style="min-width:150px;">Cargas patronales</span><span id="wrapPlCar"></span></label>
+        <label style="display:flex;align-items:center;gap:6px;margin:0;"><span style="min-width:150px;">CCSS por pagar</span><span id="wrapPlCcss"></span></label>
+        <label style="display:flex;align-items:center;gap:6px;margin:0;"><span style="min-width:150px;">Renta por pagar</span><span id="wrapPlRenta"></span></label>
+        <label style="display:flex;align-items:center;gap:6px;margin:0;"><span style="min-width:150px;">Otras deducciones</span><span id="wrapPlOtras"></span></label>
+        <label style="display:flex;align-items:center;gap:6px;margin:0;"><span style="min-width:150px;">Salarios por pagar (neto)</span><span id="wrapPlNeto"></span></label>
+        <label style="display:flex;align-items:center;gap:6px;margin:0;"><span style="min-width:150px;">Ganancia cambiaria</span><span id="wrapDifG"></span></label>
+        <label style="display:flex;align-items:center;gap:6px;margin:0;"><span style="min-width:150px;">Pérdida cambiaria</span><span id="wrapDifP"></span></label>
+    </div>
+    <h3 style="font-size:0.95rem;margin:14px 0 6px;color:var(--primary-dark);">Plan de cuentas</h3>
+    <p class="config-hint">Código, nombre, tipo y moneda (Mixta = admite cualquier moneda). Cambiar el código de una cuenta con movimientos deja huérfanos esos asientos: mejor agregar una cuenta nueva.</p>
+    <div style="display:flex;gap:5px;font-size:0.66rem;color:var(--text-light);text-transform:uppercase;letter-spacing:.5px;padding:0 0 4px 24px;"><span style="width:80px;">Código</span><span style="flex:1;">Nombre</span><span style="width:130px;">Tipo</span><span style="width:90px;">Moneda</span><span style="width:24px;"></span></div>
+    <div id="cfgContaCuentasList">${cfg.contaCuentas.map(c=>renderCfgContaCuentaItem(c)).join('')}</div>
+    <button class="btn btn-sm btn-primary" onclick="document.getElementById('cfgContaCuentasList').insertAdjacentHTML('beforeend',renderCfgContaCuentaItem({codigo:'',nombre:'',tipo:'gasto',moneda:''}));initDrag(document.getElementById('cfgContaCuentasList'));" style="margin-top:8px;">+ Agregar cuenta</button>
+    <button class="btn btn-sm btn-ghost" onclick="if(confirm('¿Volver al plan de cuentas sugerido? Se pierden los cambios hechos a la lista.')){const c=getConfig();c.contaCuentas=defaultContaCuentas.slice();saveConfig(c);renderConfigContabilidad();}" style="margin-top:8px;">Restaurar plan sugerido</button>`;
+    // Selects con id (se arman aparte para poder darles id)
+    const put=(wrap,id,val,tipos)=>{const w=document.getElementById(wrap);if(w)w.innerHTML=_cfgCuentaSelect('',val,tipos).replace('<select class=""','<select id="'+id+'"');};
+    put('wrapAnt','cfgMapAnt',mp.anticiposClientes,pasivos);put('wrapCxc','cfgMapCxc',mp.cxcClientes,activos);
+    put('wrapPlSal','cfgMapPlSal',mp.planilla.salarios,gastos);put('wrapPlCar','cfgMapPlCar',mp.planilla.cargas,gastos);put('wrapPlCcss','cfgMapPlCcss',mp.planilla.ccssPorPagar,pasivos);put('wrapPlRenta','cfgMapPlRenta',mp.planilla.rentaPorPagar,pasivos);put('wrapPlOtras','cfgMapPlOtras',mp.planilla.otrasDedPorPagar,pasivos);put('wrapPlNeto','cfgMapPlNeto',mp.planilla.salariosPorPagar,pasivos);
+    put('wrapDifG','cfgMapDifG',mp.difCambGanancia,ingresos);put('wrapDifP','cfgMapDifP',mp.difCambPerdida,gastos);
+    initDrag(pane.querySelector('#cfgContaCuentasList'));
+}
+
 // ===== PANEL "HITOS" EN INICIO =====
 let _dashHitosScope=(function(){try{return localStorage.getItem('dv_dash_hitos_scope')||'';}catch(e){return '';}})();
 function _dashHitosSetScope(s){_dashHitosScope=s;try{localStorage.setItem('dv_dash_hitos_scope',s);}catch(e){}renderDashboard();}
@@ -7037,6 +7639,8 @@ function saveConfigFromUI(silent){
     c.navieras=collectConfigListFromDOM('cfgNavierasList',false);
     // Checklist con fecha (hitos) y aerolíneas. Si la pestaña no está dibujada, se conserva lo guardado.
     {const hs=_collectHitosFromDOM();if(hs){c.hitos=hs;c.checklist=hs.map(h=>h.texto);}const as=_collectAerolineasFromDOM();if(as)c.aerolineas=as;const se=document.getElementById('cfgSupervisorEmail');if(se)c.supervisorEmail=_normEmail(se.value)||SUPERVISOR_EMAIL_DEFAULT;}
+    // Contabilidad (solo si la pestaña está dibujada)
+    {const ct=_collectContaFromDOM();if(ct){c.contaCuentas=ct.cuentas;c.contaMapeo=ct.mapeo;if(/^\d{4}-\d{2}-\d{2}$/.test(ct.fechaInicio||''))c.contaFechaInicio=ct.fechaInicio;}}
     // Alertas (textarea)
     c.alertas=collectConfigListFromDOM('cfgAlertasList',true);
     // Fees
@@ -10202,23 +10806,26 @@ function savePago(){
     const nota=document.getElementById('pagoNota').value;
     const descripcion=document.getElementById('pagoDescripcion').value;
     if(!fecha||monto<=0){alert('Debe ingresar una fecha y un monto mayor a 0.');return;}
+    if(contaFechaBloqueada(fecha)){alert('El mes de esa fecha est\u00e1 cerrado en Contabilidad. Us\u00e1 una fecha de un mes abierto o ped\u00ed que lo reabran.');return;}
     const ventas=getVentas();
     const v=ventas.find(x=>x.id===ventaId);
     if(!v)return;
     if(!v.cobranza)v.cobranza={montoTotal:0,moneda:'USD',pagos:[]};
     if(!v.cobranza.pagos)v.cobranza.pagos=[];
+    let pagoReg=null;
     if(pagoEditandoId){
         // Modo edición: actualizar el pago existente
         const idx=v.cobranza.pagos.findIndex(p=>p.id===pagoEditandoId);
         if(idx>=0){
-            v.cobranza.pagos[idx]={...v.cobranza.pagos[idx],fecha,monto,metodo,referencia,nota,descripcion};
+            v.cobranza.pagos[idx]={...v.cobranza.pagos[idx],fecha,monto,metodo,referencia,nota,descripcion};pagoReg=v.cobranza.pagos[idx];
         }
     }else{
         // Modo creación: agregar nuevo pago
-        v.cobranza.pagos.push({id:'p_'+Date.now(),fecha,monto,metodo,referencia,nota,descripcion});
+        pagoReg={id:'p_'+Date.now(),fecha,monto,metodo,referencia,nota,descripcion};v.cobranza.pagos.push(pagoReg);
     }
     v._lastModifiedAt=Date.now();   // marca de edición: mi cambio es el más reciente (para el merge de pagos)
     saveVentas(ventas);
+    try{if(pagoReg)contaSyncPago(v,pagoReg);}catch(e){console.error('[conta cobro]',e);}
     pagoEditandoId=null;
     togglePagoForm();
     renderPagosTable();
@@ -10243,9 +10850,11 @@ function removePago(pagoId){
     // sin depender del reloj de las computadoras (que no están sincronizados entre usuarias).
     if(!Array.isArray(v.cobranza.pagosEliminados))v.cobranza.pagosEliminados=[];
     if(v.cobranza.pagosEliminados.indexOf(pagoId)<0)v.cobranza.pagosEliminados.push(pagoId);
+    {const pg=(v.cobranza.pagos||[]).find(p=>p.id===pagoId);if(pg&&contaFechaBloqueada(pg.fecha)){alert('Ese pago est\u00e1 en un mes cerrado en Contabilidad. Reabr\u00ed el mes antes de eliminarlo.');return;}}
     v.cobranza.pagos=(v.cobranza.pagos||[]).filter(p=>p.id!==pagoId);
     v._lastModifiedAt=Date.now();
     saveVentas(ventas);
+    try{contaReversarPago(v,pagoId);}catch(e){console.error('[conta cobro]',e);}
     renderPagosTable();
     recalcCobranza();
     renderVentas();
@@ -12473,6 +13082,7 @@ window.onUserReady=async function(user){
     // Activar control de inactividad (auto-logout)
     iniciarInactividad();
     try{iniciarRecordatorios();}catch(e){console.error('[recordatorios]',e);}
+    try{contaInit();}catch(e){console.error('[conta]',e);}
     // Aplicar guardrails de permisos según el usuario logueado
     aplicarPermisosUI();
     // Mostrar (una sola vez) el anuncio de novedades.
