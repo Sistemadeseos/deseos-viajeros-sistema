@@ -1264,13 +1264,16 @@ onAuthStateChanged(fbAuth, (user) => {
 <!-- VIEW: REPORTE DE PAGOS -->
 <div class="app-view view-list" id="viewContabilidad">
     <div class="list-search" style="flex-wrap:wrap;align-items:center;">
-        <div class="cal-seg" id="contaSeg"><button class="active" data-ct="diario" onclick="contaTab('diario')">Diario</button><button data-ct="mayor" onclick="contaTab('mayor')">Mayor</button><button data-ct="tc" onclick="contaTab('tc')">Tipo de cambio</button><button data-ct="cierres" onclick="contaTab('cierres')">Cierres</button></div>
+        <div class="cal-seg" id="contaSeg"><button class="active" data-ct="diario" onclick="contaTab('diario')">Diario</button><button data-ct="mayor" onclick="contaTab('mayor')">Mayor</button><button data-ct="cxp" onclick="contaTab('cxp')">Proveedores</button><button data-ct="gastos" onclick="contaTab('gastos')">Gastos</button><button data-ct="margen" onclick="contaTab('margen')">M&aacute;rgenes</button><button data-ct="tc" onclick="contaTab('tc')">Tipo de cambio</button><button data-ct="cierres" onclick="contaTab('cierres')">Cierres</button></div>
         <label style="font-size:0.78rem;color:var(--text-light);margin-left:8px;">Per&iacute;odo</label><input type="month" id="contaPeriodo" onchange="renderContabilidad()" style="width:170px;">
         <span style="flex:1;"></span><span id="contaTCHoy" style="font-size:0.78rem;color:var(--text-light);"></span>
     </div>
     <div class="list-view" id="contaBody"></div>
 </div>
 <div class="modal-overlay" id="modalAsiento"></div>
+<div class="modal-overlay" id="modalContaDoc" style="z-index:250;"></div>
+<div class="modal-overlay" id="modalContaPago" style="z-index:260;"></div>
+<div class="modal-overlay" id="modalContaProv"></div>
 <div class="app-view view-list" id="viewTareas"></div>
 <div class="app-view view-list" id="viewCalendario"></div>
 
@@ -1564,6 +1567,7 @@ onAuthStateChanged(fbAuth, (user) => {
         <button class="btn btn-sm btn-ghost" onclick="cancelarEdicionPago()">Cancelar</button>
     </div>
     <table class="pagos-table" id="pagosTable"><thead><tr><th>Fecha</th><th>Monto</th><th>M&eacute;todo</th><th>Referencia</th><th>Nota</th><th></th></tr></thead><tbody id="pagosTableBody"></tbody></table>
+<div id="cobCostosBox" style="margin-top:14px;"></div>
 </div><div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modalCobranza')">Cerrar</button><button class="btn btn-accent" onclick="generarEstadoCuenta()">&#128196; Generar Estado de Cuenta</button></div></div></div>
 
 <!-- MODAL: Checklist -->
@@ -2143,6 +2147,112 @@ function contaSaldos(desde,hasta){
 }
 // Al arrancar: asegurar el TC de hoy (en segundo plano)
 function contaInit(){try{contaActualizarTCHoy(false).then(()=>{try{const el=document.getElementById('contaTCHoy');if(el&&document.getElementById('viewContabilidad').classList.contains('active'))renderContabilidad();}catch(e){}});}catch(e){}}
+// ===== CONTABILIDAD (fase 2): proveedores, cuentas por pagar, gastos, pagos a proveedores, márgenes =====
+// Documentos (dv_conta_docs): {id,tipo:'factura'|'gasto',fecha,proveedorId,proveedorNombre,numero,descripcion,moneda,monto,tc,montoCRC,
+//   cuentaGasto,cuentaCxP,cuentaBanco,ventaId,ventaEtiqueta,vence,estado:'pendiente'|'pagada'|'anulada',pagos:[{id,fecha,monto,tc,montoCRC,cuentaBanco,referencia,asientoId}],asientoId,adjunto}
+const PROV_TIPOS=[['hotel','Hotel','2101','5101'],['aerolinea','Aerolínea','2102','5102'],['seguro','Seguro de viaje','2103','5103'],['traslado','Traslados y tours','2104','5104'],['crucero','Naviera','2105','5105'],['otro','Otro proveedor de viaje','2105','5190'],['servicio','Servicios y gastos generales','2105','6290']];
+function _normContaProveedores(arr){return (Array.isArray(arr)?arr:[]).filter(p=>p&&p.nombre).map(p=>{const t=PROV_TIPOS.find(x=>x[0]===p.tipo)||PROV_TIPOS[5];return {id:String(p.id||('pv_'+Date.now())),nombre:String(p.nombre).trim(),tipo:t[0],cuentaCxP:p.cuentaCxP||t[2],cuentaCosto:p.cuentaCosto||t[3],contacto:String(p.contacto||''),notas:String(p.notas||''),activo:p.activo!==false};});}
+function contaProveedores(){return _normContaProveedores(getConfig().contaProveedores);}
+function contaProveedor(id){return contaProveedores().find(p=>p.id===id)||null;}
+function contaGuardarProveedor(p){
+    const c=getConfig();const lista=_normContaProveedores(c.contaProveedores);
+    if(p.id){const i=lista.findIndex(x=>x.id===p.id);if(i>=0)lista[i]=Object.assign(lista[i],p);else lista.push(p);}
+    else{p.id='pv_'+Date.now()+'_'+Math.random().toString(36).slice(2,5);lista.push(p);}
+    c.contaProveedores=_normContaProveedores(lista);saveConfig(c);return p.id;
+}
+function getContaDocs(){return getLS('dv_conta_docs');}
+function saveContaDocs(arr){return setLS('dv_conta_docs',Array.isArray(arr)?arr:[]);}
+function contaDocPagado(d){return _contaRound((d&&Array.isArray(d.pagos)?d.pagos:[]).reduce((s,p)=>s+(num(p&&p.monto)||0),0));}
+function contaDocSaldo(d){return Math.max(0,_contaRound((num(d&&d.monto)||0)-contaDocPagado(d)));}
+function _contaDocEstado(d){if(d.estado==='anulada')return 'anulada';return contaDocSaldo(d)<=0.005?'pagada':'pendiente';}
+// Registra una factura de proveedor (queda por pagar) o un gasto pagado en el acto. Devuelve el documento o null.
+function contaRegistrarDoc(o){
+    o=o||{};
+    const tipo=o.tipo==='gasto'?'gasto':'factura';
+    const fecha=String(o.fecha||'').slice(0,10);
+    const monto=_contaRound(o.monto);const moneda=(o.moneda||'CRC').toUpperCase();
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(fecha)){alert('Indicá la fecha.');return null;}
+    if(!(monto>0)){alert('Indicá un monto mayor a 0.');return null;}
+    if(!o.cuentaGasto||!contaCuenta(o.cuentaGasto)){alert('Elegí la cuenta de costo o gasto.');return null;}
+    if(tipo==='factura'&&(!o.cuentaCxP||!contaCuenta(o.cuentaCxP))){alert('Elegí la cuenta por pagar.');return null;}
+    if(tipo==='gasto'&&(!o.cuentaBanco||!contaCuenta(o.cuentaBanco))){alert('Elegí de qué cuenta bancaria o caja salió el dinero.');return null;}
+    if(contaFechaBloqueada(fecha)){alert('El mes de esa fecha está cerrado en Contabilidad.');return null;}
+    const conv=o.tc>0?{crc:_contaRound(monto*o.tc),tc:num(o.tc)}:contaACRC(monto,moneda,fecha);
+    if(!(conv.crc>0)){alert('No hay tipo de cambio para esa fecha. Cargalo en Contabilidad → Tipo de cambio.');return null;}
+    const prov=o.proveedorId?contaProveedor(o.proveedorId):null;
+    const d={id:'cd_'+Date.now()+'_'+Math.random().toString(36).slice(2,6),tipo,fecha,proveedorId:prov?prov.id:'',proveedorNombre:prov?prov.nombre:String(o.proveedorNombre||''),numero:String(o.numero||'').trim(),descripcion:String(o.descripcion||'').trim(),moneda,monto,tc:conv.tc,montoCRC:conv.crc,cuentaGasto:o.cuentaGasto,cuentaCxP:tipo==='factura'?o.cuentaCxP:'',cuentaBanco:tipo==='gasto'?o.cuentaBanco:'',ventaId:String(o.ventaId||''),ventaEtiqueta:String(o.ventaEtiqueta||''),vence:tipo==='factura'?String(o.vence||'').slice(0,10):'',estado:tipo==='gasto'?'pagada':'pendiente',pagos:[],asientoId:'',adjunto:o.adjunto||'',creadoPor:(window.currentUser&&window.currentUser.email)||'',creadoTs:Date.now()};
+    const quien=(d.proveedorNombre?d.proveedorNombre+' · ':'')+(d.descripcion||(tipo==='factura'?'Factura':'Gasto'))+(d.numero?' · fact. '+d.numero:'')+(d.ventaEtiqueta?' · '+d.ventaEtiqueta:'');
+    const contra=tipo==='factura'?d.cuentaCxP:d.cuentaBanco;
+    const a=contaRegistrarAsiento({fecha,origen:tipo==='factura'?'proveedor':'gasto',refId:d.id,silencioso:false,descripcion:(tipo==='factura'?'Factura de proveedor · ':'Gasto · ')+quien,
+        lineas:[{cuenta:d.cuentaGasto,debe:conv.crc,haber:0,moneda,montoOrig:monto,tc:conv.tc,detalle:tipo==='factura'?'Costo o gasto':'Gasto'},{cuenta:contra,debe:0,haber:conv.crc,moneda,montoOrig:monto,tc:conv.tc,detalle:tipo==='factura'?'Por pagar a '+(d.proveedorNombre||'proveedor'):'Salida de '+contaCuentaNombre(contra)}]});
+    if(!a)return null;
+    d.asientoId=a.id;
+    const arr=getContaDocs().map(x=>Object.assign({},x));arr.push(d);saveContaDocs(arr);
+    _contaBitacora((tipo==='factura'?'Registró factura de proveedor: ':'Registró gasto: ')+quien+' · '+moneda+' '+monto);
+    return d;
+}
+// Pago (total o parcial) de una factura de proveedor. El diferencial cambiario se calcula contra el TC de la factura.
+function contaPagarDoc(docId,o){
+    const arr=getContaDocs().map(x=>Object.assign({},x));const d=arr.find(x=>x.id===docId);
+    if(!d||d.tipo!=='factura'||d.estado==='anulada'){alert('Factura no válida.');return null;}
+    const fecha=String(o.fecha||'').slice(0,10);const monto=_contaRound(o.monto);
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(fecha)){alert('Indicá la fecha del pago.');return null;}
+    if(!(monto>0)||monto>contaDocSaldo(d)+0.005){alert('El monto debe ser mayor a 0 y no superar el saldo ('+contaDocSaldo(d)+').');return null;}
+    if(!o.cuentaBanco||!contaCuenta(o.cuentaBanco)){alert('Elegí la cuenta bancaria o caja.');return null;}
+    if(contaFechaBloqueada(fecha)){alert('El mes de esa fecha está cerrado en Contabilidad.');return null;}
+    const conv=o.tc>0?{crc:_contaRound(monto*o.tc),tc:num(o.tc)}:contaACRC(monto,d.moneda,fecha);
+    if(!(conv.crc>0)){alert('No hay tipo de cambio para esa fecha.');return null;}
+    const cxpCRC=_contaRound(monto*(num(d.tc)||1));
+    const dif=_contaRound(conv.crc-cxpCRC); // >0 pagué más colones que lo registrado → pérdida; <0 → ganancia
+    const mp=contaCfg().mapeo;
+    const lineas=[{cuenta:d.cuentaCxP,debe:cxpCRC,haber:0,moneda:d.moneda,montoOrig:monto,tc:d.tc,detalle:'Cancela por pagar a '+(d.proveedorNombre||'proveedor')},{cuenta:o.cuentaBanco,debe:0,haber:conv.crc,moneda:d.moneda,montoOrig:monto,tc:conv.tc,detalle:'Salida de '+contaCuentaNombre(o.cuentaBanco)+(o.referencia?' · ref. '+o.referencia:'')}];
+    if(Math.abs(dif)>=0.01){if(dif>0)lineas.push({cuenta:mp.difCambPerdida,debe:dif,haber:0,moneda:'CRC',montoOrig:dif,tc:1,detalle:'Diferencial cambiario'});else lineas.push({cuenta:mp.difCambGanancia,debe:0,haber:-dif,moneda:'CRC',montoOrig:-dif,tc:1,detalle:'Diferencial cambiario'});}
+    const pid='pp_'+Date.now()+'_'+Math.random().toString(36).slice(2,6);
+    const a=contaRegistrarAsiento({fecha,origen:'pago_proveedor',refId:d.id,subRef:pid,silencioso:false,descripcion:'Pago a proveedor · '+(d.proveedorNombre||'')+(d.numero?' · fact. '+d.numero:'')+(d.ventaEtiqueta?' · '+d.ventaEtiqueta:''),lineas});
+    if(!a)return null;
+    if(!Array.isArray(d.pagos))d.pagos=[];
+    d.pagos.push({id:pid,fecha,monto,tc:conv.tc,montoCRC:conv.crc,cuentaBanco:o.cuentaBanco,referencia:String(o.referencia||''),asientoId:a.id,por:(window.currentUser&&window.currentUser.email)||''});
+    d.estado=_contaDocEstado(d);saveContaDocs(arr);
+    _contaBitacora('Pagó '+d.moneda+' '+monto+' a '+(d.proveedorNombre||'proveedor')+(d.numero?' (fact. '+d.numero+')':''));
+    return d;
+}
+function contaAnularPagoDoc(docId,pagoId,motivo){
+    const arr=getContaDocs().map(x=>Object.assign({},x));const d=arr.find(x=>x.id===docId);if(!d)return false;
+    const p=(d.pagos||[]).find(x=>x.id===pagoId);if(!p)return false;
+    if(p.asientoId&&!contaReversarAsiento(p.asientoId,motivo||'pago a proveedor anulado',false))return false;
+    d.pagos=d.pagos.filter(x=>x.id!==pagoId);d.estado=_contaDocEstado(d);saveContaDocs(arr);return true;
+}
+function contaAnularDoc(docId,motivo){
+    const arr=getContaDocs().map(x=>Object.assign({},x));const d=arr.find(x=>x.id===docId);if(!d)return false;
+    if(d.estado==='anulada')return false;
+    if((d.pagos||[]).length){alert('Esta factura tiene pagos registrados. Anulá primero los pagos.');return false;}
+    if(d.asientoId&&!contaReversarAsiento(d.asientoId,motivo||'documento anulado',false))return false;
+    d.estado='anulada';d.anuladoPor=(window.currentUser&&window.currentUser.email)||'';d.anuladoTs=Date.now();d.anuladoMotivo=String(motivo||'');saveContaDocs(arr);
+    _contaBitacora('Anuló '+(d.tipo==='factura'?'factura de proveedor':'gasto')+' · '+(d.proveedorNombre||'')+' '+(d.numero||'')+(motivo?' · '+motivo:''));
+    return true;
+}
+// --- Antigüedad ---
+function _contaBucket(dias){if(dias<=0)return 'vigente';if(dias<=30)return 'd30';if(dias<=60)return 'd60';return 'd90';}
+function contaCxPAntiguedad(){
+    const hoy=_hitoHoyISO();const out={vigente:0,d30:0,d60:0,d90:0,total:0,n:0};
+    getContaDocs().forEach(d=>{if(!d||d.tipo!=='factura'||d.estado==='anulada')return;const s=contaDocSaldo(d);if(s<=0.005)return;const ref=d.vence||d.fecha;const dias=_diasEntreISO(ref,hoy);const crc=_contaRound(s*(num(d.tc)||1));out[_contaBucket(dias)]+=crc;out.total+=crc;out.n++;});
+    return out;
+}
+function contaCxCAntiguedad(){
+    const hoy=_hitoHoyISO();const out={vigente:0,d30:0,d60:0,d90:0,total:0,n:0};
+    getVentas().forEach(v=>{if(!v||v.estado==='cancelada'||v.estado==='completada')return;const total=contaTotalVenta(v);const pag=_contaRound(((v.cobranza&&v.cobranza.pagos)||[]).reduce((s,p)=>s+(num(p&&p.monto)||0),0));const saldo=_contaRound(total-pag);if(saldo<=0.005)return;const ref=String(v.fechaInicio||'').slice(0,10);const dias=ref?_diasEntreISO(ref,hoy):0;const crc=contaACRC(saldo,(v.cobranza&&v.cobranza.moneda)||'USD',hoy).crc;out[_contaBucket(dias)]+=crc;out.total+=crc;out.n++;});
+    return out;
+}
+// --- Margen por venta ---
+function contaMargenVenta(v){
+    const moneda=(v.cobranza&&v.cobranza.moneda)||'USD';const total=contaTotalVenta(v);
+    const fi=String(v.fechaInicio||'').slice(0,10)||_hitoHoyISO();
+    const ingresoCRC=contaACRC(total,moneda,fi).crc;
+    const docs=getContaDocs().filter(d=>d&&d.estado!=='anulada'&&d.ventaId===v.id);
+    const costosCRC=_contaRound(docs.reduce((s,d)=>s+(num(d.montoCRC)||0),0));
+    const margen=_contaRound(ingresoCRC-costosCRC);
+    return {moneda,total,ingresoCRC,costosCRC,margen,pct:ingresoCRC>0?Math.round(margen/ingresoCRC*1000)/10:null,docs};
+}
 
 // ===== ESTADOS Y ORIGENES DEL PIPELINE DE CONTACTOS =====
 const CONTACTO_ESTADOS=[
@@ -2206,7 +2316,7 @@ let _idb=null,_idbReady=false;
 const _IDB_DB='dv_store',_IDB_STORE='kv';
 // Claves de DATOS (colecciones) que migramos a IndexedDB. El resto de claves dv_ (preferencias de UI,
 // respaldos, estado de vistas) se quedan en localStorage tal como estaban.
-const _CLAVES_DATOS=['dv_cotizaciones','dv_ventas','dv_clientes','dv_encabezados','dv_config','dv_grupos','dv_hoteles','dv_rrhh_colillas','dv_rrhh_vacaciones','dv_rrhh_horasextra','dv_eventos','dv_conta_asientos','dv_conta_tc'];
+const _CLAVES_DATOS=['dv_cotizaciones','dv_ventas','dv_clientes','dv_encabezados','dv_config','dv_grupos','dv_hoteles','dv_rrhh_colillas','dv_rrhh_vacaciones','dv_rrhh_horasextra','dv_eventos','dv_conta_asientos','dv_conta_tc','dv_conta_docs'];
 function _esClaveDatos(k){return _CLAVES_DATOS.indexOf(k)>=0;}
 function _idbOpen(){return new Promise(resolve=>{try{if(!window.indexedDB)return resolve(null);const req=indexedDB.open(_IDB_DB,1);req.onupgradeneeded=()=>{const db=req.result;if(!db.objectStoreNames.contains(_IDB_STORE))db.createObjectStore(_IDB_STORE);};req.onsuccess=()=>resolve(req.result);req.onerror=()=>resolve(null);}catch(e){resolve(null);}});}
 function _idbSet(k,str){if(!_idb)return;try{_idb.transaction(_IDB_STORE,'readwrite').objectStore(_IDB_STORE).put(str,k);}catch(e){console.warn('[idb] set',k,e);}}
@@ -2268,7 +2378,7 @@ function setLSObj(k,v){
 //   destinos/{pais}/{ciudad}_{timestamp}
 
 // Tracking de IDs que ya subimos a Firestore (para poder detectar eliminaciones)
-const _fsDocIds={cotizaciones:new Set(),ventas:new Set(),clientes:new Set(),destinos:new Set(),hoteles:new Set(),grupos:new Set(),rrhh_colillas:new Set(),rrhh_vacaciones:new Set(),rrhh_horasextra:new Set(),notificaciones:new Set(),tareas:new Set(),eventos:new Set(),conta_asientos:new Set(),conta_tc:new Set()};
+const _fsDocIds={cotizaciones:new Set(),ventas:new Set(),clientes:new Set(),destinos:new Set(),hoteles:new Set(),grupos:new Set(),rrhh_colillas:new Set(),rrhh_vacaciones:new Set(),rrhh_horasextra:new Set(),notificaciones:new Set(),tareas:new Set(),eventos:new Set(),conta_asientos:new Set(),conta_tc:new Set(),conta_docs:new Set()};
 
 // ===== METADATA (timestamp + autor en cada save) =====
 // Agrega _lastModifiedAt y _lastModifiedBy a un objeto antes de guardarlo.
@@ -2306,6 +2416,7 @@ function guardarSnapshotRespaldo(motivo){
             eventos:getLS('dv_eventos'),
             conta_asientos:getLS('dv_conta_asientos'),
             conta_tc:getLS('dv_conta_tc'),
+            conta_docs:getLS('dv_conta_docs'),
             config:getLSObj('dv_config')
         };
         localStorage.setItem(key,JSON.stringify(snap));
@@ -2400,6 +2511,8 @@ async function pushToFirestore(key,value){
             await syncArrayCollection('conta_asientos',value,false);
         }else if(key==='dv_conta_tc'){
             await syncArrayCollection('conta_tc',value,false);
+        }else if(key==='dv_conta_docs'){
+            await syncArrayCollection('conta_docs',value,true);
         }
     }catch(e){
         console.error('[FS] error en pushToFirestore para',key,':',e);
@@ -2709,7 +2822,7 @@ async function loadAllFromFirestore(){
         guardarLocal('dv_eventos',eventos);
         if(mergedEv.recovered>0)setTimeout(()=>{if(_fsEnabled)pushToFirestore('dv_eventos',eventos).catch(e=>console.error(e));},14500);
         // contabilidad: asientos (inmutables) y tipos de cambio
-        for(const par of [['conta_asientos','dv_conta_asientos',15500],['conta_tc','dv_conta_tc',16000]]){
+        for(const par of [['conta_asientos','dv_conta_asientos',15500],['conta_tc','dv_conta_tc',16000],['conta_docs','dv_conta_docs',16500]]){
             const localC=getLS(par[1]);
             const cSnap=await h.getDocs(h.collection(db,par[0]));
             let itemsC=[];cSnap.forEach(dd=>{itemsC.push(dd.data());_fsDocIds[par[0]].add(dd.id);});
@@ -3203,7 +3316,7 @@ function nav(view){
     else if(view==='tareas')ha.innerHTML='<button class="btn btn-accent" onclick="openTareaModal()">+ Nueva Tarea</button>';
     else if(view==='calendario')ha.innerHTML='<button class="btn btn-accent" onclick="openEventoModal()">+ Nuevo evento</button>';
     else if(view==='dashboard')ha.innerHTML='<button class="btn btn-outline" onclick="renderDashboard()">&#8635; Actualizar</button>';
-    else if(view==='contabilidad')ha.innerHTML=tienePermiso('contabilidad.registrar')?'<button class="btn btn-accent" onclick="openAsientoModal()">+ Asiento manual</button>':'';
+    else if(view==='contabilidad')ha.innerHTML=tienePermiso('contabilidad.registrar')?'<button class="btn btn-outline" onclick="openContaDocModal({tipo:\'factura\'})">+ Factura de proveedor</button><button class="btn btn-outline" onclick="openContaDocModal({tipo:\'gasto\'})">+ Gasto</button><button class="btn btn-accent" onclick="openAsientoModal()">+ Asiento manual</button>':'';
     else ha.innerHTML='';
     const viewIds={inicio:'viewInicio',dashboard:'viewDashboard',editor:'viewEditor',historial:'viewHistorial',encabezados:'viewEncabezados',ventas:'viewVentas',clientes:'viewClientes',clientesventas:'viewClientesVentas',tareas:'viewTareas',calendario:'viewCalendario',reportePagos:'viewReportePagos',contabilidad:'viewContabilidad',configuracion:'viewConfiguracion',rrhh:'viewRrhh',documento:'viewDocumento'};
     document.getElementById(viewIds[view]).classList.add('active');
@@ -5925,6 +6038,9 @@ function renderContabilidad(){
     const banner=cerrado?`<div style="background:#fcebeb;color:#a32d2d;border-radius:8px;padding:8px 12px;font-size:0.8rem;margin-bottom:10px;">&#128274; Mes cerrado. No se pueden registrar ni reversar asientos en ${p}. Para hacerlo, reabrilo en la pestaña Cierres.</div>`:'';
     if(_contaTab==='diario')body.innerHTML=banner+_contaDiarioHtml(p);
     else if(_contaTab==='mayor')body.innerHTML=banner+_contaMayorHtml(p);
+    else if(_contaTab==='cxp')body.innerHTML=banner+_contaCxPHtml(p);
+    else if(_contaTab==='gastos')body.innerHTML=banner+_contaGastosHtml(p);
+    else if(_contaTab==='margen')body.innerHTML=_contaMargenHtml(p);
     else if(_contaTab==='tc')body.innerHTML=_contaTCHtml();
     else body.innerHTML=_contaCierresHtml();
 }
@@ -6137,6 +6253,208 @@ function renderConfigContabilidad(){
     put('wrapPlSal','cfgMapPlSal',mp.planilla.salarios,gastos);put('wrapPlCar','cfgMapPlCar',mp.planilla.cargas,gastos);put('wrapPlCcss','cfgMapPlCcss',mp.planilla.ccssPorPagar,pasivos);put('wrapPlRenta','cfgMapPlRenta',mp.planilla.rentaPorPagar,pasivos);put('wrapPlOtras','cfgMapPlOtras',mp.planilla.otrasDedPorPagar,pasivos);put('wrapPlNeto','cfgMapPlNeto',mp.planilla.salariosPorPagar,pasivos);
     put('wrapDifG','cfgMapDifG',mp.difCambGanancia,ingresos);put('wrapDifP','cfgMapDifP',mp.difCambPerdida,gastos);
     initDrag(pane.querySelector('#cfgContaCuentasList'));
+}
+
+// ===== CONTABILIDAD fase 2: pantallas (Proveedores/CxP, Gastos, Márgenes) =====
+function _contaSym(m){return m==='USD'?'$':(m==='EUR'?'€':'₡');}
+function _contaFmtOrig(n,m){return _contaSym(m)+num(n).toLocaleString('es-CR',{minimumFractionDigits:2,maximumFractionDigits:2});}
+function _contaSelectCuentas(id,valor,tipos,extraAttr){const cuentas=contaCfg().cuentas.filter(c=>!tipos||tipos.includes(c.tipo));return `<select id="${id}" ${extraAttr||''}>${cuentas.map(c=>`<option value="${esc(c.codigo)}"${c.codigo===valor?' selected':''}>${esc(c.codigo+' · '+c.nombre)}</option>`).join('')}</select>`;}
+function _contaVentaOpciones(sel){const vs=getVentas().filter(v=>v&&v.estado!=='cancelada').slice().sort((a,b)=>String(b.fechaInicio||'').localeCompare(String(a.fechaInicio||'')));return '<option value="">-- Sin venta (gasto general) --</option>'+vs.map(v=>`<option value="${esc(v.id)}"${v.id===sel?' selected':''}>${esc(_contaVentaEtiqueta(v))}${v.fechaInicio?' · '+fmtFechaCorta(v.fechaInicio):''}</option>`).join('');}
+function _contaAgingCards(titulo,a,color){const f=k=>fmtCRC2(a[k]);return `<div style="flex:1;min-width:280px;background:#fff;border:1px solid var(--border);border-radius:10px;padding:10px 14px;"><div style="font-size:0.74rem;font-weight:700;color:var(--text-light);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">${titulo} · ${a.n} pendiente${a.n===1?'':'s'}</div><div style="font-family:'Playfair Display',serif;font-size:1.25rem;color:${color};font-weight:700;">${fmtCRC2(a.total)}</div><div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;font-size:0.72rem;margin-top:6px;"><div><div style="color:var(--text-light);">Vigente</div>${f('vigente')}</div><div><div style="color:var(--text-light);">1-30 d</div>${f('d30')}</div><div><div style="color:#854f0b;">31-60 d</div>${f('d60')}</div><div><div style="color:#a32d2d;">+60 d</div>${f('d90')}</div></div></div>`;}
+let _cxpFiltro='pendiente',_cxpProv='';
+function _contaCxPHtml(p){
+    const puedeReg=tienePermiso('contabilidad.registrar');
+    const hoy=_hitoHoyISO();
+    const cards=`<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;">${_contaAgingCards('Por pagar a proveedores',contaCxPAntiguedad(),'#a32d2d')}${_contaAgingCards('Por cobrar a clientes',contaCxCAntiguedad(),'#0f6e56')}</div>`;
+    const provs=contaProveedores();
+    const tools=`<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">
+        ${puedeReg?`<button class="btn btn-sm btn-primary" onclick="openContaDocModal({tipo:'factura'})">+ Factura de proveedor</button><button class="btn btn-sm btn-ghost" onclick="openContaProvModal()">Proveedores (${provs.length})</button>`:''}
+        <select onchange="_cxpFiltro=this.value;renderContabilidad()" style="padding:4px 8px;"><option value="pendiente"${_cxpFiltro==='pendiente'?' selected':''}>Pendientes de pago</option><option value="periodo"${_cxpFiltro==='periodo'?' selected':''}>Del período ${p}</option><option value="todas"${_cxpFiltro==='todas'?' selected':''}>Todas</option></select>
+        <select onchange="_cxpProv=this.value;renderContabilidad()" style="padding:4px 8px;"><option value="">Todos los proveedores</option>${provs.map(x=>`<option value="${esc(x.id)}"${_cxpProv===x.id?' selected':''}>${esc(x.nombre)}</option>`).join('')}</select>
+        <span style="flex:1;"></span><button class="btn btn-sm btn-ghost" onclick="contaExportarDocs('factura')">&#128196; Exportar a Excel</button></div>`;
+    const r=_contaRangoPeriodo(p);
+    let docs=getContaDocs().filter(d=>d&&d.tipo==='factura');
+    if(_cxpFiltro==='pendiente')docs=docs.filter(d=>d.estado!=='anulada'&&contaDocSaldo(d)>0.005);
+    else if(_cxpFiltro==='periodo')docs=docs.filter(d=>d.fecha>=r.desde&&d.fecha<=r.hasta);
+    if(_cxpProv)docs=docs.filter(d=>d.proveedorId===_cxpProv);
+    docs.sort((a,b)=>String(a.vence||a.fecha).localeCompare(String(b.vence||b.fecha)));
+    if(!docs.length)return cards+tools+`<div class="grid-empty"><h3>Sin facturas${_cxpFiltro==='pendiente'?' pendientes':''}</h3><p>Registrá lo que la agencia le debe a hoteles, aerolíneas y otros proveedores. Si la factura es de un viaje, elegí la venta para ver el margen real.</p></div>`;
+    const rows=docs.map(d=>{const saldo=contaDocSaldo(d);const est=d.estado==='anulada'?'<span class="lt-badge" style="background:#f1f3f5;color:#4d5c63;">anulada</span>':(saldo<=0.005?'<span class="lt-badge" style="background:#e1f5ee;color:#0f6e56;">pagada</span>':((d.vence&&d.vence<hoy)?'<span class="lt-badge" style="background:#fcebeb;color:#a32d2d;">vencida</span>':'<span class="lt-badge" style="background:#faeeda;color:#854f0b;">pendiente</span>'));
+        const acc=[];if(puedeReg&&d.estado!=='anulada'&&saldo>0.005)acc.push(`<button class="btn btn-sm btn-success" style="padding:2px 8px;font-size:0.7rem;" onclick="openContaPagoModal('${d.id}')">Pagar</button>`);acc.push(`<button class="btn btn-sm btn-ghost" style="padding:2px 8px;font-size:0.7rem;" onclick="verContaDoc('${d.id}')">Ver</button>`);if(puedeReg&&d.estado!=='anulada'&&!(d.pagos||[]).length)acc.push(`<button class="btn btn-sm btn-danger" style="padding:2px 8px;font-size:0.7rem;" onclick="contaAnularDocUI('${d.id}')">Anular</button>`);
+        return `<tr><td>${fmtFechaCorta(d.fecha)}</td><td><div style="font-weight:600;">${esc(d.proveedorNombre||'-')}</div><div class="lt-secondary">${esc(d.descripcion||'')}${d.numero?' · fact. '+esc(d.numero):''}</div></td><td>${d.ventaId?`<span class="cliente-link" onclick="openCobranza('${d.ventaId}')">${esc(d.ventaEtiqueta||'venta')}</span>`:'<span style="color:var(--text-light);">-</span>'}</td><td style="text-align:right;">${_contaFmtOrig(d.monto,d.moneda)}<div class="lt-secondary">${fmtCRC2(d.montoCRC)}</div></td><td style="text-align:right;">${_contaFmtOrig(contaDocPagado(d),d.moneda)}</td><td style="text-align:right;font-weight:600;">${_contaFmtOrig(saldo,d.moneda)}</td><td>${d.vence?fmtFechaCorta(d.vence):'-'}</td><td>${est}</td><td><div class="lt-actions">${acc.join('')}</div></td></tr>`;}).join('');
+    return cards+tools+`<table class="list-table"><thead><tr><th>Fecha</th><th>Proveedor</th><th>Venta</th><th style="text-align:right;">Monto</th><th style="text-align:right;">Pagado</th><th style="text-align:right;">Saldo</th><th>Vence</th><th>Estado</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+function _contaGastosHtml(p){
+    const puedeReg=tienePermiso('contabilidad.registrar');const r=_contaRangoPeriodo(p);
+    const docs=getContaDocs().filter(d=>d&&d.tipo==='gasto'&&d.fecha>=r.desde&&d.fecha<=r.hasta).sort((a,b)=>b.fecha.localeCompare(a.fecha));
+    const porCuenta={};docs.filter(d=>d.estado!=='anulada').forEach(d=>{porCuenta[d.cuentaGasto]=_contaRound((porCuenta[d.cuentaGasto]||0)+d.montoCRC);});
+    const total=Object.values(porCuenta).reduce((s,x)=>s+x,0);
+    const resumen=Object.keys(porCuenta).sort((a,b)=>porCuenta[b]-porCuenta[a]).map(k=>`<div style="display:flex;justify-content:space-between;gap:10px;font-size:0.8rem;padding:2px 0;border-bottom:1px solid var(--border);"><span>${esc(contaCuentaNombre(k))}</span><span>${fmtCRC2(porCuenta[k])}</span></div>`).join('');
+    const tools=`<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">${puedeReg?`<button class="btn btn-sm btn-primary" onclick="openContaDocModal({tipo:'gasto'})">+ Gasto</button>`:''}<span style="flex:1;"></span><button class="btn btn-sm btn-ghost" onclick="contaExportarDocs('gasto')">&#128196; Exportar a Excel</button></div>`;
+    const card=`<div style="background:#fff;border:1px solid var(--border);border-radius:10px;padding:10px 14px;margin-bottom:12px;max-width:520px;"><div style="font-size:0.74rem;font-weight:700;color:var(--text-light);text-transform:uppercase;letter-spacing:.5px;">Gastos de ${p}</div><div style="font-family:'Playfair Display',serif;font-size:1.25rem;color:var(--primary-dark);font-weight:700;margin:2px 0 6px;">${fmtCRC2(total)}</div>${resumen||'<div style="font-size:0.78rem;color:var(--text-light);">Sin gastos en el período.</div>'}</div>`;
+    if(!docs.length)return tools+card;
+    const rows=docs.map(d=>`<tr><td>${fmtFechaCorta(d.fecha)}</td><td><div style="font-weight:600;">${esc(d.descripcion||'-')}</div><div class="lt-secondary">${esc(d.proveedorNombre||'')}${d.numero?' · fact. '+esc(d.numero):''}</div></td><td>${esc(contaCuentaNombre(d.cuentaGasto))}</td><td>${esc(contaCuentaNombre(d.cuentaBanco))}</td><td>${d.ventaId?`<span class="cliente-link" onclick="openCobranza('${d.ventaId}')">${esc(d.ventaEtiqueta||'venta')}</span>`:'-'}</td><td style="text-align:right;">${_contaFmtOrig(d.monto,d.moneda)}<div class="lt-secondary">${fmtCRC2(d.montoCRC)}</div></td><td>${d.estado==='anulada'?'<span class="lt-badge" style="background:#f1f3f5;color:#4d5c63;">anulada</span>':(d.adjunto?'&#128206;':'')}</td><td><div class="lt-actions"><button class="btn btn-sm btn-ghost" style="padding:2px 8px;font-size:0.7rem;" onclick="verContaDoc('${d.id}')">Ver</button>${(puedeReg&&d.estado!=='anulada')?`<button class="btn btn-sm btn-danger" style="padding:2px 8px;font-size:0.7rem;" onclick="contaAnularDocUI('${d.id}')">Anular</button>`:''}</div></td></tr>`).join('');
+    return tools+card+`<table class="list-table"><thead><tr><th>Fecha</th><th>Descripción</th><th>Cuenta</th><th>Pagado desde</th><th>Venta</th><th style="text-align:right;">Monto</th><th></th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+let _margenScope='periodo';
+function _contaMargenHtml(p){
+    const r=_contaRangoPeriodo(p);
+    let vs=getVentas().filter(v=>v&&v.estado!=='cancelada');
+    if(_margenScope==='periodo')vs=vs.filter(v=>String(v.fechaInicio||'').slice(0,10)>=r.desde&&String(v.fechaInicio||'').slice(0,10)<=r.hasta);
+    else vs=vs.filter(v=>v.estado==='pendiente'||v.estado==='en_proceso');
+    vs.sort((a,b)=>String(a.fechaInicio||'').localeCompare(String(b.fechaInicio||'')));
+    const tools=`<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;"><select onchange="_margenScope=this.value;renderContabilidad()" style="padding:4px 8px;"><option value="periodo"${_margenScope==='periodo'?' selected':''}>Viajes que salen en ${p}</option><option value="activas"${_margenScope==='activas'?' selected':''}>Todas las ventas activas</option></select><span style="flex:1;"></span><button class="btn btn-sm btn-ghost" onclick="contaExportarMargen()">&#128196; Exportar a Excel</button></div>`;
+    if(!vs.length)return tools+`<div class="grid-empty"><h3>Sin ventas</h3><p>No hay ventas ${_margenScope==='periodo'?'con salida en '+p:'activas'}.</p></div>`;
+    let tI=0,tC=0;const porEnc={};
+    const rows=vs.map(v=>{const m=contaMargenVenta(v);tI+=m.ingresoCRC;tC+=m.costosCRC;const e=v.encargado||'(sin encargada)';porEnc[e]=porEnc[e]||{i:0,c:0,n:0};porEnc[e].i+=m.ingresoCRC;porEnc[e].c+=m.costosCRC;porEnc[e].n++;
+        const col=m.pct==null?'var(--text-light)':(m.pct<0?'#a32d2d':(m.pct<10?'#854f0b':'#0f6e56'));
+        return `<tr><td><span class="cliente-link" onclick="openCobranza('${v.id}')">${esc(_contaVentaEtiqueta(v))}</span></td><td>${esc(v.encargado||'-')}</td><td>${v.fechaInicio?fmtFechaCorta(v.fechaInicio):'-'}</td><td style="text-align:right;">${_contaFmtOrig(m.total,m.moneda)}<div class="lt-secondary">${fmtCRC2(m.ingresoCRC)}</div></td><td style="text-align:right;">${fmtCRC2(m.costosCRC)}<div class="lt-secondary">${m.docs.length} doc${m.docs.length===1?'':'s'}</div></td><td style="text-align:right;font-weight:600;color:${col};">${fmtCRC2(m.margen)}</td><td style="text-align:right;color:${col};font-weight:700;">${m.pct==null?'-':m.pct+' %'}</td><td>${tienePermiso('contabilidad.registrar')?`<button class="btn btn-sm btn-ghost" style="padding:2px 8px;font-size:0.7rem;" onclick="openContaDocModal({tipo:'factura',ventaId:'${v.id}'})">+ Costo</button>`:''}</td></tr>`;}).join('');
+    const enc=Object.keys(porEnc).sort().map(k=>{const o=porEnc[k];const mg=o.i-o.c;return `<tr><td>${esc(k)}</td><td style="text-align:right;">${o.n}</td><td style="text-align:right;">${fmtCRC2(o.i)}</td><td style="text-align:right;">${fmtCRC2(o.c)}</td><td style="text-align:right;font-weight:600;">${fmtCRC2(mg)}</td><td style="text-align:right;">${o.i>0?Math.round(mg/o.i*1000)/10+' %':'-'}</td></tr>`;}).join('');
+    const tm=tI-tC;
+    return tools+`<table class="list-table"><thead><tr><th>Venta</th><th>Encargada</th><th>Salida</th><th style="text-align:right;">Ingreso</th><th style="text-align:right;">Costos</th><th style="text-align:right;">Margen</th><th style="text-align:right;">%</th><th></th></tr></thead><tbody>${rows}<tr style="background:var(--bg);font-weight:700;"><td colspan="3">Total</td><td style="text-align:right;">${fmtCRC2(tI)}</td><td style="text-align:right;">${fmtCRC2(tC)}</td><td style="text-align:right;">${fmtCRC2(tm)}</td><td style="text-align:right;">${tI>0?Math.round(tm/tI*1000)/10+' %':'-'}</td><td></td></tr></tbody></table>
+    <h3 style="font-size:0.95rem;margin:18px 0 6px;color:var(--primary-dark);">Por encargada</h3><table class="list-table"><thead><tr><th>Encargada</th><th style="text-align:right;">Ventas</th><th style="text-align:right;">Ingreso</th><th style="text-align:right;">Costos</th><th style="text-align:right;">Margen</th><th style="text-align:right;">%</th></tr></thead><tbody>${enc}</tbody></table>
+    <p style="font-size:0.74rem;color:var(--text-light);margin-top:8px;">Ingreso = monto de la venta más adicionales, en colones al tipo de cambio de la salida. Costos = facturas de proveedor y gastos ligados a la venta. Lo que falte por registrar hace que el margen se vea más alto de lo real.</p>`;
+}
+function contaExportarDocs(tipo){
+    const rows=getContaDocs().filter(d=>d&&d.tipo===tipo).sort((a,b)=>a.fecha.localeCompare(b.fecha)).map(d=>({'Fecha':d.fecha,'Proveedor':d.proveedorNombre||'','Nº factura':d.numero||'','Descripción':d.descripcion||'','Venta':d.ventaEtiqueta||'','Moneda':d.moneda,'Monto':d.monto,'Tipo de cambio':d.tc,'Monto ₡':d.montoCRC,'Pagado':contaDocPagado(d),'Saldo':contaDocSaldo(d),'Vence':d.vence||'','Cuenta':contaCuentaNombre(d.cuentaGasto),'Estado':d.estado}));
+    if(!rows.length){alert('No hay registros.');return;}
+    const ws=XLSX.utils.json_to_sheet(rows);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,tipo==='factura'?'Proveedores':'Gastos');XLSX.writeFile(wb,(tipo==='factura'?'Cuentas_por_pagar':'Gastos')+'.xlsx');
+}
+function contaExportarMargen(){
+    const rows=getVentas().filter(v=>v&&v.estado!=='cancelada').map(v=>{const m=contaMargenVenta(v);return {'Venta':_contaVentaEtiqueta(v),'Encargada':v.encargado||'','Salida':v.fechaInicio||'','Moneda':m.moneda,'Ingreso':m.total,'Ingreso ₡':m.ingresoCRC,'Costos ₡':m.costosCRC,'Margen ₡':m.margen,'Margen %':m.pct==null?'':m.pct};});
+    const ws=XLSX.utils.json_to_sheet(rows);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Márgenes');XLSX.writeFile(wb,'Margen_por_venta.xlsx');
+}
+// --- Modal: factura de proveedor / gasto ---
+let _cdAdjunto='';
+function openContaDocModal(o){
+    if(!exigirPermiso('contabilidad.registrar','registrar facturas y gastos'))return;
+    o=o||{};const tipo=o.tipo==='gasto'?'gasto':'factura';_cdAdjunto='';
+    const ov=document.getElementById('modalContaDoc');
+    const provs=contaProveedores().filter(p=>p.activo);
+    const v=o.ventaId?getVentas().find(x=>x.id===o.ventaId):null;
+    ov.innerHTML=`<div class="modal" style="max-width:720px;"><div class="modal-header"><h3>${tipo==='factura'?'Factura de proveedor':'Gasto pagado'}</h3><button class="modal-close" onclick="closeModal('modalContaDoc')">&times;</button></div>
+    <div class="modal-body">
+        <input type="hidden" id="cdTipo" value="${tipo}">
+        <div class="form-row"><div class="form-group"><label>Fecha ${tipo==='factura'?'de la factura':'del pago'}</label><input type="date" id="cdFecha" value="${_hitoHoyISO()}" onchange="_cdTC()"></div>${tipo==='factura'?'<div class="form-group"><label>Vence</label><input type="date" id="cdVence"></div>':''}</div>
+        <div class="form-row"><div class="form-group"><label>Proveedor${tipo==='gasto'?' (opcional)':''}</label><div style="display:flex;gap:6px;"><select id="cdProv" onchange="_cdProvChange()" style="flex:1;"><option value="">-- Elegir --</option>${provs.map(p=>`<option value="${esc(p.id)}"${p.id===o.proveedorId?' selected':''}>${esc(p.nombre)}</option>`).join('')}</select><button type="button" class="btn btn-sm btn-ghost" onclick="openContaProvModal(true)" title="Nuevo proveedor">+</button></div></div><div class="form-group"><label>Nº de factura</label><input type="text" id="cdNumero" placeholder="Opcional"></div></div>
+        <div class="form-group"><label>Descripción</label><input type="text" id="cdDesc" placeholder="${tipo==='factura'?'Ej: 4 noches Hotel Riu, habitación doble':'Ej: Internet setiembre'}"></div>
+        <div class="form-group"><label>Venta a la que pertenece</label><select id="cdVenta" onchange="_cdVentaChange()">${_contaVentaOpciones(o.ventaId||'')}</select></div>
+        <div class="form-row"><div class="form-group"><label>Moneda</label><select id="cdMoneda" onchange="_cdTC()"><option value="USD"${(v&&v.cobranza&&v.cobranza.moneda==='USD')||(!v&&tipo==='factura')?' selected':''}>Dólares ($)</option><option value="CRC"${(v&&v.cobranza&&v.cobranza.moneda==='CRC')||(!v&&tipo==='gasto')?' selected':''}>Colones (₡)</option><option value="EUR"${(v&&v.cobranza&&v.cobranza.moneda==='EUR')?' selected':''}>Euros (€)</option></select></div><div class="form-group"><label>Monto</label><input type="number" step="0.01" id="cdMonto" oninput="_cdTotal()"></div><div class="form-group"><label>Tipo de cambio</label><input type="number" step="0.01" id="cdTC" oninput="_cdTotal()"></div></div>
+        <div id="cdTotal" style="font-size:0.8rem;color:var(--text-light);margin:-4px 0 10px;"></div>
+        <div class="form-row"><div class="form-group"><label>Cuenta de ${tipo==='factura'?'costo o gasto':'gasto'}</label>${_contaSelectCuentas('cdCuentaGasto',tipo==='factura'?'5101':'6290',['costo','gasto'])}</div>${tipo==='factura'?`<div class="form-group"><label>Cuenta por pagar</label>${_contaSelectCuentas('cdCuentaCxP','2105',['pasivo'])}</div>`:`<div class="form-group"><label>Pagado desde</label>${_contaSelectCuentas('cdCuentaBanco','1110',['activo'])}</div>`}</div>
+        <div class="form-group"><label>Comprobante (imagen o PDF, opcional)</label><input type="file" id="cdAdjunto" accept="image/*,application/pdf" onchange="_cdAdjuntoChange(this)"><div id="cdAdjuntoInfo" style="font-size:0.74rem;color:var(--text-light);"></div></div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modalContaDoc')">Cancelar</button><button class="btn btn-success" onclick="guardarContaDoc()">Registrar</button></div></div>`;
+    ov.classList.add('open');
+    _cdProvChange();_cdTC();
+}
+function _cdProvChange(){const p=contaProveedor(document.getElementById('cdProv').value);if(!p)return;const g=document.getElementById('cdCuentaGasto');if(g&&p.cuentaCosto&&contaCuenta(p.cuentaCosto))g.value=p.cuentaCosto;const x=document.getElementById('cdCuentaCxP');if(x&&p.cuentaCxP&&contaCuenta(p.cuentaCxP))x.value=p.cuentaCxP;}
+function _cdVentaChange(){const v=getVentas().find(x=>x.id===document.getElementById('cdVenta').value);if(v&&v.cobranza&&v.cobranza.moneda){document.getElementById('cdMoneda').value=v.cobranza.moneda;_cdTC();}}
+function _cdTC(){const m=document.getElementById('cdMoneda').value;const f=document.getElementById('cdFecha').value;const el=document.getElementById('cdTC');if(m==='CRC'){el.value='1';el.disabled=true;}else{el.disabled=false;const t=contaTCPara(f);el.value=m==='USD'?(t.usd||''):(t.eur||'');}_cdTotal();}
+function _cdTotal(){const m=document.getElementById('cdMoneda').value;const monto=parseFloat(document.getElementById('cdMonto').value)||0;const tc=parseFloat(document.getElementById('cdTC').value)||0;document.getElementById('cdTotal').innerHTML=m==='CRC'?'':(monto&&tc?'En colones: <strong>'+fmtCRC2(monto*tc)+'</strong>':(monto?'<span style="color:#a32d2d;">Falta el tipo de cambio de esa fecha.</span>':''));}
+function _cdAdjuntoChange(inp){
+    const f=inp.files&&inp.files[0];const info=document.getElementById('cdAdjuntoInfo');if(!f){_cdAdjunto='';info.textContent='';return;}
+    if(f.type==='application/pdf'){if(f.size>3*1024*1024){alert('El PDF es muy pesado (máximo 3 MB).');inp.value='';return;}const rd=new FileReader();rd.onload=e=>{_cdAdjunto=e.target.result;info.textContent='PDF adjunto: '+f.name;};rd.readAsDataURL(f);return;}
+    if(typeof compressImage==='function'){Promise.resolve(compressImage(f,1200,1200,0.8)).then(d=>{_cdAdjunto=d;info.textContent='Imagen adjunta: '+f.name;}).catch(()=>{alert('No se pudo leer la imagen.');});}
+    else{const rd=new FileReader();rd.onload=e=>{_cdAdjunto=e.target.result;info.textContent='Imagen adjunta: '+f.name;};rd.readAsDataURL(f);}
+}
+function guardarContaDoc(){
+    const g=id=>document.getElementById(id);const tipo=g('cdTipo').value;
+    const ventaId=g('cdVenta').value;const v=ventaId?getVentas().find(x=>x.id===ventaId):null;
+    const d=contaRegistrarDoc({tipo,fecha:g('cdFecha').value,vence:g('cdVence')?g('cdVence').value:'',proveedorId:g('cdProv').value,numero:g('cdNumero').value,descripcion:g('cdDesc').value,ventaId,ventaEtiqueta:v?_contaVentaEtiqueta(v):'',moneda:g('cdMoneda').value,monto:parseFloat(g('cdMonto').value)||0,tc:parseFloat(g('cdTC').value)||0,cuentaGasto:g('cdCuentaGasto').value,cuentaCxP:g('cdCuentaCxP')?g('cdCuentaCxP').value:'',cuentaBanco:g('cdCuentaBanco')?g('cdCuentaBanco').value:'',adjunto:_cdAdjunto});
+    if(!d)return;
+    closeModal('modalContaDoc');
+    try{renderContabilidad();}catch(e){}
+    try{renderCobCostos();}catch(e){}
+}
+function verContaDoc(id){
+    const d=getContaDocs().find(x=>x.id===id);if(!d)return;
+    const ov=document.getElementById('modalContaDoc');
+    const pagos=(d.pagos||[]).map(p=>`<tr><td>${fmtFechaCorta(p.fecha)}</td><td style="text-align:right;">${_contaFmtOrig(p.monto,d.moneda)}</td><td style="text-align:right;">${fmtCRC2(p.montoCRC)}</td><td>${esc(contaCuentaNombre(p.cuentaBanco))}</td><td>${esc(p.referencia||'')}</td><td>${(tienePermiso('contabilidad.registrar')&&d.estado!=='anulada')?`<button class="btn btn-sm btn-danger" style="padding:2px 8px;font-size:0.7rem;" onclick="contaAnularPagoUI('${d.id}','${p.id}')">Anular</button>`:''}</td></tr>`).join('');
+    const adj=d.adjunto?(String(d.adjunto).startsWith('data:application/pdf')||/\.pdf(\?|$)/i.test(d.adjunto)?`<a class="btn btn-sm btn-ghost" href="${esc(d.adjunto)}" target="_blank">Ver comprobante (PDF)</a>`:`<a href="${esc(d.adjunto)}" target="_blank"><img src="${esc(d.adjunto)}" style="max-width:100%;max-height:260px;border-radius:8px;border:1px solid var(--border);"></a>`):'<span style="color:var(--text-light);">Sin comprobante</span>';
+    ov.innerHTML=`<div class="modal" style="max-width:720px;"><div class="modal-header"><h3>${d.tipo==='factura'?'Factura de proveedor':'Gasto'}${d.numero?' · '+esc(d.numero):''}</h3><button class="modal-close" onclick="closeModal('modalContaDoc')">&times;</button></div>
+    <div class="modal-body" style="font-size:0.86rem;">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 14px;margin-bottom:12px;">
+            <div><span style="color:var(--text-light);">Fecha</span><br>${fmtFechaCorta(d.fecha)}${d.vence?' · vence '+fmtFechaCorta(d.vence):''}</div><div><span style="color:var(--text-light);">Proveedor</span><br>${esc(d.proveedorNombre||'-')}</div>
+            <div><span style="color:var(--text-light);">Descripción</span><br>${esc(d.descripcion||'-')}</div><div><span style="color:var(--text-light);">Venta</span><br>${d.ventaId?`<span class="cliente-link" onclick="closeModal('modalContaDoc');openCobranza('${d.ventaId}')">${esc(d.ventaEtiqueta||'')}</span>`:'-'}</div>
+            <div><span style="color:var(--text-light);">Monto</span><br><strong>${_contaFmtOrig(d.monto,d.moneda)}</strong> = ${fmtCRC2(d.montoCRC)} (TC ${num(d.tc).toLocaleString('es-CR',{minimumFractionDigits:2})})</div><div><span style="color:var(--text-light);">Estado</span><br>${esc(d.estado)}${d.tipo==='factura'?' · saldo '+_contaFmtOrig(contaDocSaldo(d),d.moneda):''}</div>
+            <div><span style="color:var(--text-light);">Cuenta</span><br>${esc(contaCuentaNombre(d.cuentaGasto))}</div><div><span style="color:var(--text-light);">${d.tipo==='factura'?'Por pagar en':'Pagado desde'}</span><br>${esc(contaCuentaNombre(d.tipo==='factura'?d.cuentaCxP:d.cuentaBanco))}</div>
+        </div>
+        ${d.tipo==='factura'?`<h4 style="font-size:0.9rem;margin:8px 0 6px;">Pagos</h4>${pagos?`<table class="list-table"><thead><tr><th>Fecha</th><th style="text-align:right;">Monto</th><th style="text-align:right;">₡</th><th>Desde</th><th>Ref.</th><th></th></tr></thead><tbody>${pagos}</tbody></table>`:'<div style="color:var(--text-light);">Sin pagos todavía.</div>'}`:''}
+        <h4 style="font-size:0.9rem;margin:12px 0 6px;">Comprobante</h4>${adj}
+        <div style="font-size:0.72rem;color:var(--text-light);margin-top:10px;">Registrado por ${esc(d.creadoPor||'')}${d.anuladoMotivo?' · Anulado: '+esc(d.anuladoMotivo):''}</div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modalContaDoc')">Cerrar</button>${(d.tipo==='factura'&&d.estado!=='anulada'&&contaDocSaldo(d)>0.005&&tienePermiso('contabilidad.registrar'))?`<button class="btn btn-success" onclick="closeModal('modalContaDoc');openContaPagoModal('${d.id}')">Registrar pago</button>`:''}</div></div>`;
+    ov.classList.add('open');
+}
+function contaAnularDocUI(id){if(!exigirPermiso('contabilidad.registrar','anular documentos'))return;const m=prompt('Motivo de la anulación:','');if(m===null)return;if(contaAnularDoc(id,m)){renderContabilidad();try{renderCobCostos();}catch(e){}}}
+function contaAnularPagoUI(docId,pagoId){if(!exigirPermiso('contabilidad.registrar','anular pagos'))return;const m=prompt('Motivo de la anulación del pago:','');if(m===null)return;if(contaAnularPagoDoc(docId,pagoId,m)){closeModal('modalContaDoc');renderContabilidad();}}
+// --- Modal: pago a proveedor ---
+function openContaPagoModal(docId){
+    if(!exigirPermiso('contabilidad.registrar','registrar pagos a proveedores'))return;
+    const d=getContaDocs().find(x=>x.id===docId);if(!d)return;
+    const ov=document.getElementById('modalContaPago');
+    const saldo=contaDocSaldo(d);
+    ov.innerHTML=`<div class="modal" style="max-width:520px;"><div class="modal-header"><h3>Pagar a ${esc(d.proveedorNombre||'proveedor')}</h3><button class="modal-close" onclick="closeModal('modalContaPago')">&times;</button></div>
+    <div class="modal-body">
+        <p style="font-size:0.84rem;margin:0 0 10px;">${esc(d.descripcion||'')}${d.numero?' · fact. '+esc(d.numero):''}<br>Saldo pendiente: <strong>${_contaFmtOrig(saldo,d.moneda)}</strong> (registrado al TC ${num(d.tc).toLocaleString('es-CR',{minimumFractionDigits:2})})</p>
+        <div class="form-row"><div class="form-group"><label>Fecha del pago</label><input type="date" id="cpFecha" value="${_hitoHoyISO()}" onchange="_cpTC()"></div><div class="form-group"><label>Monto (${esc(d.moneda)})</label><input type="number" step="0.01" id="cpMonto" value="${saldo}" oninput="_cpTotal()"></div></div>
+        <div class="form-row"><div class="form-group"><label>Desde</label>${_contaSelectCuentas('cpBanco',(function(){const bp=contaCfg().mapeo.bancoPorMetodo['Depósito']||{};return bp[d.moneda]||'1110';})(),['activo'])}</div><div class="form-group"><label>Tipo de cambio del pago</label><input type="number" step="0.01" id="cpTC" oninput="_cpTotal()" ${d.moneda==='CRC'?'value="1" disabled':''}></div></div>
+        <div class="form-group"><label>Referencia</label><input type="text" id="cpRef" placeholder="Nº de transferencia, cheque…"></div>
+        <div id="cpTotal" style="font-size:0.8rem;color:var(--text-light);"></div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modalContaPago')">Cancelar</button><button class="btn btn-success" onclick="guardarContaPago('${d.id}')">Registrar pago</button></div></div>`;
+    ov.classList.add('open');
+    window._cpDoc=d;_cpTC();
+}
+function _cpTC(){const d=window._cpDoc;if(!d||d.moneda==='CRC'){_cpTotal();return;}const t=contaTCPara(document.getElementById('cpFecha').value);document.getElementById('cpTC').value=d.moneda==='USD'?(t.usd||''):(t.eur||'');_cpTotal();}
+function _cpTotal(){const d=window._cpDoc;if(!d)return;const m=parseFloat(document.getElementById('cpMonto').value)||0;const tc=d.moneda==='CRC'?1:(parseFloat(document.getElementById('cpTC').value)||0);const crc=m*tc;const cxp=m*(num(d.tc)||1);const dif=Math.round((crc-cxp)*100)/100;document.getElementById('cpTotal').innerHTML=(m&&tc)?('Salen del banco <strong>'+fmtCRC2(crc)+'</strong>'+(Math.abs(dif)>=0.01?' · diferencial cambiario: <span style="color:'+(dif>0?'#a32d2d':'#0f6e56')+';">'+(dif>0?'pérdida ':'ganancia ')+fmtCRC2(Math.abs(dif))+'</span>':'')):'';}
+function guardarContaPago(docId){
+    const d=contaPagarDoc(docId,{fecha:document.getElementById('cpFecha').value,monto:parseFloat(document.getElementById('cpMonto').value)||0,cuentaBanco:document.getElementById('cpBanco').value,tc:parseFloat(document.getElementById('cpTC').value)||0,referencia:document.getElementById('cpRef').value});
+    if(!d)return;closeModal('modalContaPago');try{renderContabilidad();}catch(e){}try{renderCobCostos();}catch(e){}
+}
+// --- Modal: proveedores ---
+function openContaProvModal(desdeDoc){
+    if(!exigirPermiso('contabilidad.registrar','gestionar proveedores'))return;
+    const ov=document.getElementById('modalContaProv');
+    const lista=contaProveedores();
+    const filas=lista.map(p=>`<tr><td>${esc(p.nombre)}${p.activo?'':' <span class="lt-badge" style="background:#f1f3f5;color:#4d5c63;">inactivo</span>'}</td><td>${esc((PROV_TIPOS.find(t=>t[0]===p.tipo)||[])[1]||'')}</td><td>${esc(contaCuentaNombre(p.cuentaCosto))}</td><td>${esc(p.contacto||'')}</td><td><button class="btn btn-sm btn-ghost" style="padding:2px 8px;font-size:0.7rem;" onclick="_provEditar('${p.id}')">Editar</button></td></tr>`).join('');
+    ov.innerHTML=`<div class="modal" style="max-width:760px;"><div class="modal-header"><h3>Proveedores</h3><button class="modal-close" onclick="closeModal('modalContaProv')">&times;</button></div>
+    <div class="modal-body">
+        <div id="provForm" style="background:var(--bg);border-radius:8px;padding:10px 12px;margin-bottom:12px;">
+            <input type="hidden" id="pvId">
+            <div class="form-row"><div class="form-group"><label>Nombre</label><input type="text" id="pvNombre" placeholder="Ej: Hotel Riu Guanacaste"></div><div class="form-group"><label>Tipo</label><select id="pvTipo" onchange="_pvTipoChange()">${PROV_TIPOS.map(t=>`<option value="${t[0]}">${t[1]}</option>`).join('')}</select></div></div>
+            <div class="form-row"><div class="form-group"><label>Cuenta de costo o gasto</label>${_contaSelectCuentas('pvCuentaCosto','5101',['costo','gasto'])}</div><div class="form-group"><label>Cuenta por pagar</label>${_contaSelectCuentas('pvCuentaCxP','2101',['pasivo'])}</div></div>
+            <div class="form-row"><div class="form-group"><label>Contacto</label><input type="text" id="pvContacto" placeholder="Nombre, teléfono, email"></div><div class="form-group"><label>Notas</label><input type="text" id="pvNotas"></div></div>
+            <label style="display:flex;align-items:center;gap:6px;font-size:0.8rem;"><input type="checkbox" id="pvActivo" checked> Activo</label>
+            <div style="display:flex;gap:6px;margin-top:8px;"><button class="btn btn-sm btn-success" onclick="guardarContaProv(${desdeDoc?'true':'false'})">Guardar proveedor</button><button class="btn btn-sm btn-ghost" onclick="_provLimpiar()">Limpiar</button></div>
+        </div>
+        ${filas?`<table class="list-table"><thead><tr><th>Nombre</th><th>Tipo</th><th>Cuenta de costo</th><th>Contacto</th><th></th></tr></thead><tbody>${filas}</tbody></table>`:'<div style="font-size:0.8rem;color:var(--text-light);">Todavía no hay proveedores. Cargá el primero arriba.</div>'}
+    </div>
+    <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modalContaProv')">Cerrar</button></div></div>`;
+    ov.style.zIndex='310';ov.classList.add('open');
+}
+function _pvTipoChange(){const t=PROV_TIPOS.find(x=>x[0]===document.getElementById('pvTipo').value);if(!t)return;const a=document.getElementById('pvCuentaCosto'),b=document.getElementById('pvCuentaCxP');if(a&&contaCuenta(t[3]))a.value=t[3];if(b&&contaCuenta(t[2]))b.value=t[2];}
+function _provLimpiar(){['pvId','pvNombre','pvContacto','pvNotas'].forEach(i=>{document.getElementById(i).value='';});document.getElementById('pvActivo').checked=true;}
+function _provEditar(id){const p=contaProveedor(id);if(!p)return;document.getElementById('pvId').value=p.id;document.getElementById('pvNombre').value=p.nombre;document.getElementById('pvTipo').value=p.tipo;document.getElementById('pvCuentaCosto').value=p.cuentaCosto;document.getElementById('pvCuentaCxP').value=p.cuentaCxP;document.getElementById('pvContacto').value=p.contacto||'';document.getElementById('pvNotas').value=p.notas||'';document.getElementById('pvActivo').checked=p.activo!==false;}
+function guardarContaProv(desdeDoc){
+    const nombre=(document.getElementById('pvNombre').value||'').trim();if(!nombre){alert('Escribí el nombre del proveedor.');return;}
+    const id=contaGuardarProveedor({id:document.getElementById('pvId').value||'',nombre,tipo:document.getElementById('pvTipo').value,cuentaCosto:document.getElementById('pvCuentaCosto').value,cuentaCxP:document.getElementById('pvCuentaCxP').value,contacto:document.getElementById('pvContacto').value,notas:document.getElementById('pvNotas').value,activo:document.getElementById('pvActivo').checked});
+    _contaBitacora('Guardó el proveedor '+nombre);
+    if(desdeDoc){closeModal('modalContaProv');const sel=document.getElementById('cdProv');if(sel){sel.innerHTML='<option value="">-- Elegir --</option>'+contaProveedores().filter(p=>p.activo).map(p=>`<option value="${esc(p.id)}"${p.id===id?' selected':''}>${esc(p.nombre)}</option>`).join('');_cdProvChange();}return;}
+    openContaProvModal(false);try{renderContabilidad();}catch(e){}
+}
+// --- Costos y margen dentro del estado de cuenta de la venta ---
+function renderCobCostos(){
+    const box=document.getElementById('cobCostosBox');if(!box)return;
+    const ventaId=(document.getElementById('cobVentaId')||{}).value;const v=ventaId?getVentas().find(x=>x.id===ventaId):null;
+    if(!v||!tienePermiso('contabilidad.ver')){box.innerHTML='';return;}
+    const m=contaMargenVenta(v);
+    const filas=m.docs.map(d=>`<tr><td>${fmtFechaCorta(d.fecha)}</td><td>${esc(d.proveedorNombre||'')}${d.descripcion?' · '+esc(d.descripcion):''}</td><td style="text-align:right;">${_contaFmtOrig(d.monto,d.moneda)}</td><td>${d.tipo==='factura'?(contaDocSaldo(d)>0.005?'<span class="lt-badge" style="background:#faeeda;color:#854f0b;">por pagar</span>':'<span class="lt-badge" style="background:#e1f5ee;color:#0f6e56;">pagada</span>'):'<span class="lt-badge" style="background:#e1f5ee;color:#0f6e56;">gasto</span>'}</td><td><button class="btn btn-sm btn-ghost" style="padding:2px 8px;font-size:0.7rem;" onclick="verContaDoc('${d.id}')">Ver</button></td></tr>`).join('');
+    const col=m.pct==null?'var(--text-light)':(m.pct<0?'#a32d2d':(m.pct<10?'#854f0b':'#0f6e56'));
+    box.innerHTML=`<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;"><strong style="font-size:0.9rem;">Costos de proveedores y margen</strong><span style="flex:1;"></span>${tienePermiso('contabilidad.registrar')?`<button class="btn btn-sm btn-ghost" onclick="openContaDocModal({tipo:'factura',ventaId:'${v.id}'})">+ Factura de proveedor</button>`:''}</div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;font-size:0.8rem;margin-bottom:6px;"><span>Ingreso: <strong>${fmtCRC2(m.ingresoCRC)}</strong></span><span>Costos: <strong>${fmtCRC2(m.costosCRC)}</strong></span><span>Margen: <strong style="color:${col};">${fmtCRC2(m.margen)}${m.pct!=null?' ('+m.pct+' %)':''}</strong></span></div>
+    ${filas?`<table class="pagos-table"><thead><tr><th>Fecha</th><th>Proveedor</th><th style="text-align:right;">Monto</th><th></th><th></th></tr></thead><tbody>${filas}</tbody></table>`:'<div style="font-size:0.78rem;color:var(--text-light);">Sin costos registrados para esta venta.</div>'}`;
 }
 
 // ===== PANEL "HITOS" EN INICIO =====
@@ -10698,7 +11016,7 @@ function recalcCobranza(){
     badge.textContent=c.total>0?c.estadoPagoLabel:'';
 }
 
-function renderPagosTable(){
+function renderPagosTable(){try{renderCobCostos();}catch(e){}
     const ventaId=document.getElementById('cobVentaId').value;
     const ventas=getVentas();
     const v=ventas.find(x=>x.id===ventaId);
