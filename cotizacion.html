@@ -1532,13 +1532,13 @@ onAuthStateChanged(fbAuth, (user) => {
     <div id="cobDesglose" style="font-size:0.78rem;color:var(--text-light);text-align:center;margin:-4px 0 4px;"></div>
     <div style="display:flex;justify-content:space-between;align-items:center;margin-top:16px;">
         <h4 style="font-family:'Playfair Display',serif;color:var(--primary-dark);font-size:0.95rem;">Productos / servicios adicionales</h4>
-        <button class="btn btn-sm btn-primary" onclick="toggleAdicForm()">+ Agregar producto</button>
+        <span style="display:flex;gap:6px;"><button class="btn btn-sm btn-primary" onclick="toggleAdicForm()">+ Agregar producto</button><button class="btn btn-sm btn-ghost" onclick="abrirDescuento()" title="Registrar un descuento que resta del total">&minus; Descuento</button></span>
     </div>
     <div class="pago-form" id="adicForm">
         <h4 id="adicFormTitle" style="font-family:'Playfair Display',serif;color:var(--primary-dark);font-size:0.95rem;margin-bottom:10px;">Agregar producto adicional</h4>
         <div class="form-row">
             <div class="form-group"><label>Fecha</label><input type="date" id="adicFecha"></div>
-            <div class="form-group"><label>Tipo</label><select id="adicTipo"></select></div>
+            <div class="form-group"><label>Tipo</label><select id="adicTipo" onchange="updateAdicFormUI()"></select></div>
             <div class="form-group"><label>Monto</label><input type="text" inputmode="text" id="adicMonto" placeholder="0.00" title="Acepta fórmulas tipo Excel: 20+10, 500*2, etc." onblur="evalMontoInput(this)" onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}"></div>
         </div>
         <div class="form-group"><label>Concepto / descripci&oacute;n</label><input type="text" id="adicConcepto" placeholder="Ej: Seguro de asistencia AXA"></div>
@@ -11540,7 +11540,7 @@ function recalcCobranza(){
     document.getElementById('cobSaldoDisp').textContent=fmtMoney(c.saldo,c.moneda);
     // Desglose viaje base + adicionales (solo si hay adicionales cargados)
     const desg=document.getElementById('cobDesglose');
-    if(desg)desg.textContent=c.adicionalesTotal>0?('Viaje base: '+fmtMoney(c.montoTotal,c.moneda)+'  ·  Adicionales: '+fmtMoney(c.adicionalesTotal,c.moneda)):'';
+    if(desg){const adPos=(c.adicionales||[]).filter(a=>num(a.monto)>0).reduce((s,a)=>s+num(a.monto),0);const adNeg=(c.adicionales||[]).filter(a=>num(a.monto)<0).reduce((s,a)=>s+num(a.monto),0);desg.textContent=(adPos||adNeg)?('Viaje base: '+fmtMoney(c.montoTotal,c.moneda)+(adPos?'  ·  Adicionales: '+fmtMoney(adPos,c.moneda):'')+(adNeg?'  ·  Descuentos: − '+fmtMoney(-adNeg,c.moneda):'')):'';}
     const bar=document.getElementById('cobProgressBar');
     bar.style.width=c.pagadoPct+'%';
     bar.textContent=c.pagadoPct>10?c.pagadoPct+'%':'';
@@ -11739,7 +11739,10 @@ function removePago(pagoId){
 // ===== PRODUCTOS / SERVICIOS ADICIONALES (cargos posteriores a la venta) =====
 // Viven en v.cobranza.adicionales[] y se suman al total en calcCobranzaStatus.
 // Mismo patron multiusuario que los pagos: merge por id + tumbas (adicionalesEliminados).
-const TIPOS_ADICIONAL=['Seguro','Boleto aéreo','Hospedaje','Traslado','Tour','Transporte','Paquete de viaje','Otro servicio'];
+const TIPOS_ADICIONAL=['Seguro','Boleto aéreo','Hospedaje','Traslado','Tour','Transporte','Paquete de viaje','Otro servicio','Descuento'];
+// Los descuentos se guardan con monto NEGATIVO dentro de adicionales: restan del total sin tocar el resto del sistema.
+function fmtMontoAdic(monto,m){const n=num(monto);return n<0?('&minus; '+fmtMoney(-n,m)):fmtMoney(n,m);}
+function abrirDescuento(){const f=document.getElementById('adicForm');if(!f.classList.contains('open'))toggleAdicForm();else{adicEditandoId=null;document.getElementById('adicMonto').value='';document.getElementById('adicConcepto').value='';document.getElementById('adicNota').value='';}_llenarTiposAdic('Descuento');updateAdicFormUI();setTimeout(()=>document.getElementById('adicMonto').focus(),100);}
 let adicEditandoId=null;
 function _llenarTiposAdic(seleccionado){
     const sel=document.getElementById('adicTipo');
@@ -11755,12 +11758,15 @@ function _llenarTiposAdic(seleccionado){
 function updateAdicFormUI(){
     const titleEl=document.getElementById('adicFormTitle');
     const btnSave=document.getElementById('adicFormSaveBtn');
+    const esDesc=(document.getElementById('adicTipo')||{}).value==='Descuento';
+    const conc=document.getElementById('adicConcepto');if(conc)conc.placeholder=esDesc?'Ej: Descuento por pronto pago':'Ej: Seguro de asistencia AXA';
+    const mIn=document.getElementById('adicMonto');if(mIn)mIn.placeholder=esDesc?'Monto a descontar':'0.00';
     if(adicEditandoId){
-        if(titleEl)titleEl.textContent='Editar producto adicional';
-        if(btnSave)btnSave.textContent='Actualizar producto';
+        if(titleEl)titleEl.textContent=esDesc?'Editar descuento':'Editar producto adicional';
+        if(btnSave)btnSave.textContent=esDesc?'Actualizar descuento':'Actualizar producto';
     }else{
-        if(titleEl)titleEl.textContent='Agregar producto adicional';
-        if(btnSave)btnSave.textContent='Guardar producto';
+        if(titleEl)titleEl.textContent=esDesc?'Agregar descuento':'Agregar producto adicional';
+        if(btnSave)btnSave.textContent=esDesc?'Guardar descuento':'Guardar producto';
     }
 }
 function toggleAdicForm(preservarEstado){
@@ -11796,7 +11802,7 @@ function renderAdicTable(){
     }
     const m=v.cobranza.moneda||'USD';
     const sorted=[...v.cobranza.adicionales].sort((a,b)=>(a.fecha||'').localeCompare(b.fecha||''));
-    tbody.innerHTML=sorted.map(a=>`<tr><td>${esc(a.fecha||'')}</td><td>${esc(a.tipo||'')}</td><td>${esc(a.concepto||'')}</td><td>${esc(a.nota||'')}</td><td style="text-align:right;font-weight:700;">${fmtMoney(a.monto,m)}</td><td style="white-space:nowrap;"><div style="display:inline-flex;gap:4px;align-items:center;"><button class="btn btn-sm btn-primary" style="padding:4px 8px;font-size:0.7rem;" onclick="editarAdic('${a.id}')" title="Editar">&#9998;</button><button class="btn-icon remove" style="display:inline-flex;" onclick="removeAdic('${a.id}')" title="Eliminar">&times;</button></div></td></tr>`).join('');
+    tbody.innerHTML=sorted.map(a=>`<tr><td>${esc(a.fecha||'')}</td><td>${esc(a.tipo||'')}</td><td>${esc(a.concepto||'')}</td><td>${esc(a.nota||'')}</td><td style="text-align:right;font-weight:700;${num(a.monto)<0?'color:#0f6e56;':''}">${fmtMontoAdic(a.monto,m)}</td><td style="white-space:nowrap;"><div style="display:inline-flex;gap:4px;align-items:center;"><button class="btn btn-sm btn-primary" style="padding:4px 8px;font-size:0.7rem;" onclick="editarAdic('${a.id}')" title="Editar">&#9998;</button><button class="btn-icon remove" style="display:inline-flex;" onclick="removeAdic('${a.id}')" title="Eliminar">&times;</button></div></td></tr>`).join('');
 }
 function editarAdic(adicId){
     if(!exigirPermiso('cobranza.registrar_pago','editar productos adicionales'))return;
@@ -11808,7 +11814,7 @@ function editarAdic(adicId){
     if(!a){alert('Producto no encontrado.');return;}
     adicEditandoId=adicId;
     document.getElementById('adicFecha').value=a.fecha||'';
-    document.getElementById('adicMonto').value=a.monto||'';
+    document.getElementById('adicMonto').value=a.monto?Math.abs(num(a.monto)):'';
     _llenarTiposAdic(a.tipo||'');
     document.getElementById('adicConcepto').value=a.concepto||'';
     document.getElementById('adicNota').value=a.nota||'';
@@ -11832,11 +11838,16 @@ function saveAdic(){
     if(!v)return;
     if(!v.cobranza)v.cobranza={montoTotal:0,moneda:'USD',pagos:[]};
     if(!Array.isArray(v.cobranza.adicionales))v.cobranza.adicionales=[];
+    const montoFinal=(tipo==='Descuento')?-Math.abs(monto):monto;
+    if(tipo==='Descuento'){
+        const otros=v.cobranza.adicionales.filter(a=>a.id!==adicEditandoId).reduce((s,a)=>s+num(a.monto),0);
+        if(num(v.cobranza.montoTotal)+otros+montoFinal<0){alert('El descuento es mayor que el total del viaje. Revisá el monto.');return;}
+    }
     if(adicEditandoId){
         const idx=v.cobranza.adicionales.findIndex(a=>a.id===adicEditandoId);
-        if(idx>=0)v.cobranza.adicionales[idx]={...v.cobranza.adicionales[idx],fecha,tipo,monto,concepto,nota};
+        if(idx>=0)v.cobranza.adicionales[idx]={...v.cobranza.adicionales[idx],fecha,tipo,monto:montoFinal,concepto,nota};
     }else{
-        v.cobranza.adicionales.push({id:'ad_'+Date.now(),fecha,tipo,monto,concepto,nota});
+        v.cobranza.adicionales.push({id:'ad_'+Date.now(),fecha,tipo,monto:montoFinal,concepto,nota});
     }
     v._lastModifiedAt=Date.now();   // mi cambio es el mas reciente (para el merge multiusuario)
     saveVentas(ventas);
@@ -12001,13 +12012,13 @@ function renderDocumento(tipo,ventaId,pagoId){
         // Detalle de cargos (viaje base + adicionales). Solo se muestra si hay adicionales; si no, el
         // documento queda identico a como era antes de esta funcionalidad.
         const adicSorted=[...(v.cobranza.adicionales||[])].sort((a,b)=>(a.fecha||'').localeCompare(b.fecha||''));
-        const detalleCargosHtml=(c.adicionalesTotal>0||esCrucero||esServicio)?`
+        const detalleCargosHtml=(adicSorted.length>0||esCrucero||esServicio)?`
             <div class="recibo-section-title">Detalle de cargos</div>
             <table class="recibo-table">
                 <thead><tr><th>Fecha</th><th>Concepto</th><th style="text-align:right;">Monto</th></tr></thead>
                 <tbody>
                     <tr><td>${esc(v.fechaVenta||'-')}</td><td>${conceptoBase}${viajeDestino?' a <strong>'+esc(viajeDestino)+'</strong>':''}${viajeFechas?' ('+esc(viajeFechas)+')':''}</td><td style="text-align:right;font-weight:700;">${fmtMoney(c.montoTotal,c.moneda)}</td></tr>
-                    ${adicSorted.map(a=>`<tr><td>${esc(a.fecha||'')}</td><td>${esc(a.tipo||'')}${a.concepto?' &mdash; '+esc(a.concepto):''}${a.nota?'<div style="font-size:0.72rem;color:var(--text-light);">'+esc(a.nota)+'</div>':''}</td><td style="text-align:right;font-weight:700;">${fmtMoney(a.monto,c.moneda)}</td></tr>`).join('')}
+                    ${adicSorted.map(a=>`<tr><td>${esc(a.fecha||'')}</td><td>${esc(a.tipo||'')}${a.concepto?' &mdash; '+esc(a.concepto):''}${a.nota?'<div style="font-size:0.72rem;color:var(--text-light);">'+esc(a.nota)+'</div>':''}</td><td style="text-align:right;font-weight:700;">${fmtMontoAdic(a.monto,c.moneda)}</td></tr>`).join('')}
                     <tr><td colspan="2" style="text-align:right;font-weight:700;border-top:2px solid var(--primary);">Total a pagar</td><td style="text-align:right;font-weight:700;border-top:2px solid var(--primary);">${fmtMoney(c.total,c.moneda)}</td></tr>
                 </tbody>
             </table>`:'';
