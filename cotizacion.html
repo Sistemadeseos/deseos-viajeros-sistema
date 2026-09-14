@@ -1576,6 +1576,7 @@ onAuthStateChanged(fbAuth, (user) => {
     <div class="form-group" style="margin-bottom:12px;"><label>Estado de la venta</label><select id="clEstado" onchange="updateVentaEstado()"><option value="pendiente">Pendiente</option><option value="en_proceso">En proceso</option><option value="completada">Completada</option><option value="cancelada">Cancelada</option></select></div>
     <div class="form-row" style="margin-bottom:8px;"><div class="form-group" style="margin:0;"><label>Aerol&iacute;nea</label><select id="clAerolinea" onchange="clVueloChange()"></select></div><div class="form-group" style="margin:0;"><label>Hora del vuelo de ida</label><input type="time" id="clHoraVuelo" onchange="clVueloChange()"></div></div>
     <div class="form-row" style="margin-bottom:8px;" id="clRegresoRow"><div class="form-group" style="margin:0;"><label>Aerol&iacute;nea de regreso</label><select id="clAerolineaRegreso" onchange="clVueloChange()"></select></div><div class="form-group" style="margin:0;"><label>Hora del vuelo de regreso</label><input type="time" id="clHoraVueloRegreso" onchange="clVueloChange()"></div></div>
+    <div id="clVuelosExtra" style="display:none;"></div>
     <p style="font-size:0.7rem;color:var(--text-light);margin:0 0 8px;">Eleg&iacute; la aerol&iacute;nea (o "Sin vuelo") y la hora del vuelo: con eso se calcula el check-in. Las fechas calculadas son <em>sugeridas</em>: hay que revisarlas una por una (cambiarlas o marcar "Revisada"). Los hitos con <span style="color:#a32d2d;">*</span> son obligatorios.</p>
     <div id="clHitosAviso" style="display:none;font-size:0.76rem;padding:6px 10px;border-radius:6px;background:#fcebeb;color:#a32d2d;margin-bottom:8px;"></div>
     <div id="checklistItems"></div>
@@ -1720,6 +1721,7 @@ onAuthStateChanged(fbAuth, (user) => {
         <div class="form-group"><label>Fechas importantes <span style="font-weight:400;font-size:0.7rem;color:var(--text-light);text-transform:none;letter-spacing:0;">(las fechas son sugeridas: revisalas una por una. Las marcadas con <span style="color:#a32d2d;">*</span> son obligatorias)</span></label>
             <div class="form-row"><div class="form-group" style="margin-bottom:6px;"><label style="font-size:0.68rem;">Aerol&iacute;nea</label><select id="veAerolinea" onchange="veVueloChange()"></select></div><div class="form-group" style="margin-bottom:6px;"><label style="font-size:0.68rem;">Hora del vuelo de ida</label><input type="time" id="veHoraVuelo" onchange="veVueloChange()"></div></div>
             <div class="form-row" id="veRegresoRow"><div class="form-group" style="margin-bottom:6px;"><label style="font-size:0.68rem;">Aerol&iacute;nea de regreso</label><select id="veAerolineaRegreso" onchange="veVueloChange()"></select></div><div class="form-group" style="margin-bottom:6px;"><label style="font-size:0.68rem;">Hora del vuelo de regreso</label><input type="time" id="veHoraVueloRegreso" onchange="veVueloChange()"></div></div>
+            <div id="veVuelosExtra" style="display:none;"></div>
             <div id="veHitosBox"></div>
         </div>
         <div class="form-group"><label>Notas</label><textarea id="veNotas" rows="2" placeholder="Notas adicionales..."></textarea></div>
@@ -9841,11 +9843,11 @@ function openModalVentaInfoExtra(ventaId){
 }
 // --- Bloque "Fechas importantes" del cuadro que aparece al aceptar la cotización ---
 // Las fechas calculadas nacen como "sugeridas": hay que revisarlas una por una (cambiarlas o marcar "Revisada").
-let _veHitos=[];
+let _veHitos=[];let _veVuelos=[];
 function _veVentaTmp(){
     const v=getVentas().find(x=>x.id===document.getElementById('veVentaId').value)||{};
     const sel=(document.getElementById('veAerolinea')||{}).value||'';
-    return {fechaInicio:v.fechaInicio,fechaFin:v.fechaFin,fechaVenta:(document.getElementById('veFechaVenta')||{}).value||v.fechaVenta,fechaCreacion:v.fechaCreacion,sinVuelo:sel===SIN_VUELO,aerolinea:sel===SIN_VUELO?'':sel,horaVuelo:(document.getElementById('veHoraVuelo')||{}).value||'',aerolineaRegreso:sel===SIN_VUELO?'':((document.getElementById('veAerolineaRegreso')||{}).value||''),horaVueloRegreso:sel===SIN_VUELO?'':((document.getElementById('veHoraVueloRegreso')||{}).value||''),checklist:_veHitos};
+    return {fechaInicio:v.fechaInicio,fechaFin:v.fechaFin,fechaVenta:(document.getElementById('veFechaVenta')||{}).value||v.fechaVenta,fechaCreacion:v.fechaCreacion,sinVuelo:sel===SIN_VUELO,aerolinea:sel===SIN_VUELO?'':sel,horaVuelo:(document.getElementById('veHoraVuelo')||{}).value||'',aerolineaRegreso:sel===SIN_VUELO?'':((document.getElementById('veAerolineaRegreso')||{}).value||''),horaVueloRegreso:sel===SIN_VUELO?'':((document.getElementById('veHoraVueloRegreso')||{}).value||''),checklist:_veHitos,vuelosExtra:_veVuelos};
 }
 function _veRenderHitos(){
     const box=document.getElementById('veHitosBox');if(!box)return;
@@ -9879,19 +9881,21 @@ function _veAddHito(){
 }
 function _veCargarHitos(v){
     if(!Array.isArray(v.checklist)||!v.checklist.length)v.checklist=crearChecklistVenta();
+    _veVuelos=(Array.isArray(v.vuelosExtra)?v.vuelosExtra:[]).map(x=>Object.assign({},x));
     completarHitosObligatorios(v);
     _aplicarVueloAChecklist(v);
     recalcularFechasHitos(v);
     _veHitos=v.checklist.map(it=>Object.assign({},it,{_sug:it.revisado?'':(it.fecha||'')}));
+    _vxOpen=!!_veVuelos.length;
     const selA=document.getElementById('veAerolinea');if(selA)selA.innerHTML=_aerolineaOptionsHtml(v.aerolinea||'',!!v.sinVuelo);
     const hv=document.getElementById('veHoraVuelo');if(hv)hv.value=v.horaVuelo||'';
     const selR=document.getElementById('veAerolineaRegreso');if(selR)selR.innerHTML=_aerolineaRegresoOptionsHtml(v.aerolineaRegreso||'');
     const hvR=document.getElementById('veHoraVueloRegreso');if(hvR)hvR.value=v.horaVueloRegreso||'';
-    _veRenderHitos();
+    _veRenderHitos();_vxRender('ve',_veVentaTmp());
 }
 function veVueloChange(){
     const tmp=_veVentaTmp();
-    tmp.checklist=_veHitos;_aplicarVueloAChecklist(tmp);_veHitos=tmp.checklist;
+    tmp.checklist=_veHitos;_aplicarVueloAChecklist(tmp);_veHitos=tmp.checklist;_vxRender('ve',tmp);
     _veHitos.forEach(it=>{if(_esCheckin(it.regla)){const c=calcFechaHito(it,tmp);it.fecha=c.fecha;it.hora=c.hora||'';it._sug=c.fecha;_marcarRevisado(it,false);}});
     _veRenderHitos();
 }
@@ -9904,6 +9908,7 @@ function _veProblemas(){
     else if(sel!==SIN_VUELO&&!hora)p.push('Cargá la hora del vuelo de ida (se usa para calcular el check-in).');
     const tmp=_veVentaTmp();
     if(sel&&sel!==SIN_VUELO&&String(tmp.fechaFin||'').slice(0,10)&&!tmp.horaVueloRegreso)p.push('Cargá la hora del vuelo de regreso (se usa para calcular el check-in de regreso).');
+    if(sel&&sel!==SIN_VUELO)_veVuelos.forEach((vu,i)=>{if(!vu.fecha||!vu.hora)p.push('Completá fecha y hora del vuelo adicional '+(vu.tramo||('#'+(i+1)))+'.');});
     const faltan=_veHitos.filter(it=>it.obligatorio&&!_hitoFechaEf(it,tmp).fecha);
     if(faltan.length)p.push('Fechas obligatorias sin definir: '+faltan.map(x=>x.texto).join(', ')+'.');
     const sinRev=_veHitos.filter(it=>_hitoSinRevisar(it,tmp));
@@ -10033,8 +10038,8 @@ function guardarVentaInfoExtra(){
     v.acompanantes=acompanantes;
     v.planPago=planPago;
     v.notas=document.getElementById('veNotas').value.trim();
-    {const selA=document.getElementById('veAerolinea').value||'';v.sinVuelo=(selA===SIN_VUELO);v.aerolinea=v.sinVuelo?'':selA;v.horaVuelo=v.sinVuelo?'':(document.getElementById('veHoraVuelo').value||'');v.aerolineaRegreso=v.sinVuelo?'':((document.getElementById('veAerolineaRegreso')||{}).value||'');v.horaVueloRegreso=v.sinVuelo?'':((document.getElementById('veHoraVueloRegreso')||{}).value||'');}
-    v.checklist=_veHitos.map(it=>({id:it.id||Date.now().toString(),texto:it.texto,completado:!!it.completado,fecha:it.fecha||'',hora:it.hora||'',regla:it.regla||'sin_fecha',dias:parseInt(it.dias||0,10)||0,obligatorio:!!it.obligatorio,revisado:!!it.revisado,revisadoPor:it.revisadoPor||'',revisadoTs:it.revisadoTs||''}));
+    {const selA=document.getElementById('veAerolinea').value||'';v.sinVuelo=(selA===SIN_VUELO);v.aerolinea=v.sinVuelo?'':selA;v.horaVuelo=v.sinVuelo?'':(document.getElementById('veHoraVuelo').value||'');v.aerolineaRegreso=v.sinVuelo?'':((document.getElementById('veAerolineaRegreso')||{}).value||'');v.horaVueloRegreso=v.sinVuelo?'':((document.getElementById('veHoraVueloRegreso')||{}).value||'');v.vuelosExtra=_veVuelos.map(x=>({id:x.id,tramo:String(x.tramo||''),fecha:String(x.fecha||'').slice(0,10),hora:String(x.hora||''),aerolinea:String(x.aerolinea||'')}));}
+    v.checklist=_veHitos.map(it=>({id:it.id||Date.now().toString(),texto:it.texto,completado:!!it.completado,fecha:it.fecha||'',hora:it.hora||'',regla:it.regla||'sin_fecha',dias:parseInt(it.dias||0,10)||0,obligatorio:!!it.obligatorio,revisado:!!it.revisado,revisadoPor:it.revisadoPor||'',revisadoTs:it.revisadoTs||'',vueloId:it.vueloId||''}));
     v.cobranza=v.cobranza||{};
     if(monto>0)v.cobranza.montoTotal=monto;
     v.cobranza.moneda=moneda;
@@ -11263,11 +11268,78 @@ function renderVentas(){
     </table>`;
 }
 
+// ===== VUELOS ADICIONALES (tramos extra con su propio check-in) =====
+// v.vuelosExtra = [{id,tramo,fecha,hora,aerolinea}] ; cada uno genera un hito regla 'checkin_extra' con vueloId.
+let _vxOpen=false;
+function _vxVuelo(v,id){return (v&&Array.isArray(v.vuelosExtra)?v.vuelosExtra:[]).find(x=>x&&x.id===id)||null;}
+function _vxTextoHito(vu){return 'Check-in · '+(vu.tramo||'vuelo adicional');}
+// Sincroniza los hitos de vuelos extra con la lista de vuelos (agrega, renombra, quita) y recalcula el del vuelo indicado
+function _vxSync(v,vueloId){
+    if(!v)return;if(!Array.isArray(v.checklist))v.checklist=[];
+    const vuelos=Array.isArray(v.vuelosExtra)?v.vuelosExtra.filter(x=>x&&x.id):[];
+    if(v.sinVuelo){v.checklist=v.checklist.filter(it=>!(it&&it.regla==='checkin_extra'));return;}
+    const ids=new Set(vuelos.map(x=>x.id));
+    v.checklist=v.checklist.filter(it=>!(it&&it.regla==='checkin_extra'&&!ids.has(it.vueloId)));
+    vuelos.forEach((vu,i)=>{let it=v.checklist.find(x=>x&&x.regla==='checkin_extra'&&x.vueloId===vu.id);
+        if(!it){it={id:Date.now()+'_vx'+i+'_'+Math.random().toString(36).slice(2,5),texto:_vxTextoHito(vu),completado:false,fecha:'',hora:'',regla:'checkin_extra',dias:0,obligatorio:true,avisarDias:null,revisado:false,revisadoPor:'',revisadoTs:'',vueloId:vu.id};
+            // Va después del último check-in de ida / extra ya existente
+            let pos=-1;v.checklist.forEach((x,k)=>{if(x&&(x.regla==='checkin'||x.regla==='checkin_extra'))pos=k;});v.checklist.splice(pos>=0?pos+1:0,0,it);}
+        else it.texto=_vxTextoHito(vu);
+        if(vueloId&&vu.id===vueloId){it.fecha='';it.hora='';_marcarRevisado(it,false);}
+    });
+    recalcularFechasHitos(v,false);
+}
+// Aviso de conexión: el vuelo extra sale menos de 24 h después del vuelo de ida
+function _vxConexion(v,vu){
+    const fi=String(v.fechaInicio||'').slice(0,10);if(!fi||!/^\d{2}:\d{2}$/.test(v.horaVuelo||'')||!vu.fecha||!/^\d{2}:\d{2}$/.test(vu.hora||''))return false;
+    const a=new Date(fi+'T'+v.horaVuelo+':00'),b=new Date(vu.fecha+'T'+vu.hora+':00');if(isNaN(a)||isNaN(b))return false;
+    const h=(b-a)/3600000;return h>0&&h<24;
+}
+function _vxRender(mode,v){
+    const box=document.getElementById(mode==='cl'?'clVuelosExtra':'veVuelosExtra');if(!box)return;
+    const vuelos=Array.isArray(v.vuelosExtra)?v.vuelosExtra:[];
+    if(v.sinVuelo||!String(v.fechaInicio||'').slice(0,10)){box.innerHTML='';box.style.display='none';return;}
+    box.style.display='';
+    const lista=(cfgGet().aerolineas||[]).map(a=>a&&a.nombre).filter(Boolean);
+    const inp='padding:5px 7px;border:1px solid var(--border);border-radius:6px;font-size:0.8rem;';
+    const filas=vuelos.map(vu=>{const opts='<option value="">Misma que la ida</option>'+lista.map(n=>`<option value="${esc(n)}"${vu.aerolinea===n?' selected':''}>${esc(n)}</option>`).join('')+(vu.aerolinea&&!lista.includes(vu.aerolinea)?`<option value="${esc(vu.aerolinea)}" selected>${esc(vu.aerolinea)}</option>`:'')+'<option value="__otra">Otra aerolínea…</option>';
+        const con=_vxConexion(v,vu)?'<div style="font-size:0.7rem;color:#854f0b;margin-top:2px;">&#9888; Sale menos de 24 h después del vuelo de ida: suele ser una conexión y el check-in se hace junto con el primer tramo.</div>':'';
+        return `<div style="display:grid;grid-template-columns:1.4fr 130px 95px 1.2fr 28px;gap:6px;align-items:center;margin-bottom:5px;">
+            <input type="text" value="${esc(vu.tramo||'')}" placeholder="Tramo (ej: Madrid → Lisboa)" style="${inp}" onchange="vxSet('${mode}','${vu.id}','tramo',this.value)">
+            <input type="date" value="${esc(vu.fecha||'')}" style="${inp}" onchange="vxSet('${mode}','${vu.id}','fecha',this.value)">
+            <input type="time" value="${esc(vu.hora||'')}" style="${inp}" onchange="vxSet('${mode}','${vu.id}','hora',this.value)">
+            <select style="${inp}" onchange="if(this.value==='__otra'){vxNuevaAerolinea('${mode}','${vu.id}',this);}else{vxSet('${mode}','${vu.id}','aerolinea',this.value);}">${opts}</select>
+            <button type="button" class="btn-icon remove" onclick="vxDel('${mode}','${vu.id}')" title="Quitar vuelo">&times;</button>
+            ${con?'<div style="grid-column:1/-1;">'+con+'</div>':''}
+        </div>`;}).join('');
+    box.innerHTML=`<div style="margin:2px 0 8px;">
+        <button type="button" class="btn btn-sm btn-ghost" style="padding:2px 8px;font-size:0.74rem;" onclick="_vxOpen=!_vxOpen;_vxRender('${mode}',${mode==='cl'?"getVentas().find(x=>x.id===document.getElementById('clVentaId').value)":"_veVentaTmp()"})">${_vxOpen?'&#9662;':'&#9656;'} Vuelos adicionales (${vuelos.length})</button>
+        <span style="font-size:0.7rem;color:var(--text-light);margin-left:6px;">Para paquetes con más de dos vuelos: cada tramo genera su propio check-in.</span>
+        <div style="display:${_vxOpen?'block':'none'};padding:8px 0 0;">
+            ${vuelos.length?`<div style="display:grid;grid-template-columns:1.4fr 130px 95px 1.2fr 28px;gap:6px;font-size:0.64rem;color:var(--text-light);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px;"><span>Tramo</span><span>Fecha</span><span>Hora</span><span>Aerolínea</span><span></span></div>`:''}
+            ${filas}
+            <button type="button" class="btn btn-sm btn-ghost" style="padding:2px 8px;font-size:0.72rem;" onclick="vxAdd('${mode}')">+ Agregar vuelo</button>
+        </div></div>`;
+}
+function _vxCtx(mode){
+    if(mode==='cl'){const ventas=getVentas();const v=ventas.find(x=>x.id===document.getElementById('clVentaId').value);return v?{v,fin:(vid)=>{_vxSync(v,vid);v.fechaActualizacion=new Date().toISOString();saveVentas(ventas);renderChecklistItems(v);_vxRender('cl',v);try{renderVentas();}catch(e){}}}:null;}
+    const tmp=_veVentaTmp();tmp.checklist=_veHitos;tmp.vuelosExtra=_veVuelos;
+    return {v:tmp,fin:(vid)=>{_vxSync(tmp,vid);_veHitos=tmp.checklist;_veVuelos=tmp.vuelosExtra;_veRenderHitos();_vxRender('ve',tmp);}};
+}
+function vxAdd(mode){const c=_vxCtx(mode);if(!c)return;if(!Array.isArray(c.v.vuelosExtra))c.v.vuelosExtra=[];const id='vx_'+Date.now()+'_'+Math.random().toString(36).slice(2,5);c.v.vuelosExtra.push({id,tramo:'',fecha:'',hora:'',aerolinea:''});_vxOpen=true;c.fin(id);}
+function vxSet(mode,id,campo,valor){const c=_vxCtx(mode);if(!c)return;const vu=_vxVuelo(c.v,id);if(!vu)return;vu[campo]=String(valor||'');c.fin(campo==='tramo'?'':id);}
+function vxDel(mode,id){const c=_vxCtx(mode);if(!c)return;if(!confirm('¿Quitar este vuelo y su check-in?'))return;c.v.vuelosExtra=(c.v.vuelosExtra||[]).filter(x=>x.id!==id);c.fin('');}
+function vxNuevaAerolinea(mode,id,sel){
+    const nombre=(prompt('Nombre de la aerolínea:','')||'').trim();if(!nombre){if(sel)sel.value='';return;}
+    const lista=cfgGet().aerolineas||[];
+    if(!lista.some(a=>a&&normalizarParaMatch(a.nombre||'')===normalizarParaMatch(nombre))){const c=getConfig();c.aerolineas=lista.concat([{nombre,horasCheckin:24}]);saveConfig(c);}
+    vxSet(mode,id,'aerolinea',nombre);
+}
 // ===== HITOS CON FECHA (checklist de la venta) =====
 const SIN_VUELO='__sinvuelo';
-function _esCheckin(r){return r==='checkin'||r==='checkin_regreso';}
+function _esCheckin(r){return r==='checkin'||r==='checkin_regreso'||r==='checkin_extra';}
 // Aerolínea que aplica a un hito de check-in (regreso usa la de regreso o, si no hay, la de ida)
-function _hitoAerolinea(it,v){if(!it||!v||v.sinVuelo)return '';if(it.regla==='checkin')return v.aerolinea||'';if(it.regla==='checkin_regreso')return v.aerolineaRegreso||v.aerolinea||'';return '';}
+function _hitoAerolinea(it,v){if(!it||!v||v.sinVuelo)return '';if(it.regla==='checkin')return v.aerolinea||'';if(it.regla==='checkin_regreso')return v.aerolineaRegreso||v.aerolinea||'';if(it.regla==='checkin_extra'){const vu=_vxVuelo(v,it.vueloId);return (vu&&vu.aerolinea)||v.aerolinea||'';}return '';}
 function _hitoHoyISO(){const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
 function _usuarioNombreActual(){const em=(window.currentUser&&window.currentUser.email)||'';if(!em)return '';try{return matchEncargadoDesdeEmail(em,cfgGet().encargados)||em;}catch(e){return em;}}
 function _aerolineaHoras(nombre){if(!nombre)return 24;const n=normalizarParaMatch(nombre);const a=(cfgGet().aerolineas||[]).find(x=>x&&normalizarParaMatch(x.nombre||'')===n);return a?(parseFloat(a.horasCheckin)||24):24;}
@@ -11295,10 +11367,10 @@ function calcFechaHito(it,v){
     if(r==='antes_regreso')return {fecha:ajusta(ok(ff)?_addDiasISO(ff,-n):''),hora:''};
     if(_esCheckin(r)){
         const reg=(r==='checkin_regreso');
-        const base=reg?ff:fi;
+        let base=reg?ff:fi,horas,hvRaw;
+        if(r==='checkin_extra'){const vu=_vxVuelo(v,it.vueloId);if(!vu)return {fecha:'',hora:''};base=String(vu.fecha||'').slice(0,10);horas=_aerolineaHoras(vu.aerolinea||v.aerolinea);hvRaw=vu.hora;}
+        else{horas=_aerolineaHoras(reg?(v.aerolineaRegreso||v.aerolinea):v.aerolinea);hvRaw=reg?v.horaVueloRegreso:v.horaVuelo;}
         if(!ok(base)||v.sinVuelo)return {fecha:'',hora:''};
-        const horas=_aerolineaHoras(reg?(v.aerolineaRegreso||v.aerolinea):v.aerolinea);
-        const hvRaw=reg?v.horaVueloRegreso:v.horaVuelo;
         const hv=/^\d{2}:\d{2}$/.test(hvRaw||'')?hvRaw:'';
         if(!hv)return {fecha:_addDiasISO(base,-Math.ceil(horas/24)),hora:''};
         const d=new Date(base+'T'+hv+':00');if(isNaN(d))return {fecha:'',hora:''};
@@ -11335,6 +11407,7 @@ function _aplicarVueloAChecklist(v){
     // Check-in de regreso solo si el viaje tiene fecha de regreso
     if(!String(v.fechaFin||'').slice(0,10)){v.checklist=v.checklist.filter(it=>!(it&&it.regla==='checkin_regreso'));}
     else if(!v.checklist.some(it=>it&&it.regla==='checkin_regreso')){const h=hs.find(x=>x.regla==='checkin_regreso');if(h){const i=v.checklist.findIndex(it=>it&&it.regla==='checkin');v.checklist.splice(i>=0?i+1:0,0,_hitoNuevoDesdeCfg(h,'ckr'));}}
+    try{_vxSync(v,'');}catch(e){console.error('[vuelos extra]',e);}
 }
 // Si a una venta vieja le faltan hitos obligatorios de la configuración, se los agrega (solo al abrir su checklist)
 function completarHitosObligatorios(v){
@@ -11396,6 +11469,7 @@ function openChecklist(ventaId){
     const selR=document.getElementById('clAerolineaRegreso');if(selR)selR.innerHTML=_aerolineaRegresoOptionsHtml(v.aerolineaRegreso||'');
     const hvR=document.getElementById('clHoraVueloRegreso');if(hvR)hvR.value=v.horaVueloRegreso||'';
     const rowR=document.getElementById('clRegresoRow');if(rowR)rowR.style.display=(v.sinVuelo||!String(v.fechaFin||'').slice(0,10))?'none':'';
+    _vxOpen=!!(Array.isArray(v.vuelosExtra)&&v.vuelosExtra.length);_vxRender('cl',v);
     renderChecklistItems(v);
     document.getElementById('modalChecklist').classList.add('open');
 }
@@ -11411,7 +11485,7 @@ function clVueloChange(){
     _aplicarVueloAChecklist(v);
     recalcularFechasHitos(v,true);
     v.fechaActualizacion=new Date().toISOString();
-    saveVentas(ventas);renderChecklistItems(v);renderVentas();
+    saveVentas(ventas);renderChecklistItems(v);_vxRender('cl',v);renderVentas();
 }
 function renderChecklistItems(v){
     if(!v){const ventas=getVentas();v=ventas.find(x=>x.id===document.getElementById('clVentaId').value);}
