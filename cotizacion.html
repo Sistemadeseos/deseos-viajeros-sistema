@@ -1657,7 +1657,7 @@ onAuthStateChanged(fbAuth, (user) => {
 </div></div>
 
 <!-- MODAL: Nueva/Editar Venta de Servicio (boleto aéreo, hospedaje, transporte, seguro, otro) -->
-<div class="modal-overlay" id="modalVentaServicio"><div class="modal" style="max-width:520px;">
+<div class="modal-overlay" id="modalVentaServicio"><div class="modal" style="max-width:640px;">
     <div class="modal-header"><h3 id="svModalTitulo">Nueva venta de servicio</h3><button class="modal-close" onclick="closeModal('modalVentaServicio')">&times;</button></div>
     <div class="modal-body">
         <input type="hidden" id="svEditId"><input type="hidden" id="svCat">
@@ -1670,6 +1670,16 @@ onAuthStateChanged(fbAuth, (user) => {
         <div class="form-row"><div class="form-group"><label>Monto</label><input type="text" inputmode="text" id="svMonto" placeholder="0.00" title="Acepta f&oacute;rmulas: 500+200" onblur="evalMontoInput(this)" onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}"></div><div class="form-group"><label>Moneda</label><select id="svMoneda"><option value="USD">USD</option><option value="CRC">CRC</option><option value="EUR">EUR</option></select></div></div>
         <div class="form-row"><div class="form-group"><label>Encargada</label><select id="svEncargado"><option value="">--</option></select></div><div class="form-group"><label>Fecha de la venta</label><input type="date" id="svFechaVenta"></div></div>
         <div class="form-row"><div class="form-group"><label>Fecha del servicio (opcional)</label><input type="date" id="svFechaInicio"></div><div class="form-group"></div></div>
+        <div style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:12px;background:#fafbfc;">
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                <label style="margin:0;flex:1;min-width:180px;">Acompa&ntilde;antes <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--text-light);">(sin contar al cliente)</span></label>
+                <input type="number" id="svAcompCount" min="0" max="30" step="1" value="0" style="width:80px;" oninput="svAcompSetCount(this.value)">
+                <button type="button" class="btn btn-sm btn-ghost" onclick="svAcompAdd()">+ Agregar</button>
+            </div>
+            <div id="svAcompSug" style="margin-top:6px;"></div>
+            <div id="svAcompList" style="margin-top:6px;"></div>
+            <p class="config-hint" id="svAcompHint" style="display:none;margin:4px 0 0;">Los datos de cada acompa&ntilde;ante se guardan tambi&eacute;n en la ficha del cliente, para no volver a pedirlos en la pr&oacute;xima venta.</p>
+        </div>
         <div class="form-group"><label>Notas</label><textarea id="svNotas" rows="2" placeholder="Opcional..."></textarea></div>
     </div>
     <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modalVentaServicio')">Cancelar</button><button class="btn btn-success" onclick="guardarVentaServicio()">Guardar venta</button></div>
@@ -10987,7 +10997,98 @@ function _ventaTabKey(v){
     return 'personalizada';
 }
 let _editingVentaServicioId=null;
-function svOnClienteChange(){document.getElementById('svNuevoClienteBox').style.display=(document.getElementById('svClienteId').value==='__nuevo')?'block':'none';}
+function svOnClienteChange(){document.getElementById('svNuevoClienteBox').style.display=(document.getElementById('svClienteId').value==='__nuevo')?'block':'none';_svAcompRenderSug();}
+// ----- Acompañantes de la venta de servicio -----
+// En la venta se guarda {nombre,tipo}; los datos completos (parentesco, nacimiento, contacto) viven en la ficha del cliente titular.
+let _svAcomp=[];
+const _SV_ACOMP_CAMPOS=['relacion','fechaNacimiento','telefono','email'];
+function _svAcompNuevo(a){return {nombre:String((a&&a.nombre)||''),tipo:(a&&(a.tipo==='nino'||a.tipo==='bebe'))?a.tipo:'adulto',relacion:String((a&&a.relacion)||''),fechaNacimiento:String((a&&a.fechaNacimiento)||''),telefono:String((a&&a.telefono)||''),email:String((a&&a.email)||'')};}
+function _svTipoPorEdad(iso){const e=_edadDesde(iso);if(e==null)return '';return e<2?'bebe':(e<12?'nino':'adulto');}
+function _svClienteSel(){
+    const sel=(document.getElementById('svClienteId')||{}).value||'';
+    let id=sel;
+    if(sel==='__keep__'){const vp=getVentas().find(x=>x.id===_editingVentaServicioId);id=vp?vp.clienteId:'';}
+    if(!id||id==='__nuevo')return null;
+    return getClientes().find(x=>x.id===id)||null;
+}
+function _svAcompDeFicha(c,nombre){const k=_encNorm(nombre);if(!c||!k||!Array.isArray(c.acompanantes))return null;return c.acompanantes.find(a=>a&&_encNorm(a.nombre)===k)||null;}
+function svAcompSetCount(n){
+    n=Math.max(0,Math.min(30,parseInt(n||'0',10)||0));
+    while(_svAcomp.length<n)_svAcomp.push(_svAcompNuevo());
+    if(_svAcomp.length>n){
+        // Al achicar se quitan primero las filas vacías, desde el final
+        for(let i=_svAcomp.length-1;i>=0&&_svAcomp.length>n;i--){if(!_svAcomp[i].nombre.trim())_svAcomp.splice(i,1);}
+        if(_svAcomp.length>n)_svAcomp.length=n;
+    }
+    _svAcompRender();
+}
+function svAcompAdd(a){
+    const vacia=_svAcomp.findIndex(x=>!x.nombre.trim());
+    if(a&&vacia>=0)_svAcomp[vacia]=_svAcompNuevo(a);else _svAcomp.push(_svAcompNuevo(a));
+    _svAcompRender();
+}
+function svAcompDel(i){_svAcomp.splice(i,1);_svAcompRender();}
+function svAcompSet(i,k,val){
+    const a=_svAcomp[i];if(!a)return;
+    a[k]=val;
+    if(k==='fechaNacimiento'){const t=_svTipoPorEdad(val);if(t){a.tipo=t;const s=document.getElementById('svAcTipo_'+i);if(s)s.value=t;}}
+}
+// Al salir del campo nombre: si ya existe en la ficha del cliente, completa los datos guardados
+function svAcompNombreBlur(i){
+    const a=_svAcomp[i];if(!a||!a.nombre.trim())return;
+    const f=_svAcompDeFicha(_svClienteSel(),a.nombre);if(!f)return;
+    let cambio=false;
+    _SV_ACOMP_CAMPOS.forEach(k=>{if(!a[k]&&f[k]){a[k]=String(f[k]);cambio=true;}});
+    if(cambio){const t=_svTipoPorEdad(a.fechaNacimiento);if(t)a.tipo=t;_svAcompRender();}
+    else _svAcompRenderSug();
+}
+function svAcompUsarSug(idx){
+    const c=_svClienteSel();if(!c||!Array.isArray(c.acompanantes)||!c.acompanantes[idx])return;
+    const f=c.acompanantes[idx];
+    svAcompAdd({nombre:f.nombre,tipo:_svTipoPorEdad(f.fechaNacimiento)||'adulto',relacion:f.relacion,fechaNacimiento:f.fechaNacimiento,telefono:f.telefono,email:f.email});
+}
+function _svAcompRenderSug(){
+    const box=document.getElementById('svAcompSug');if(!box)return;
+    const c=_svClienteSel();
+    const usados=new Set(_svAcomp.map(a=>_encNorm(a.nombre)).filter(Boolean));
+    const lista=(c&&Array.isArray(c.acompanantes)?c.acompanantes:[]).map((a,i)=>({a,i})).filter(x=>x.a&&String(x.a.nombre||'').trim()&&!usados.has(_encNorm(x.a.nombre)));
+    if(!lista.length){box.innerHTML='';return;}
+    box.innerHTML='<div style="font-size:0.72rem;color:var(--text-light);margin-bottom:3px;">Ya viajaron con este cliente (clic para agregar):</div><div style="display:flex;flex-wrap:wrap;gap:5px;">'+lista.map(x=>`<button type="button" class="btn btn-sm btn-ghost" style="padding:2px 9px;font-size:0.74rem;border-radius:12px;" onclick="svAcompUsarSug(${x.i})">+ ${esc(x.a.nombre)}${x.a.relacion?' <span style="color:var(--text-light);">('+esc(x.a.relacion)+')</span>':''}</button>`).join('')+'</div>';
+}
+function _svAcompRender(){
+    const cont=document.getElementById('svAcompList');if(!cont)return;
+    const cnt=document.getElementById('svAcompCount');if(cnt)cnt.value=_svAcomp.length;
+    const hint=document.getElementById('svAcompHint');if(hint)hint.style.display=_svAcomp.length?'':'none';
+    const lbl=t=>`<label style="font-size:0.66rem;">${t}</label>`;
+    cont.innerHTML=_svAcomp.map((a,i)=>`<div style="border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-bottom:6px;background:#fff;">
+        <div class="form-row" style="gap:6px;align-items:flex-end;">
+            <div class="form-group" style="margin:0;flex:1.7;">${lbl('Nombre completo (como en el documento)')}<input type="text" placeholder="Acompa&ntilde;ante ${i+1}" value="${esc(a.nombre)}" oninput="svAcompSet(${i},'nombre',this.value)" onblur="svAcompNombreBlur(${i})"></div>
+            <div class="form-group" style="margin:0;flex:0.8;">${lbl('Tipo')}<select id="svAcTipo_${i}" onchange="svAcompSet(${i},'tipo',this.value)"><option value="adulto"${a.tipo==='adulto'?' selected':''}>Adulto</option><option value="nino"${a.tipo==='nino'?' selected':''}>Ni&ntilde;o (2-11)</option><option value="bebe"${a.tipo==='bebe'?' selected':''}>Beb&eacute; (0-23m)</option></select></div>
+            <button type="button" class="btn btn-sm btn-danger" style="flex:0 0 auto;" onclick="svAcompDel(${i})" title="Quitar acompa&ntilde;ante">&times;</button>
+        </div>
+        <div class="form-row" style="gap:6px;margin-top:6px;">
+            <div class="form-group" style="margin:0;">${lbl('Parentesco')}<input type="text" placeholder="Esposo, hija, amiga&hellip;" value="${esc(a.relacion)}" oninput="svAcompSet(${i},'relacion',this.value)"></div>
+            <div class="form-group" style="margin:0;">${lbl('Fecha de nacimiento')}<input type="date" value="${esc(a.fechaNacimiento)}" onchange="svAcompSet(${i},'fechaNacimiento',this.value)"></div>
+            <div class="form-group" style="margin:0;">${lbl('Tel&eacute;fono')}<input type="text" placeholder="8888-8888" value="${esc(a.telefono)}" oninput="svAcompSet(${i},'telefono',this.value)"></div>
+            <div class="form-group" style="margin:0;">${lbl('Correo')}<input type="email" value="${esc(a.email)}" oninput="svAcompSet(${i},'email',this.value)"></div>
+        </div>
+    </div>`).join('');
+    _svAcompRenderSug();
+}
+// Lleva los acompañantes con nombre a la ficha del titular: agrega los nuevos y completa/actualiza los existentes.
+function _svAcompAFicha(clienteId,lista){
+    const conNombre=(lista||[]).filter(a=>a&&a.nombre.trim());
+    if(!clienteId||!conNombre.length)return;
+    const cls=getClientes();const c=cls.find(x=>x.id===clienteId);if(!c)return;
+    if(!Array.isArray(c.acompanantes))c.acompanantes=[];
+    let cambio=false;
+    conNombre.forEach(a=>{
+        const f=_svAcompDeFicha(c,a.nombre);
+        if(f){_SV_ACOMP_CAMPOS.forEach(k=>{const val=String(a[k]||'').trim();if(val&&String(f[k]||'')!==val){f[k]=val;cambio=true;}});}
+        else{c.acompanantes.push(_mcAcompLimpio({nombre:a.nombre.trim(),relacion:a.relacion,fechaNacimiento:a.fechaNacimiento,telefono:a.telefono,email:a.email}));cambio=true;}
+    });
+    if(cambio){c.fechaActualizacion=new Date().toISOString();saveClientes(cls);}
+}
 function openModalVentaServicio(cat){
     const sc=_servicioCatInfo(cat)||_servicioCatInfo('otro');
     _editingVentaServicioId=null;
@@ -11004,6 +11105,7 @@ function openModalVentaServicio(cat){
     document.getElementById('svMoneda').value='USD';
     document.getElementById('svFechaVenta').value=new Date().toISOString().slice(0,10);
     document.getElementById('svNuevoClienteBox').style.display='none';
+    _svAcomp=[];_svAcompRender();
     document.getElementById('modalVentaServicio').classList.add('open');
 }
 function editarVentaServicio(id){
@@ -11026,6 +11128,17 @@ function editarVentaServicio(id){
     document.getElementById('svFechaVenta').value=v.fechaVenta||'';
     document.getElementById('svFechaInicio').value=v.fechaInicio||'';
     document.getElementById('svNotas').value=v.notas||'';
+    // Acompañantes guardados (completa el detalle desde la ficha del titular); respeta la cantidad aunque falten nombres
+    const cliV=v.clienteId?getClientes().find(x=>x.id===v.clienteId):null;
+    _svAcomp=(Array.isArray(v.acompanantes)?v.acompanantes:[]).map(a=>{
+        const o=_svAcompNuevo(typeof a==='string'?{nombre:a}:a);
+        const f=_svAcompDeFicha(cliV,o.nombre);
+        if(f)_SV_ACOMP_CAMPOS.forEach(k=>{if(!o[k]&&f[k])o[k]=String(f[k]);});
+        return o;
+    });
+    const nGuard=parseInt(v.numAcompanantes||0,10)||0;
+    while(_svAcomp.length<nGuard)_svAcomp.push(_svAcompNuevo());
+    _svAcompRender();
 }
 function guardarVentaServicio(){
     const editId=_editingVentaServicioId;
@@ -11057,8 +11170,14 @@ function guardarVentaServicio(){
         descripcion:document.getElementById('svDescripcion').value.trim(),
         encargado:document.getElementById('svEncargado').value||usuarioEmail,
         fechaInicio:document.getElementById('svFechaInicio').value,
-        notas:document.getElementById('svNotas').value.trim()
+        notas:document.getElementById('svNotas').value.trim(),
+        numAcompanantes:_svAcomp.length,
+        numAcompAdultos:_svAcomp.filter(a=>a.tipo==='adulto').length,
+        numAcompNinos:_svAcomp.filter(a=>a.tipo==='nino').length,
+        numAcompBebes:_svAcomp.filter(a=>a.tipo==='bebe').length,
+        acompanantes:_svAcomp.filter(a=>a.nombre.trim()).map(a=>({nombre:a.nombre.trim(),tipo:a.tipo}))
     };
+    _svAcompAFicha(clienteId,_svAcomp);
     const moneda=document.getElementById('svMoneda').value||'USD';
     if(editId&&ventaPrev){
         Object.assign(ventaPrev,{tipo:'servicio',clienteId,clienteNombre,fechaVenta:document.getElementById('svFechaVenta').value||ventaPrev.fechaVenta||'',fechaActualizacion:ahora},campos);
@@ -11094,7 +11213,7 @@ function renderVentasServicios(filtered,grid,sc){
         const cob=calcCobranzaStatus(v);
         const cobBadge=cob.total>0?`<span class="lt-badge" style="background:${cob.color}22;color:${cob.color};">${cob.estadoPagoLabel} ${cob.pagadoPct}%</span>`:'<span style="color:var(--text-light);font-size:0.72rem;">-</span>';
         return`<tr class="estado-${v.estado}">
-        <td>${_clienteLinkHtml(v.clienteId,v.clienteNombre,'-')}</td>
+        <td>${_clienteLinkHtml(v.clienteId,v.clienteNombre,'-')}${(parseInt(v.numAcompanantes||0,10)>0)?`<div style="font-size:0.7rem;color:var(--text-light);" title="${esc((Array.isArray(v.acompanantes)?v.acompanantes:[]).map(a=>typeof a==='string'?a:(a&&a.nombre)||'').filter(Boolean).join(', '))}">+ ${parseInt(v.numAcompanantes,10)} acomp.</div>`:''}</td>
         <td>${esc(v.descripcion||'-')}</td>
         <td>${esc(v.encargado||'-')}</td>
         <td>${v.fechaInicio?esc(formatFechaCorta(v.fechaInicio)||v.fechaInicio):'<span style="color:var(--text-light);">-</span>'}</td>
