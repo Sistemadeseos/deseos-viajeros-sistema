@@ -1937,7 +1937,8 @@ const defaultContaMapeo={
     ingresoPorTipo:{personalizada:'4101',grupal:'4101',crucero:'4106',servicio_boleto:'4102',servicio_hospedaje:'4103',servicio_seguro:'4104',servicio_transporte:'4105',servicio_tour:'4105',servicio_otro:'4301'},
     planilla:{salarios:'6101',cargas:'6102',ccssPorPagar:'2203',rentaPorPagar:'2202',otrasDedPorPagar:'2205',salariosPorPagar:'2204'},
     cargaPatronalPct:26.67,
-    difCambGanancia:'4401',difCambPerdida:'6401'
+    difCambGanancia:'4401',difCambPerdida:'6401',
+    ivaPorPagar:'2201',ivaPorRecuperar:'1301'
 };
 function _normContaCuentas(arr){
     const src=(Array.isArray(arr)&&arr.length)?arr:defaultContaCuentas;
@@ -1949,7 +1950,7 @@ function _normContaCuentas(arr){
 }
 function _normContaMapeo(m){
     m=m||{};const d=defaultContaMapeo;
-    const out={bancoPorMetodo:{},cxcClientes:m.cxcClientes||d.cxcClientes,anticiposClientes:m.anticiposClientes||d.anticiposClientes,ingresoPorTipo:Object.assign({},d.ingresoPorTipo,m.ingresoPorTipo||{}),planilla:Object.assign({},d.planilla,m.planilla||{}),cargaPatronalPct:(m.cargaPatronalPct!=null&&m.cargaPatronalPct!=='')?parseFloat(m.cargaPatronalPct):d.cargaPatronalPct,difCambGanancia:m.difCambGanancia||d.difCambGanancia,difCambPerdida:m.difCambPerdida||d.difCambPerdida};
+    const out={bancoPorMetodo:{},cxcClientes:m.cxcClientes||d.cxcClientes,anticiposClientes:m.anticiposClientes||d.anticiposClientes,ingresoPorTipo:Object.assign({},d.ingresoPorTipo,m.ingresoPorTipo||{}),planilla:Object.assign({},d.planilla,m.planilla||{}),cargaPatronalPct:(m.cargaPatronalPct!=null&&m.cargaPatronalPct!=='')?parseFloat(m.cargaPatronalPct):d.cargaPatronalPct,difCambGanancia:m.difCambGanancia||d.difCambGanancia,difCambPerdida:m.difCambPerdida||d.difCambPerdida,ivaPorPagar:m.ivaPorPagar||d.ivaPorPagar,ivaPorRecuperar:m.ivaPorRecuperar||d.ivaPorRecuperar};
     Object.keys(d.bancoPorMetodo).forEach(k=>{out.bancoPorMetodo[k]=Object.assign({},d.bancoPorMetodo[k],(m.bancoPorMetodo||{})[k]||{});});
     Object.keys(m.bancoPorMetodo||{}).forEach(k=>{if(!out.bancoPorMetodo[k])out.bancoPorMetodo[k]=Object.assign({},d.bancoPorMetodo['Otro'],m.bancoPorMetodo[k]);});
     return out;
@@ -1969,6 +1970,33 @@ function contaTitulos(tipo){return contaCfg().cuentas.filter(c=>c.titulo&&(!tipo
 // Título padre de una cuenta: el título más largo (del mismo cajón) cuyo código es prefijo del suyo
 function contaTituloDe(codigo){codigo=String(codigo||'');let best=null;contaCfg().cuentas.forEach(t=>{if(!t.titulo||t.codigo===codigo||!codigo.startsWith(t.codigo))return;if(!best||t.codigo.length>best.codigo.length)best=t;});return best;}
 // Número de asiento para mostrar: serie por año (AS-2026-0001); los asientos anteriores a las series conservan su número corrido
+// Centros de costo (las "dimensiones" de SAP): una por línea de negocio + Administración
+const CONTA_CENTROS=[['grupal','Viajes grupales'],['personalizada','Viajes personalizados'],['crucero','Cruceros'],['boleto','Boletos aéreos'],['hospedaje','Hospedajes'],['tour','Tours'],['seguro','Seguros'],['otro','Otros servicios'],['admin','Administración']];
+function contaCentroNombre(id){return (CONTA_CENTROS.find(x=>x[0]===id)||['','(sin centro)'])[1];}
+function contaCentroDeVenta(v){if(!v)return 'admin';const k=_ventaTabKey(v);return CONTA_CENTROS.some(x=>x[0]===k)?k:'otro';}
+// Centro de un asiento: el guardado, o el que se deduce de su origen (venta → línea de negocio; el resto → Administración)
+function contaCentroDe(a,_prof){
+    if(!a)return 'admin';if(a.centro&&CONTA_CENTROS.some(x=>x[0]===a.centro))return a.centro;
+    const o=a.origen,r=String(a.refId||'');
+    try{
+        if(o==='cobro'||o==='ingreso_venta'){const v=getVentas().find(x=>x&&x.id===r);return contaCentroDeVenta(v);}
+        if(o==='proveedor'||o==='gasto'||o==='pago_proveedor'){const d=getContaDocs().find(x=>x&&x.id===r);if(d&&d.centro)return d.centro;if(d&&d.ventaId){const v=getVentas().find(x=>x&&x.id===d.ventaId);if(v)return contaCentroDeVenta(v);}return 'admin';}
+        if(o==='reversion'&&a.reversaDe&&!_prof){const orig=getContaAsientos().find(x=>x&&x.id===a.reversaDe);if(orig)return contaCentroDe(orig,true);}
+    }catch(e){}
+    return 'admin';
+}
+function _contaSelectCentro(id,valor,extra){return `<select id="${id}" ${extra||''}><option value="">Autom\u00e1tico seg\u00fan el origen</option>${CONTA_CENTROS.map(x=>`<option value="${x[0]}"${x[0]===valor?' selected':''}>${x[1]}</option>`).join('')}</select>`;}
+// Resultados por centro de costo en un rango: {centros:[ids con movimiento], cuentas:[{codigo,nombre,tipo,por:{centro:saldo},total}], tot:{centro:{ing,cos,gas,margen,utilidad}}}
+function contaResultadosPorCentro(desde,hasta){
+    const ex=new Set(CONTA_ORIGENES_RESULTADO_EXCL);const acc={};const cuentas=contaCfg().cuentas;
+    getContaAsientos().forEach(a=>{if(!a||!Array.isArray(a.lineas)||ex.has(a.origen))return;if(desde&&a.fecha<desde)return;if(hasta&&a.fecha>hasta)return;
+        const ce=contaCentroDe(a);
+        a.lineas.forEach(l=>{const cta=cuentas.find(x=>x.codigo===l.cuenta);if(!cta||!['ingreso','costo','gasto'].includes(cta.tipo))return;const o=acc[l.cuenta]||(acc[l.cuenta]={});const deud=cta.tipo!=='ingreso';o[ce]=_contaRound((o[ce]||0)+(deud?(l.debe-l.haber):(l.haber-l.debe)));});});
+    const centros=CONTA_CENTROS.map(x=>x[0]).filter(id=>Object.values(acc).some(o=>Math.abs(o[id]||0)>=0.005));
+    const filas=cuentas.filter(c=>!c.titulo&&acc[c.codigo]).map(c=>({codigo:c.codigo,nombre:c.nombre,tipo:c.tipo,por:acc[c.codigo],total:_contaRound(Object.values(acc[c.codigo]).reduce((s,v)=>s+v,0))})).filter(f=>Math.abs(f.total)>=0.005||Object.values(f.por).some(v=>Math.abs(v)>=0.005));
+    const tot={};centros.concat(['__total']).forEach(id=>{const s=t=>_contaRound(filas.filter(f=>f.tipo===t).reduce((a,f)=>a+(id==='__total'?f.total:(f.por[id]||0)),0));const ing=s('ingreso'),cos=s('costo'),gas=s('gasto');tot[id]={ing,cos,gas,margen:_contaRound(ing-cos),utilidad:_contaRound(ing-cos-gas)};});
+    return {desde,hasta,centros,filas,tot};
+}
 function contaNumAsiento(a){if(!a)return '';return a.serie?('AS-'+a.serie+'-'+String(a.numero||0).padStart(4,'0')):('#'+(a.numero||''));}
 function contaCuentaNombre(codigo){const c=contaCuenta(codigo);return c?(c.codigo+' · '+c.nombre):String(codigo||'');}
 function contaPeriodoDe(fecha){return String(fecha||'').slice(0,7);}
@@ -2045,7 +2073,7 @@ function contaRegistrarAsiento(opts){
     const td=_contaRound(lineas.reduce((s,l)=>s+l.debe,0)),th=_contaRound(lineas.reduce((s,l)=>s+l.haber,0));
     if(Math.abs(td-th)>0.01)return fallo('El asiento no cuadra: Debe '+fmtCRC2(td)+' vs Haber '+fmtCRC2(th)+'.');
     const arr=getContaAsientos().map(x=>Object.assign({},x));
-    const a={id:'as_'+Date.now()+'_'+Math.random().toString(36).slice(2,6),numero:_contaNumeroSiguiente(arr,fecha),serie:_contaSerieDe(fecha),fecha,periodo:contaPeriodoDe(fecha),descripcion:String(opts.descripcion||'').trim(),origen:opts.origen||'manual',refId:String(opts.refId||''),subRef:String(opts.subRef||''),lineas,totalDebe:td,totalHaber:th,creadoPor:(window.currentUser&&window.currentUser.email)||'',creadoTs:Date.now(),reversaDe:String(opts.reversaDe||''),reversadoPor:''};
+    const a={id:'as_'+Date.now()+'_'+Math.random().toString(36).slice(2,6),numero:_contaNumeroSiguiente(arr,fecha),serie:_contaSerieDe(fecha),centro:CONTA_CENTROS.some(x=>x[0]===opts.centro)?opts.centro:'',fecha,periodo:contaPeriodoDe(fecha),descripcion:String(opts.descripcion||'').trim(),origen:opts.origen||'manual',refId:String(opts.refId||''),subRef:String(opts.subRef||''),lineas,totalDebe:td,totalHaber:th,creadoPor:(window.currentUser&&window.currentUser.email)||'',creadoTs:Date.now(),reversaDe:String(opts.reversaDe||''),reversadoPor:''};
     arr.push(a);saveContaAsientos(arr);
     return a;
 }
@@ -2058,7 +2086,7 @@ function contaReversarAsiento(id,motivo,silencioso){
     const hoy=_hitoHoyISO();
     // La reversión va en el mes del original si está abierto; si ya se cerró, va en el primer mes abierto (hoy)
     const fecha=contaPeriodoCerrado(o.periodo)?hoy:o.fecha;
-    const r=contaRegistrarAsiento({fecha,descripcion:'Reversión de asiento '+contaNumAsiento(o)+(motivo?' · '+motivo:'')+' · '+(o.descripcion||''),origen:'reversion',refId:o.refId,subRef:o.subRef,reversaDe:o.id,silencioso,lineas:o.lineas.map(l=>({cuenta:l.cuenta,debe:l.haber,haber:l.debe,moneda:l.moneda,montoOrig:l.montoOrig,tc:l.tc,detalle:l.detalle}))});
+    const r=contaRegistrarAsiento({fecha,descripcion:'Reversión de asiento '+contaNumAsiento(o)+(motivo?' · '+motivo:'')+' · '+(o.descripcion||''),origen:'reversion',refId:o.refId,subRef:o.subRef,reversaDe:o.id,centro:o.centro||'',silencioso,lineas:o.lineas.map(l=>({cuenta:l.cuenta,debe:l.haber,haber:l.debe,moneda:l.moneda,montoOrig:l.montoOrig,tc:l.tc,detalle:l.detalle}))});
     if(!r)return null;
     const arr2=getContaAsientos().map(x=>Object.assign({},x));
     const o2=arr2.find(x=>x.id===id);if(o2){o2.reversadoPor=r.id;o2.reversadoTs=Date.now();o2.reversadoMotivo=String(motivo||'');}
@@ -2205,7 +2233,7 @@ function _normContaProveedores(arr){return (Array.isArray(arr)?arr:[]).filter(p=
 function contaProveedores(){return _normContaProveedores(getConfig().contaProveedores);}
 // --- Plantillas de contabilización y contabilizaciones periódicas (como en SAP B1) ---
 // Plantilla: {id,nombre,descripcion,moneda,lineas:[{cuenta,debe,haber}],periodica,dia,desde:'YYYY-MM',hasta:'YYYY-MM',hechos:{'YYYY-MM':asientoId|borradorId|'omitido'}}
-function _normContaPlantillas(arr){return (Array.isArray(arr)?arr:[]).filter(t=>t&&t.nombre).map(t=>({id:String(t.id||('pl_'+Date.now())),nombre:String(t.nombre).trim(),descripcion:String(t.descripcion||''),moneda:CONTA_MONEDAS.includes(t.moneda)?t.moneda:'CRC',lineas:(Array.isArray(t.lineas)?t.lineas:[]).filter(l=>l&&l.cuenta).map(l=>({cuenta:String(l.cuenta),debe:num(l.debe)||0,haber:num(l.haber)||0})),periodica:!!t.periodica,dia:Math.min(28,Math.max(1,parseInt(t.dia||1,10)||1)),desde:String(t.desde||'').slice(0,7),hasta:String(t.hasta||'').slice(0,7),hechos:(t.hechos&&typeof t.hechos==='object')?t.hechos:{}}));}
+function _normContaPlantillas(arr){return (Array.isArray(arr)?arr:[]).filter(t=>t&&t.nombre).map(t=>({id:String(t.id||('pl_'+Date.now())),nombre:String(t.nombre).trim(),descripcion:String(t.descripcion||''),moneda:CONTA_MONEDAS.includes(t.moneda)?t.moneda:'CRC',lineas:(Array.isArray(t.lineas)?t.lineas:[]).filter(l=>l&&l.cuenta).map(l=>({cuenta:String(l.cuenta),debe:num(l.debe)||0,haber:num(l.haber)||0})),centro:String(t.centro||''),periodica:!!t.periodica,dia:Math.min(28,Math.max(1,parseInt(t.dia||1,10)||1)),desde:String(t.desde||'').slice(0,7),hasta:String(t.hasta||'').slice(0,7),hechos:(t.hechos&&typeof t.hechos==='object')?t.hechos:{}}));}
 function contaPlantillas(){return _normContaPlantillas(getConfig().contaPlantillas);}
 function contaPlantilla(id){return contaPlantillas().find(t=>t.id===id)||null;}
 function contaGuardarPlantilla(t){
@@ -2241,18 +2269,18 @@ function contaBorradoresPendientes(){return getContaBorradores().filter(b=>b&&b.
 function contaPuedeAprobar(){return (typeof soyMaestro==='function'&&soyMaestro())||tienePermiso('contabilidad.aprobar');}
 function contaRequiereAprobacion(){return !!getConfig().contaRequiereAprobacion;}
 function contaCrearBorrador(o){
-    const b={id:'bor_'+Date.now()+'_'+Math.random().toString(36).slice(2,6),fecha:String(o.fecha||'').slice(0,10),descripcion:String(o.descripcion||'').trim(),moneda:o.moneda||'CRC',tc:num(o.tc)||1,lineas:(o.lineas||[]).map(l=>Object.assign({},l)),origen:o.origen||'manual',plantillaId:String(o.plantillaId||''),periodo:String(o.periodo||''),lineaBancoId:String(o.lineaBancoId||''),estado:'pendiente',creadoPor:(window.currentUser&&window.currentUser.email)||'',creadoTs:Date.now(),resueltoPor:'',resueltoTs:0,motivo:'',asientoId:''};
+    const b={id:'bor_'+Date.now()+'_'+Math.random().toString(36).slice(2,6),fecha:String(o.fecha||'').slice(0,10),descripcion:String(o.descripcion||'').trim(),moneda:o.moneda||'CRC',tc:num(o.tc)||1,lineas:(o.lineas||[]).map(l=>Object.assign({},l)),origen:o.origen||'manual',plantillaId:String(o.plantillaId||''),periodo:String(o.periodo||''),lineaBancoId:String(o.lineaBancoId||''),centro:String(o.centro||''),estado:'pendiente',creadoPor:(window.currentUser&&window.currentUser.email)||'',creadoTs:Date.now(),resueltoPor:'',resueltoTs:0,motivo:'',asientoId:''};
     const arr=getContaBorradores().map(x=>Object.assign({},x));arr.push(b);saveContaBorradores(arr);
     if(b.plantillaId&&b.periodo)contaMarcarPeriodico(b.plantillaId,b.periodo,b.id);
     try{crearNotificacion({paraPermiso:'contabilidad.aprobar',titulo:'Asiento preliminar para aprobar',detalle:fmtFechaCorta(b.fecha)+' · '+b.descripcion+' · '+fmtCRC2(b.lineas.reduce((s,l)=>s+num(l.debe),0))+' · de '+b.creadoPor,origen:'conta_borrador',refId:b.id});}catch(e){}
     _contaBitacora('Dejó el asiento preliminar "'+b.descripcion+'" para aprobar');
     return b;
 }
-function contaActualizarBorrador(id,o){const arr=getContaBorradores().map(x=>Object.assign({},x));const b=arr.find(x=>x.id===id);if(!b||b.estado!=='pendiente')return null;Object.assign(b,{fecha:String(o.fecha||b.fecha).slice(0,10),descripcion:String(o.descripcion||b.descripcion).trim(),moneda:o.moneda||b.moneda,tc:num(o.tc)||b.tc,lineas:(o.lineas||b.lineas).map(l=>Object.assign({},l)),editadoPor:(window.currentUser&&window.currentUser.email)||'',editadoTs:Date.now()});saveContaBorradores(arr);return b;}
+function contaActualizarBorrador(id,o){const arr=getContaBorradores().map(x=>Object.assign({},x));const b=arr.find(x=>x.id===id);if(!b||b.estado!=='pendiente')return null;Object.assign(b,{fecha:String(o.fecha||b.fecha).slice(0,10),descripcion:String(o.descripcion||b.descripcion).trim(),moneda:o.moneda||b.moneda,tc:num(o.tc)||b.tc,lineas:(o.lineas||b.lineas).map(l=>Object.assign({},l)),centro:o.centro!=null?String(o.centro):(b.centro||''),editadoPor:(window.currentUser&&window.currentUser.email)||'',editadoTs:Date.now()});saveContaBorradores(arr);return b;}
 function contaAprobarBorrador(id){
     if(!contaPuedeAprobar()){alert('No tenés permiso para aprobar asientos preliminares.');return null;}
     const b=getContaBorradores().find(x=>x&&x.id===id);if(!b||b.estado!=='pendiente'){alert('Ese asiento preliminar ya fue resuelto.');return null;}
-    const a=contaRegistrarAsiento({fecha:b.fecha,descripcion:b.descripcion,origen:b.origen==='periodico'?'periodico':'manual',refId:b.plantillaId||'',subRef:b.periodo||'',lineas:b.lineas});
+    const a=contaRegistrarAsiento({fecha:b.fecha,descripcion:b.descripcion,origen:b.origen==='periodico'?'periodico':'manual',refId:b.plantillaId||'',subRef:b.periodo||'',centro:b.centro||'',lineas:b.lineas});
     if(!a)return null;
     const arr=getContaBorradores().map(x=>Object.assign({},x));const b2=arr.find(x=>x.id===id);Object.assign(b2,{estado:'aprobado',resueltoPor:(window.currentUser&&window.currentUser.email)||'',resueltoTs:Date.now(),asientoId:a.id});saveContaBorradores(arr);
     if(b.plantillaId&&b.periodo)contaMarcarPeriodico(b.plantillaId,b.periodo,a.id);
@@ -2297,12 +2325,15 @@ function contaRegistrarDoc(o){
     if(contaFechaBloqueada(fecha)){alert('El mes de esa fecha está cerrado en Contabilidad.');return null;}
     const conv=o.tc>0?{crc:_contaRound(monto*o.tc),tc:num(o.tc)}:contaACRC(monto,moneda,fecha);
     if(!(conv.crc>0)){alert('No hay tipo de cambio para esa fecha. Cargalo en Contabilidad → Tipo de cambio.');return null;}
+    const ivaPct=Math.max(0,Math.min(13,num(o.ivaPct)||0));const ivaCRC=ivaPct>0?_contaRound(conv.crc-conv.crc/(1+ivaPct/100)):0;const baseCRC=_contaRound(conv.crc-ivaCRC);
+    const ctaIva=contaCfg().mapeo.ivaPorRecuperar;if(ivaCRC>0&&!contaCuenta(ctaIva)){alert('No existe la cuenta de IVA por recuperar ('+ctaIva+'). Revisá Configuración → Contabilidad.');return null;}
     const prov=o.proveedorId?contaProveedor(o.proveedorId):null;
-    const d={id:'cd_'+Date.now()+'_'+Math.random().toString(36).slice(2,6),tipo,fecha,proveedorId:prov?prov.id:'',proveedorNombre:prov?prov.nombre:String(o.proveedorNombre||''),numero:String(o.numero||'').trim(),descripcion:String(o.descripcion||'').trim(),moneda,monto,tc:conv.tc,montoCRC:conv.crc,cuentaGasto:o.cuentaGasto,cuentaCxP:tipo==='factura'?o.cuentaCxP:'',cuentaBanco:tipo==='gasto'?o.cuentaBanco:'',ventaId:String(o.ventaId||''),ventaEtiqueta:String(o.ventaEtiqueta||''),vence:tipo==='factura'?String(o.vence||'').slice(0,10):'',estado:tipo==='gasto'?'pagada':'pendiente',pagos:[],asientoId:'',adjunto:o.adjunto||'',creadoPor:(window.currentUser&&window.currentUser.email)||'',creadoTs:Date.now()};
+    const d={id:'cd_'+Date.now()+'_'+Math.random().toString(36).slice(2,6),tipo,fecha,proveedorId:prov?prov.id:'',proveedorNombre:prov?prov.nombre:String(o.proveedorNombre||''),numero:String(o.numero||'').trim(),descripcion:String(o.descripcion||'').trim(),moneda,monto,tc:conv.tc,montoCRC:conv.crc,cuentaGasto:o.cuentaGasto,cuentaCxP:tipo==='factura'?o.cuentaCxP:'',cuentaBanco:tipo==='gasto'?o.cuentaBanco:'',ventaId:String(o.ventaId||''),ventaEtiqueta:String(o.ventaEtiqueta||''),centro:CONTA_CENTROS.some(x=>x[0]===o.centro)?o.centro:'',ivaPct,ivaCRC,baseCRC,vence:tipo==='factura'?String(o.vence||'').slice(0,10):'',estado:tipo==='gasto'?'pagada':'pendiente',pagos:[],asientoId:'',adjunto:o.adjunto||'',creadoPor:(window.currentUser&&window.currentUser.email)||'',creadoTs:Date.now()};
     const quien=(d.proveedorNombre?d.proveedorNombre+' · ':'')+(d.descripcion||(tipo==='factura'?'Factura':'Gasto'))+(d.numero?' · fact. '+d.numero:'')+(d.ventaEtiqueta?' · '+d.ventaEtiqueta:'');
     const contra=tipo==='factura'?d.cuentaCxP:d.cuentaBanco;
     const a=contaRegistrarAsiento({fecha,origen:tipo==='factura'?'proveedor':'gasto',refId:d.id,silencioso:false,descripcion:(tipo==='factura'?'Factura de proveedor · ':'Gasto · ')+quien,
-        lineas:[{cuenta:d.cuentaGasto,debe:conv.crc,haber:0,moneda,montoOrig:monto,tc:conv.tc,detalle:tipo==='factura'?'Costo o gasto':'Gasto'},{cuenta:contra,debe:0,haber:conv.crc,moneda,montoOrig:monto,tc:conv.tc,detalle:tipo==='factura'?'Por pagar a '+(d.proveedorNombre||'proveedor'):'Salida de '+contaCuentaNombre(contra)}]});
+        centro:d.centro||'',
+        lineas:[{cuenta:d.cuentaGasto,debe:baseCRC,haber:0,moneda,montoOrig:ivaCRC>0?_contaRound(baseCRC/conv.tc):monto,tc:conv.tc,detalle:(tipo==='factura'?'Costo o gasto':'Gasto')+(ivaCRC>0?' (sin IVA)':'')}].concat(ivaCRC>0?[{cuenta:ctaIva,debe:ivaCRC,haber:0,moneda,montoOrig:_contaRound(ivaCRC/conv.tc),tc:conv.tc,detalle:'IVA acreditable '+ivaPct+' %'}]:[]).concat([{cuenta:contra,debe:0,haber:conv.crc,moneda,montoOrig:monto,tc:conv.tc,detalle:tipo==='factura'?'Por pagar a '+(d.proveedorNombre||'proveedor'):'Salida de '+contaCuentaNombre(contra)}])});
     if(!a)return null;
     d.asientoId=a.id;
     const arr=getContaDocs().map(x=>Object.assign({},x));arr.push(d);saveContaDocs(arr);
@@ -2367,7 +2398,7 @@ function contaMargenVenta(v){
     const fi=String(v.fechaInicio||'').slice(0,10)||_hitoHoyISO();
     const ingresoCRC=contaACRC(total,moneda,fi).crc;
     const docs=getContaDocs().filter(d=>d&&d.estado!=='anulada'&&d.ventaId===v.id);
-    const costosCRC=_contaRound(docs.reduce((s,d)=>s+(num(d.montoCRC)||0),0));
+    const costosCRC=_contaRound(docs.reduce((s,d)=>s+(num(d.baseCRC)||num(d.montoCRC)||0),0));
     const margen=_contaRound(ingresoCRC-costosCRC);
     return {moneda,total,ingresoCRC,costosCRC,margen,pct:ingresoCRC>0?Math.round(margen/ingresoCRC*1000)/10:null,docs};
 }
@@ -2529,6 +2560,18 @@ function contaBalance(hasta){
     const tA=_contaSumaTipo(s,'activo'),tP=_contaSumaTipo(s,'pasivo'),tPat=_contaSumaTipo(s,'patrimonio');
     const util=_contaRound(_contaSumaTipo(s,'ingreso')-_contaSumaTipo(s,'costo')-_contaSumaTipo(s,'gasto'));
     return {hasta,activos:act,pasivos:pas,patrimonio:pat,totalActivo:tA,totalPasivo:tP,totalPatrimonio:tPat,utilidadNoCerrada:util,totalPasivoPatrimonio:_contaRound(tP+tPat+util),cuadra:Math.abs(tA-(tP+tPat+util))<0.01};
+}
+// Reporte de IVA del rango: movimientos en las cuentas de IVA por pagar (débito fiscal) y por recuperar (crédito fiscal)
+function contaReporteIVA(desde,hasta){
+    const mp=contaCfg().mapeo;const cp=mp.ivaPorPagar,cr=mp.ivaPorRecuperar;const movs=[];let cobrado=0,pagado=0,ajustesP=0,ajustesR=0;
+    getContaAsientos().forEach(a=>{if(!a||!Array.isArray(a.lineas)||a.fecha<desde||a.fecha>hasta)return;a.lineas.forEach(l=>{if(l.cuenta!==cp&&l.cuenta!==cr)return;
+        const esP=l.cuenta===cp;const monto=esP?_contaRound(l.haber-l.debe):_contaRound(l.debe-l.haber);
+        if(esP){if(monto>=0)cobrado+=monto;else ajustesP+=monto;}else{if(monto>=0)pagado+=monto;else ajustesR+=monto;}
+        movs.push({a,l,tipo:esP?'IVA cobrado':'IVA pagado',monto});});});
+    const ini=contaSaldos('',_addDiasISO(desde,-1));const saldoIniP=(ini[cp]||{}).saldo||0,saldoIniR=(ini[cr]||{}).saldo||0;
+    cobrado=_contaRound(cobrado);pagado=_contaRound(pagado);ajustesP=_contaRound(ajustesP);ajustesR=_contaRound(ajustesR);
+    const neto=_contaRound((cobrado+ajustesP)-(pagado+ajustesR));
+    return {desde,hasta,cuentaPagar:cp,cuentaRecuperar:cr,cobrado,pagado,ajustesP,ajustesR,neto,saldoIniP,saldoIniR,saldoFinP:_contaRound(saldoIniP+cobrado+ajustesP),saldoFinR:_contaRound(saldoIniR+pagado+ajustesR),movs:movs.sort((x,y)=>x.a.fecha.localeCompare(y.a.fecha)||(x.a.numero-y.a.numero))};
 }
 // Flujo de efectivo (método directo) sobre cuentas bancarias y cajas (activo 11xx)
 const CONTA_FLUJO_GRUPOS={cobro:'Cobros de clientes',pago_proveedor:'Pagos a proveedores',gasto:'Gastos pagados',manual:'Otros movimientos',ingreso_venta:'Otros movimientos',planilla:'Planilla',apertura:'Saldo inicial',revaluacion:'Revaluación cambiaria',reversion:'Reversiones',periodico:'Gastos periódicos',traspaso:'Traspasos entre cuentas',depreciacion:'Otros movimientos',cierre_anual:'Otros movimientos',proveedor:'Otros movimientos',activo_fijo:'Compra de activos fijos'};
@@ -6521,7 +6564,7 @@ function _contaDiarioHtml(p){
         return `<tr id="asRow_${esc(a.id)}" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'':'none'" style="cursor:pointer;${hl?'background:#fff8e1;box-shadow:inset 3px 0 0 #e6a700;':''}">
             <td style="white-space:nowrap;">${fmtFechaCorta(a.fecha)}</td><td style="white-space:nowrap;font-family:monospace;font-size:0.78rem;">${contaNumAsiento(a)} ${_contaEnlaceHtml(a)}</td><td>${esc(a.descripcion||'')} ${rev}${revLinks}</td><td>${_contaChipOrigen(a.origen)}</td>
             <td style="text-align:right;white-space:nowrap;">${_contaMontoOrigAsiento(a)}</td><td style="text-align:right;white-space:nowrap;">${fmtCRC2(a.totalDebe)}</td><td style="text-align:right;white-space:nowrap;">${fmtCRC2(a.totalHaber)}</td><td onclick="event.stopPropagation()">${acciones}</td></tr>
-            <tr style="display:${hl?'':'none'};background:var(--bg);"><td colspan="8" style="padding:4px 12px 8px;"><table style="width:100%;border-collapse:collapse;"><tbody>${det}</tbody></table><div style="font-size:0.7rem;color:var(--text-light);margin-top:4px;">Registrado por ${esc(a.creadoPor||'sistema')} el ${fmtFechaCorta(new Date(a.creadoTs||0).toISOString().slice(0,10))}${a.reversaDe?' · reversa un asiento anterior':''}</div></td></tr>`;
+            <tr style="display:${hl?'':'none'};background:var(--bg);"><td colspan="8" style="padding:4px 12px 8px;"><table style="width:100%;border-collapse:collapse;"><tbody>${det}</tbody></table><div style="font-size:0.7rem;color:var(--text-light);margin-top:4px;">Registrado por ${esc(a.creadoPor||'sistema')} el ${fmtFechaCorta(new Date(a.creadoTs||0).toISOString().slice(0,10))}${a.reversaDe?' · reversa un asiento anterior':''} · Centro de costo: ${esc(contaCentroNombre(contaCentroDe(a)))}${a.centro?'':' (autom\u00e1tico)'}</div></td></tr>`;
     }).join('');
     return tools+aviso+`<table class="list-table"><thead><tr><th>Fecha</th><th>Nº</th><th>Descripción</th><th>Origen</th><th style="text-align:right;">Monto original</th><th style="text-align:right;">Debe</th><th style="text-align:right;">Haber</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
 }
@@ -6633,8 +6676,8 @@ function contaRegistrarPeriodicosUI(){
     let ok=0,fallos=[];
     pend.forEach(x=>{const t=x.plantilla;const conv=_contaLineasDesdePlantilla(t,x.fecha);if(!(conv.tc>0)){fallos.push(t.nombre+' ('+x.periodo+'): sin tipo de cambio');return;}
         const desc=(t.descripcion||t.nombre)+' · '+labelMes(x.periodo);
-        if(directo){const a=contaRegistrarAsiento({fecha:x.fecha,descripcion:desc,origen:'periodico',refId:t.id,subRef:x.periodo,silencioso:true,lineas:conv.lineas});if(a){contaMarcarPeriodico(t.id,x.periodo,a.id);ok++;}else fallos.push(t.nombre+' ('+x.periodo+'): no se pudo registrar');}
-        else{contaCrearBorrador({fecha:x.fecha,descripcion:desc,moneda:t.moneda,tc:conv.tc,lineas:conv.lineas,origen:'periodico',plantillaId:t.id,periodo:x.periodo});ok++;}
+        if(directo){const a=contaRegistrarAsiento({fecha:x.fecha,descripcion:desc,origen:'periodico',refId:t.id,subRef:x.periodo,centro:t.centro||'',silencioso:true,lineas:conv.lineas});if(a){contaMarcarPeriodico(t.id,x.periodo,a.id);ok++;}else fallos.push(t.nombre+' ('+x.periodo+'): no se pudo registrar');}
+        else{contaCrearBorrador({fecha:x.fecha,descripcion:desc,moneda:t.moneda,tc:conv.tc,lineas:conv.lineas,origen:'periodico',plantillaId:t.id,periodo:x.periodo,centro:t.centro||''});ok++;}
     });
     if(ok)_contaBitacora((directo?'Registró ':'Dejó como preliminares ')+ok+' contabilización(es) periódica(s)');
     renderContabilidad();
@@ -6650,7 +6693,7 @@ function openPlantillaModal(id){
     ov.innerHTML=`<div class="modal" style="max-width:760px;"><div class="modal-header"><h3>${t?'Editar plantilla':'Nueva plantilla de contabilizaci\u00f3n'}</h3><button class="modal-close" onclick="closeModal('modalAsiento')">&times;</button></div>
     <div class="modal-body"><input type="hidden" id="plId" value="${esc(t?t.id:'')}">
         <div class="form-row"><div class="form-group"><label>Nombre</label><input type="text" id="plNombre" value="${esc(t?t.nombre:'')}" placeholder="Ej: Alquiler de oficina"></div><div class="form-group"><label>Moneda de los montos</label><select id="plMoneda" onchange="_plRender()"><option value="CRC"${(!t||t.moneda==='CRC')?' selected':''}>Colones (₡)</option><option value="USD"${t&&t.moneda==='USD'?' selected':''}>D\u00f3lares ($)</option><option value="EUR"${t&&t.moneda==='EUR'?' selected':''}>Euros (€)</option></select></div></div>
-        <div class="form-group"><label>Descripci\u00f3n del asiento</label><input type="text" id="plDesc" value="${esc(t?t.descripcion:'')}" placeholder="Ej: Alquiler de oficina"></div>
+        <div class="form-row"><div class="form-group" style="flex:2;"><label>Descripci\u00f3n del asiento</label><input type="text" id="plDesc" value="${esc(t?t.descripcion:'')}" placeholder="Ej: Alquiler de oficina"></div><div class="form-group"><label>Centro de costo</label>${_contaSelectCentro('plCentro',t?(t.centro||''):'')}</div></div>
         <div id="plLineasBox"></div>
         <button type="button" class="btn btn-sm btn-ghost" onclick="_plLineas.push({cuenta:'',debe:'',haber:''});_plRender()">+ L\u00ednea</button>
         <div id="plTotales" style="margin-top:8px;font-size:0.85rem;"></div>
@@ -6679,7 +6722,7 @@ function guardarPlantillaUI(){
     const periodica=!!g('plPeriodica').checked;
     if(periodica){const d=lineas.reduce((s,l)=>s+l.debe,0),h=lineas.reduce((s,l)=>s+l.haber,0);if(!(d>0)||Math.abs(d-h)>0.005){alert('Una plantilla periódica necesita montos fijos que cuadren (Debe = Haber), porque se registra sola cada mes.');return;}}
     const prev=contaPlantilla(g('plId').value);
-    contaGuardarPlantilla({id:g('plId').value||'',nombre,descripcion:(g('plDesc').value||'').trim(),moneda:g('plMoneda').value,lineas,periodica,dia:parseInt(g('plDia').value||'1',10)||1,desde:g('plDesde').value||'',hasta:g('plHasta').value||'',hechos:prev?prev.hechos:{}});
+    contaGuardarPlantilla({id:g('plId').value||'',nombre,descripcion:(g('plDesc').value||'').trim(),moneda:g('plMoneda').value,centro:g('plCentro').value||'',lineas,periodica,dia:parseInt(g('plDia').value||'1',10)||1,desde:g('plDesde').value||'',hasta:g('plHasta').value||'',hechos:prev?prev.hechos:{}});
     closeModal('modalAsiento');_contaTab='plantillas';renderContabilidad();
 }
 // --- Estado de cuenta por socio de negocios (cliente o proveedor), como el "Saldo de cuenta" de SAP ---
@@ -6831,7 +6874,7 @@ function openAsientoModal(opts){
     <div class="modal-body">
         ${bor?`<div style="background:#fff8e1;border-radius:8px;padding:6px 10px;font-size:0.78rem;margin-bottom:8px;">Preliminar creado por ${esc(bor.creadoPor||'-')} el ${fmtFechaCorta(new Date(bor.creadoTs||0).toISOString().slice(0,10))}. Los cambios se guardan en el preliminar; entra a los libros cuando se aprueba.</div>`:''}
         <div class="form-row"><div class="form-group"><label>Fecha</label><input type="date" id="asFecha" value="${esc(fecha)}" onchange="_asRender()"></div><div class="form-group"><label>Moneda de los montos</label><select id="asMoneda" onchange="document.getElementById('asTC').value='';_asRender()"><option value="CRC"${moneda==='CRC'?' selected':''}>Colones (₡)</option><option value="USD"${moneda==='USD'?' selected':''}>Dólares ($)</option><option value="EUR"${moneda==='EUR'?' selected':''}>Euros (€)</option></select></div><div class="form-group"><label>Tipo de cambio</label><input type="number" step="0.01" id="asTC" value="${esc(String(tc||''))}" onchange="_asRender()"></div></div>
-        <div class="form-group"><label>Descripción</label><input type="text" id="asDesc" value="${esc(desc)}" placeholder="Ej: Pago de alquiler de setiembre"></div>
+        <div class="form-row"><div class="form-group" style="flex:2;"><label>Descripción</label><input type="text" id="asDesc" value="${esc(desc)}" placeholder="Ej: Pago de alquiler de setiembre"></div><div class="form-group"><label>Centro de costo</label>${_contaSelectCentro('asCentro',bor?(bor.centro||''):(pl?(pl.centro||''):''))}</div></div>
         <div id="asLineasBox"></div>
         <button type="button" class="btn btn-sm btn-ghost" onclick="_asLineas.push({cuenta:'',debe:'',haber:''});_asRender()">+ Línea</button>
         <div id="asTotales" style="margin-top:10px;font-size:0.85rem;"></div>
@@ -6869,7 +6912,7 @@ function _asLeer(){
     if(lineas.length<2){alert('Un asiento necesita al menos dos líneas con monto.');return null;}
     const td=_contaRound(lineas.reduce((s,l)=>s+l.debe,0)),th=_contaRound(lineas.reduce((s,l)=>s+l.haber,0));
     if(Math.abs(td-th)>0.01){alert('El asiento no cuadra: Debe '+fmtCRC2(td)+' vs Haber '+fmtCRC2(th)+'.');return null;}
-    return {fecha,moneda:m,tc,descripcion:desc,lineas};
+    return {fecha,moneda:m,tc,descripcion:desc,lineas,centro:(document.getElementById('asCentro')||{}).value||''};
 }
 // modo: undefined = registrar directo · 'borrador' = guardar/actualizar preliminar · 'aprobar' = aprobar el preliminar con los cambios
 function guardarAsientoManual(modo){
@@ -6884,7 +6927,7 @@ function guardarAsientoManual(modo){
         closeModal('modalAsiento');renderContabilidad();
         alert('Quedó guardado como asiento preliminar. Entra a los libros cuando alguien con permiso lo apruebe (Finanzas → Asientos preliminares).');return;
     }
-    const a=contaRegistrarAsiento({fecha:d.fecha,descripcion:d.descripcion,origen:_asCtx.plantillaId?'periodico':'manual',refId:_asCtx.plantillaId||'',subRef:_asCtx.periodo||'',lineas:d.lineas});
+    const a=contaRegistrarAsiento({fecha:d.fecha,descripcion:d.descripcion,origen:_asCtx.plantillaId?'periodico':'manual',refId:_asCtx.plantillaId||'',subRef:_asCtx.periodo||'',centro:d.centro,lineas:d.lineas});
     if(!a)return;
     if(_asCtx.plantillaId&&_asCtx.periodo)contaMarcarPeriodico(_asCtx.plantillaId,_asCtx.periodo,a.id);
     if(window._asLinea){contaConciliarLinea(window._asLinea,a.id,'creado');window._asLinea='';}
@@ -6896,7 +6939,7 @@ function guardarAsientoComoPlantilla(){
     const lineas=_asLineas.filter(l=>l.cuenta).map(l=>({cuenta:l.cuenta,debe:parseFloat(l.debe)||0,haber:parseFloat(l.haber)||0}));
     if(lineas.length<2){alert('La plantilla necesita al menos dos líneas con cuenta.');return;}
     const nombre=prompt('Nombre de la plantilla:',desc||'');if(!nombre||!nombre.trim())return;
-    const id=contaGuardarPlantilla({nombre:nombre.trim(),descripcion:desc,moneda:m,lineas,periodica:false,dia:1,desde:'',hasta:'',hechos:{}});
+    const id=contaGuardarPlantilla({nombre:nombre.trim(),descripcion:desc,moneda:m,centro:(document.getElementById('asCentro')||{}).value||'',lineas,periodica:false,dia:1,desde:'',hasta:'',hechos:{}});
     alert('Plantilla guardada. Podés hacerla periódica desde Finanzas → Plantillas y periódicos.');
     if(_contaTab==='plantillas')renderContabilidad();return id;
 }
@@ -6920,7 +6963,7 @@ function _collectContaFromDOM(){
     const cont=document.getElementById('cfgContaCuentasList');if(!cont)return null;
     const cuentas=Array.from(cont.querySelectorAll('.cfg-cta')).map(d=>({codigo:(d.querySelector('.cfg-cta-codigo')?.value||'').trim(),nombre:(d.querySelector('.cfg-cta-nombre')?.value||'').trim(),tipo:d.querySelector('.cfg-cta-tipo')?.value||'gasto',moneda:d.querySelector('.cfg-cta-moneda')?.value||'',titulo:!!d.querySelector('.cfg-cta-titulo')?.checked})).filter(c=>c.codigo&&c.nombre);
     const g=id=>document.getElementById(id)?.value||'';
-    const mapeo={bancoPorMetodo:{},cxcClientes:g('cfgMapCxc'),anticiposClientes:g('cfgMapAnt'),ingresoPorTipo:{},planilla:{salarios:g('cfgMapPlSal'),cargas:g('cfgMapPlCar'),ccssPorPagar:g('cfgMapPlCcss'),rentaPorPagar:g('cfgMapPlRenta'),otrasDedPorPagar:g('cfgMapPlOtras'),salariosPorPagar:g('cfgMapPlNeto')},cargaPatronalPct:parseFloat(g('cfgContaPatronal'))||0,difCambGanancia:g('cfgMapDifG'),difCambPerdida:g('cfgMapDifP')};
+    const mapeo={bancoPorMetodo:{},cxcClientes:g('cfgMapCxc'),anticiposClientes:g('cfgMapAnt'),ingresoPorTipo:{},planilla:{salarios:g('cfgMapPlSal'),cargas:g('cfgMapPlCar'),ccssPorPagar:g('cfgMapPlCcss'),rentaPorPagar:g('cfgMapPlRenta'),otrasDedPorPagar:g('cfgMapPlOtras'),salariosPorPagar:g('cfgMapPlNeto')},cargaPatronalPct:parseFloat(g('cfgContaPatronal'))||0,difCambGanancia:g('cfgMapDifG'),difCambPerdida:g('cfgMapDifP'),ivaPorPagar:g('cfgMapIvaP'),ivaPorRecuperar:g('cfgMapIvaR')};
     document.querySelectorAll('#cfgContaBancos [data-metodo]').forEach(row=>{const k=row.getAttribute('data-metodo');mapeo.bancoPorMetodo[k]={};CONTA_MONEDAS.forEach(m=>{const s=row.querySelector('select[data-moneda="'+m+'"]');if(s)mapeo.bancoPorMetodo[k][m]=s.value;});});
     document.querySelectorAll('#cfgContaIngresos select[data-tipo]').forEach(s=>{mapeo.ingresoPorTipo[s.getAttribute('data-tipo')]=s.value;});
     return {cuentas,mapeo,fechaInicio:g('cfgContaInicio'),requiereAprobacion:!!document.getElementById('cfgContaAprob')?.checked};
@@ -6950,6 +6993,8 @@ function renderConfigContabilidad(){
         <label style="display:flex;align-items:center;gap:6px;margin:0;"><span style="min-width:150px;">Salarios por pagar (neto)</span><span id="wrapPlNeto"></span></label>
         <label style="display:flex;align-items:center;gap:6px;margin:0;"><span style="min-width:150px;">Ganancia cambiaria</span><span id="wrapDifG"></span></label>
         <label style="display:flex;align-items:center;gap:6px;margin:0;"><span style="min-width:150px;">Pérdida cambiaria</span><span id="wrapDifP"></span></label>
+        <label style="display:flex;align-items:center;gap:6px;margin:0;"><span style="min-width:150px;">IVA por pagar (cobrado)</span><span id="wrapIvaP"></span></label>
+        <label style="display:flex;align-items:center;gap:6px;margin:0;"><span style="min-width:150px;">IVA por recuperar (pagado)</span><span id="wrapIvaR"></span></label>
     </div>
     <h3 style="font-size:0.95rem;margin:14px 0 6px;color:var(--primary-dark);">Plan de cuentas</h3>
     <p class="config-hint">Código, nombre, tipo y moneda (Mixta = admite cualquier moneda). Las cuentas marcadas como <strong>Título</strong> solo agrupan (por ejemplo 11 &middot; Efectivo y bancos agrupa a 1101, 1110&hellip;) y no admiten movimientos; el plan se ve en &aacute;rbol en Contabilidad &rarr; Finanzas &rarr; Plan de cuentas. Cambiar el código de una cuenta con movimientos deja huérfanos esos asientos: mejor agregar una cuenta nueva.</p>
@@ -6962,6 +7007,7 @@ function renderConfigContabilidad(){
     put('wrapAnt','cfgMapAnt',mp.anticiposClientes,pasivos);put('wrapCxc','cfgMapCxc',mp.cxcClientes,activos);
     put('wrapPlSal','cfgMapPlSal',mp.planilla.salarios,gastos);put('wrapPlCar','cfgMapPlCar',mp.planilla.cargas,gastos);put('wrapPlCcss','cfgMapPlCcss',mp.planilla.ccssPorPagar,pasivos);put('wrapPlRenta','cfgMapPlRenta',mp.planilla.rentaPorPagar,pasivos);put('wrapPlOtras','cfgMapPlOtras',mp.planilla.otrasDedPorPagar,pasivos);put('wrapPlNeto','cfgMapPlNeto',mp.planilla.salariosPorPagar,pasivos);
     put('wrapDifG','cfgMapDifG',mp.difCambGanancia,ingresos);put('wrapDifP','cfgMapDifP',mp.difCambPerdida,gastos);
+    put('wrapIvaP','cfgMapIvaP',mp.ivaPorPagar,pasivos);put('wrapIvaR','cfgMapIvaR',mp.ivaPorRecuperar,activos);
     initDrag(pane.querySelector('#cfgContaCuentasList'));
 }
 
@@ -7052,6 +7098,7 @@ function openContaDocModal(o){
         <div class="form-group"><label>Venta a la que pertenece</label><select id="cdVenta" onchange="_cdVentaChange()">${_contaVentaOpciones(o.ventaId||'')}</select></div>
         <div class="form-row"><div class="form-group"><label>Moneda</label><select id="cdMoneda" onchange="_cdTC()"><option value="USD"${(v&&v.cobranza&&v.cobranza.moneda==='USD')||(!v&&tipo==='factura')?' selected':''}>Dólares ($)</option><option value="CRC"${(v&&v.cobranza&&v.cobranza.moneda==='CRC')||(!v&&tipo==='gasto')?' selected':''}>Colones (₡)</option><option value="EUR"${(v&&v.cobranza&&v.cobranza.moneda==='EUR')?' selected':''}>Euros (€)</option></select></div><div class="form-group"><label>Monto</label><input type="number" step="0.01" id="cdMonto" oninput="_cdTotal()"></div><div class="form-group"><label>Tipo de cambio</label><input type="number" step="0.01" id="cdTC" oninput="_cdTotal()"></div></div>
         <div id="cdTotal" style="font-size:0.8rem;color:var(--text-light);margin:-4px 0 10px;"></div>
+        <div class="form-row"><div class="form-group"><label>IVA acreditable incluido</label><select id="cdIva" onchange="_cdTotal()"><option value="0">Sin IVA acreditable</option><option value="13">13 % (tarifa general)</option><option value="4">4 %</option><option value="2">2 %</option><option value="1">1 %</option></select><div style="font-size:0.72rem;color:var(--text-light);margin-top:2px;">Solo si el contador acredita ese IVA. El monto ingresado es el total con IVA; se separa solo.</div></div><div class="form-group"><label>Centro de costo</label>${_contaSelectCentro('cdCentro',o.centro||'')}<div style="font-size:0.72rem;color:var(--text-light);margin-top:2px;">Autom&aacute;tico: la l&iacute;nea de negocio de la venta, o Administraci&oacute;n.</div></div></div>
         <div class="form-row"><div class="form-group"><label>Cuenta de ${tipo==='factura'?'costo o gasto':'gasto'}</label>${_contaSelectCuentas('cdCuentaGasto',tipo==='factura'?'5101':'6290',['costo','gasto'])}</div>${tipo==='factura'?`<div class="form-group"><label>Cuenta por pagar</label>${_contaSelectCuentas('cdCuentaCxP','2105',['pasivo'])}</div>`:`<div class="form-group"><label>Pagado desde</label>${_contaSelectCuentas('cdCuentaBanco','1110',['activo'])}</div>`}</div>
         <div class="form-group"><label>Comprobante (imagen o PDF, opcional)</label><input type="file" id="cdAdjunto" accept="image/*,application/pdf" onchange="_cdAdjuntoChange(this)"><div id="cdAdjuntoInfo" style="font-size:0.74rem;color:var(--text-light);"></div></div>
     </div>
@@ -7064,7 +7111,10 @@ function openContaDocModal(o){
 function _cdProvChange(){const p=contaProveedor(document.getElementById('cdProv').value);if(!p)return;const g=document.getElementById('cdCuentaGasto');if(g&&p.cuentaCosto&&contaCuenta(p.cuentaCosto))g.value=p.cuentaCosto;const x=document.getElementById('cdCuentaCxP');if(x&&p.cuentaCxP&&contaCuenta(p.cuentaCxP))x.value=p.cuentaCxP;}
 function _cdVentaChange(){const v=getVentas().find(x=>x.id===document.getElementById('cdVenta').value);if(v&&v.cobranza&&v.cobranza.moneda){document.getElementById('cdMoneda').value=v.cobranza.moneda;_cdTC();}}
 function _cdTC(){const m=document.getElementById('cdMoneda').value;const f=document.getElementById('cdFecha').value;const el=document.getElementById('cdTC');if(m==='CRC'){el.value='1';el.disabled=true;}else{el.disabled=false;const t=contaTCPara(f);el.value=m==='USD'?(t.usd||''):(t.eur||'');}_cdTotal();}
-function _cdTotal(){const m=document.getElementById('cdMoneda').value;const monto=parseFloat(document.getElementById('cdMonto').value)||0;const tc=parseFloat(document.getElementById('cdTC').value)||0;document.getElementById('cdTotal').innerHTML=m==='CRC'?'':(monto&&tc?'En colones: <strong>'+fmtCRC2(monto*tc)+'</strong>':(monto?'<span style="color:#a32d2d;">Falta el tipo de cambio de esa fecha.</span>':''));}
+function _cdTotal(){const m=document.getElementById('cdMoneda').value;const monto=parseFloat(document.getElementById('cdMonto').value)||0;const tc=m==='CRC'?1:(parseFloat(document.getElementById('cdTC').value)||0);const pct=parseFloat((document.getElementById('cdIva')||{}).value||'0')||0;const crc=monto*tc;const iva=pct>0&&crc?crc-crc/(1+pct/100):0;
+    let h=m==='CRC'?'':(monto&&tc?'En colones: <strong>'+fmtCRC2(crc)+'</strong>':(monto?'<span style="color:#a32d2d;">Falta el tipo de cambio de esa fecha.</span>':''));
+    if(iva>0)h+=(h?' · ':'')+'Base '+fmtCRC2(crc-iva)+' + IVA '+fmtCRC2(iva);
+    document.getElementById('cdTotal').innerHTML=h;}
 function _cdAdjuntoChange(inp){
     const f=inp.files&&inp.files[0];const info=document.getElementById('cdAdjuntoInfo');if(!f){_cdAdjunto='';info.textContent='';return;}
     if(f.type==='application/pdf'){if(f.size>3*1024*1024){alert('El PDF es muy pesado (máximo 3 MB).');inp.value='';return;}const rd=new FileReader();rd.onload=e=>{_cdAdjunto=e.target.result;info.textContent='PDF adjunto: '+f.name;};rd.readAsDataURL(f);return;}
@@ -7074,7 +7124,7 @@ function _cdAdjuntoChange(inp){
 function guardarContaDoc(){
     const g=id=>document.getElementById(id);const tipo=g('cdTipo').value;
     const ventaId=g('cdVenta').value;const v=ventaId?getVentas().find(x=>x.id===ventaId):null;
-    const d=contaRegistrarDoc({tipo,fecha:g('cdFecha').value,vence:g('cdVence')?g('cdVence').value:'',proveedorId:g('cdProv').value,numero:g('cdNumero').value,descripcion:g('cdDesc').value,ventaId,ventaEtiqueta:v?_contaVentaEtiqueta(v):'',moneda:g('cdMoneda').value,monto:parseFloat(g('cdMonto').value)||0,tc:parseFloat(g('cdTC').value)||0,cuentaGasto:g('cdCuentaGasto').value,cuentaCxP:g('cdCuentaCxP')?g('cdCuentaCxP').value:'',cuentaBanco:g('cdCuentaBanco')?g('cdCuentaBanco').value:'',adjunto:_cdAdjunto});
+    const d=contaRegistrarDoc({tipo,fecha:g('cdFecha').value,vence:g('cdVence')?g('cdVence').value:'',proveedorId:g('cdProv').value,numero:g('cdNumero').value,descripcion:g('cdDesc').value,ventaId,ventaEtiqueta:v?_contaVentaEtiqueta(v):'',moneda:g('cdMoneda').value,monto:parseFloat(g('cdMonto').value)||0,tc:parseFloat(g('cdTC').value)||0,cuentaGasto:g('cdCuentaGasto').value,cuentaCxP:g('cdCuentaCxP')?g('cdCuentaCxP').value:'',cuentaBanco:g('cdCuentaBanco')?g('cdCuentaBanco').value:'',ivaPct:parseFloat(g('cdIva')?g('cdIva').value:'0')||0,centro:g('cdCentro')?g('cdCentro').value:'',adjunto:_cdAdjunto});
     if(!d)return;
     if(window._cdLinea){const lnc=getContaBancos().find(y=>y.id===window._cdLinea);if(lnc){contaConciliarLinea(lnc.id,d.asientoId,'creado');const rc=document.getElementById('cdRegla');if(rc&&rc.checked)contaGuardarRegla(lnc.descripcion,d.cuentaGasto,d.proveedorId);}window._cdLinea='';}
     closeModal('modalContaDoc');
@@ -7094,6 +7144,7 @@ function verContaDoc(id){
             <div><span style="color:var(--text-light);">Monto</span><br><strong>${_contaFmtOrig(d.monto,d.moneda)}</strong> = ${fmtCRC2(d.montoCRC)} (TC ${num(d.tc).toLocaleString('es-CR',{minimumFractionDigits:2})})</div><div><span style="color:var(--text-light);">Estado</span><br>${esc(d.estado)}${d.tipo==='factura'?' · saldo '+_contaFmtOrig(contaDocSaldo(d),d.moneda):''}</div>
             <div><span style="color:var(--text-light);">Cuenta</span><br>${esc(contaCuentaNombre(d.cuentaGasto))}</div><div><span style="color:var(--text-light);">${d.tipo==='factura'?'Por pagar en':'Pagado desde'}</span><br>${esc(contaCuentaNombre(d.tipo==='factura'?d.cuentaCxP:d.cuentaBanco))}</div>
             <div><span style="color:var(--text-light);">Asiento contable</span><br>${d.asientoId?_contaLinkAsientoHtml(d.asientoId):'<span style="color:var(--text-light);">sin asiento</span>'}</div>
+            <div><span style="color:var(--text-light);">IVA acreditable</span><br>${num(d.ivaCRC)>0?esc(String(d.ivaPct))+' % · '+fmtCRC2(d.ivaCRC)+' (base '+fmtCRC2(d.baseCRC)+')':'<span style="color:var(--text-light);">no</span>'}</div><div><span style="color:var(--text-light);">Centro de costo</span><br>${esc(contaCentroNombre(d.centro||(d.ventaId?contaCentroDeVenta(getVentas().find(x=>x&&x.id===d.ventaId)):'admin')))}</div>
         </div>
         ${d.tipo==='factura'?`<h4 style="font-size:0.9rem;margin:8px 0 6px;">Pagos</h4>${pagos?`<table class="list-table"><thead><tr><th>Fecha</th><th style="text-align:right;">Monto</th><th style="text-align:right;">₡</th><th>Desde</th><th>Ref.</th><th></th></tr></thead><tbody>${pagos}</tbody></table>`:'<div style="color:var(--text-light);">Sin pagos todavía.</div>'}`:''}
         <h4 style="font-size:0.9rem;margin:12px 0 6px;">Comprobante</h4>${adj}
@@ -7319,12 +7370,29 @@ function openAsientoModalDesdeLinea(lineaId){
 }
 
 // ===== CONTABILIDAD fase 4: pantallas Reportes y Activos =====
-let _repTipo='resultados',_repAcum=false;
+let _repTipo='resultados',_repAcum=false,_repComp='';
+// Rango de comparación: mes anterior o mismo período del año anterior
+function _repRangoComp(p){
+    const r=_repRango(p);if(!_repComp)return null;
+    if(_repComp==='anio'){const y=parseInt(p.slice(0,4),10)-1;const d=(y)+r.desde.slice(4),h=(y)+r.hasta.slice(4);const hf=new Date(y,parseInt(h.slice(5,7),10),0).getDate();return {desde:d,hasta:h.slice(0,8)+String(Math.min(parseInt(h.slice(8,10),10),hf)).padStart(2,'0'),label:'mismo per\u00edodo de '+y};}
+    const y=parseInt(p.slice(0,4),10),m=parseInt(p.slice(5,7),10);const d=new Date(y,m-2,1);const pp=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');const rr=_contaRangoPeriodo(pp);return Object.assign(rr,{label:'mes anterior ('+pp+')'});
+}
+function _repPct(a,b){if(!b||Math.abs(b)<0.005)return '';const p=Math.round(((a-b)/Math.abs(b))*1000)/10;return (p>0?'+':'')+p.toLocaleString('es-CR')+' %';}
+function _repFilaComp(cod,nom,a,b,opts){opts=opts||{};const d=_contaRound(a-b);return `<tr style="${opts.strong?'font-weight:700;background:var(--bg);':''}"><td style="color:var(--text-light);${opts.indent?'padding-left:18px;':''}">${esc(cod||'')}</td><td style="${opts.indent?'padding-left:18px;':''}">${esc(nom)}</td><td style="text-align:right;">${fmtCRC2(a)}</td><td style="text-align:right;color:var(--text-light);">${fmtCRC2(b)}</td><td style="text-align:right;color:${d>0.005?'#0f6e56':(d<-0.005?'#a32d2d':'var(--text-light)')};">${fmtCRC2(d)}</td><td style="text-align:right;font-size:0.76rem;color:var(--text-light);">${_repPct(a,b)}</td></tr>`;}
+// Tabla comparativa agrupada por título: filasA (actual) y filasB (comparación) son [{codigo,nombre,saldo}]
+function _repTablaComp(filasA,filasB){
+    const map={};filasA.forEach(f=>{map[f.codigo]={codigo:f.codigo,nombre:f.nombre,a:f.saldo,b:0};});filasB.forEach(f=>{(map[f.codigo]||(map[f.codigo]={codigo:f.codigo,nombre:f.nombre,a:0,b:0})).b=f.saldo;});
+    const filas=Object.values(map).sort((x,y)=>x.codigo.localeCompare(y.codigo));const grupos=[];const idx={};
+    filas.forEach(f=>{const t=contaTituloDe(f.codigo);const k=t?t.codigo:'__';if(idx[k]==null){idx[k]=grupos.length;grupos.push({titulo:t,filas:[]});}grupos[idx[k]].filas.push(f);});
+    grupos.sort((x,y)=>String(x.titulo?x.titulo.codigo:'zz').localeCompare(String(y.titulo?y.titulo.codigo:'zz')));const conTitulo=grupos.some(g=>g.titulo);
+    return grupos.map(g=>{const cuerpo=g.filas.map(f=>_repFilaComp(f.codigo,f.nombre,f.a,f.b,{indent:conTitulo})).join('');if(!conTitulo)return cuerpo;const sa=_contaRound(g.filas.reduce((s,f)=>s+f.a,0)),sb=_contaRound(g.filas.reduce((s,f)=>s+f.b,0));return `<tr style="font-weight:600;"><td style="color:var(--text-light);">${g.titulo?esc(g.titulo.codigo):''}</td><td>${g.titulo?esc(g.titulo.nombre):'Sin t\u00edtulo'}</td><td style="text-align:right;">${fmtCRC2(sa)}</td><td style="text-align:right;color:var(--text-light);">${fmtCRC2(sb)}</td><td style="text-align:right;">${fmtCRC2(sa-sb)}</td><td style="text-align:right;font-size:0.76rem;color:var(--text-light);">${_repPct(sa,sb)}</td></tr>`+cuerpo;}).join('');
+}
+const _REP_TH_COMP=(lbl)=>`<th style="width:70px;">C\u00f3digo</th><th>Cuenta</th><th style="text-align:right;">Actual</th><th style="text-align:right;">${esc(lbl)}</th><th style="text-align:right;">Diferencia</th><th style="text-align:right;">%</th>`;
 function _repRango(p){const r=_contaRangoPeriodo(p);return _repAcum?{desde:p.slice(0,4)+'-01-01',hasta:r.hasta}:r;}
 function _repTabla(filas,neg){
     // Agrupa por título (árbol estilo SAP) con subtotal por grupo; si no hay títulos, lista plana
     const grupos=[];const idx={};
-    filas.forEach(f=>{const t=contaTituloDe(f.codigo);const k=t?t.codigo:'__';if(!idx[k]){idx[k]=grupos.length;grupos.push({titulo:t,filas:[]});}grupos[idx[k]].filas.push(f);});
+    filas.forEach(f=>{const t=contaTituloDe(f.codigo);const k=t?t.codigo:'__';if(idx[k]==null){idx[k]=grupos.length;grupos.push({titulo:t,filas:[]});}grupos[idx[k]].filas.push(f);});
     grupos.sort((a,b)=>String(a.titulo?a.titulo.codigo:'zz').localeCompare(String(b.titulo?b.titulo.codigo:'zz')));
     const conTitulo=grupos.some(g=>g.titulo);
     return grupos.map(g=>{
@@ -7338,8 +7406,9 @@ function _repFilaTotal(t,v,strong){return `<tr style="background:var(--bg);${str
 function _contaReportesHtml(p){
     const r=_repRango(p);
     const sel=`<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">
-        <select onchange="_repTipo=this.value;renderContabilidad()" style="padding:4px 8px;">${[['resultados','Estado de resultados'],['balance','Balance general'],['flujo','Flujo de efectivo'],['cxc','Cuentas por cobrar (detalle)'],['cxp','Cuentas por pagar (detalle)']].map(o=>`<option value="${o[0]}"${_repTipo===o[0]?' selected':''}>${o[1]}</option>`).join('')}</select>
-        ${(_repTipo==='resultados'||_repTipo==='flujo')?`<label style="display:flex;align-items:center;gap:4px;font-size:0.8rem;"><input type="checkbox" ${_repAcum?'checked':''} onchange="_repAcum=this.checked;renderContabilidad()"> Acumulado del año</label>`:''}
+        <select onchange="_repTipo=this.value;renderContabilidad()" style="padding:4px 8px;">${[['resultados','Estado de resultados'],['balance','Balance general'],['flujo','Flujo de efectivo'],['centros','Resultados por centro de costo'],['iva','Reporte de IVA'],['cxc','Cuentas por cobrar (detalle)'],['cxp','Cuentas por pagar (detalle)']].map(o=>`<option value="${o[0]}"${_repTipo===o[0]?' selected':''}>${o[1]}</option>`).join('')}</select>
+        ${(_repTipo==='resultados'||_repTipo==='flujo'||_repTipo==='centros'||_repTipo==='iva')?`<label style="display:flex;align-items:center;gap:4px;font-size:0.8rem;"><input type="checkbox" ${_repAcum?'checked':''} onchange="_repAcum=this.checked;renderContabilidad()"> Acumulado del año</label>`:''}
+        ${(_repTipo==='resultados'||_repTipo==='balance')?`<select onchange="_repComp=this.value;renderContabilidad()" style="padding:4px 8px;" title="Comparar contra otro per\u00edodo"><option value=""${!_repComp?' selected':''}>Sin comparar</option>${!_repAcum?`<option value="mes"${_repComp==='mes'?' selected':''}>vs. mes anterior</option>`:''}<option value="anio"${_repComp==='anio'?' selected':''}>vs. a\u00f1o anterior</option></select>`:''}
         <span style="flex:1;"></span><button class="btn btn-sm btn-ghost" onclick="contaExportarReporte()">&#128196; Excel</button><button class="btn btn-sm btn-ghost" onclick="contaImprimirReporte()">&#128424; Imprimir / PDF</button></div>`;
     return sel+`<div id="repCuerpo">${_repCuerpoHtml(p)}</div>`;
 }
@@ -7350,11 +7419,31 @@ function _repCuerpoHtml(p){
         const prevP=(function(){const y=parseInt(p.slice(0,4),10),m=parseInt(p.slice(5,7),10);const d=new Date(y,m-2,1);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');})();
         const pr=_contaRangoPeriodo(prevP);const ep=_repAcum?null:contaEstadoResultados(pr.desde,pr.hasta);
         const cmp=ep?`<div style="font-size:0.78rem;color:var(--text-light);margin-bottom:8px;">Mes anterior (${prevP}): ingresos ${fmtCRC2(ep.totalIngresos)} · utilidad ${fmtCRC2(ep.utilidad)}</div>`:'';
+        const rc=_repRangoComp(p);
+        if(rc&&(_repComp==='anio'||!_repAcum)){
+            const e2=contaEstadoResultados(rc.desde,rc.hasta);const sec=t=>`<tr><td colspan="6" style="font-weight:700;background:var(--teal-soft,#dff1f3);">${t}</td></tr>`;
+            return `<h3 style="margin:0 0 4px;color:var(--primary-dark);">Estado de resultados · ${titRango} <span style="font-size:0.8rem;font-weight:400;color:var(--text-light);">comparado con ${esc(rc.label)}</span></h3><table class="list-table"><thead><tr>${_REP_TH_COMP(rc.label)}</tr></thead><tbody>
+            ${sec('Ingresos')}${_repTablaComp(e.ingresos,e2.ingresos)}${_repFilaComp('','Total ingresos',e.totalIngresos,e2.totalIngresos,{strong:true})}
+            ${sec('Costos de los viajes')}${_repTablaComp(e.costos,e2.costos)}${_repFilaComp('','Total costos',e.totalCostos,e2.totalCostos,{strong:true})}${_repFilaComp('','Margen bruto',e.margenBruto,e2.margenBruto,{strong:true})}
+            ${sec('Gastos')}${_repTablaComp(e.gastos,e2.gastos)}${_repFilaComp('','Total gastos',e.totalGastos,e2.totalGastos,{strong:true})}
+            ${_repFilaComp('',(e.utilidad>=0?'Utilidad':'P\u00e9rdida')+' del per\u00edodo',e.utilidad,e2.utilidad,{strong:true})}</tbody></table>`;
+        }
         return `<h3 style="margin:0 0 4px;color:var(--primary-dark);">Estado de resultados · ${titRango}</h3>${cmp}<table class="list-table"><thead><tr><th style="width:70px;">Código</th><th>Cuenta</th><th style="text-align:right;">Colones</th></tr></thead><tbody>
         <tr><td colspan="3" style="font-weight:700;background:var(--teal-soft,#dff1f3);">Ingresos</td></tr>${_repTabla(e.ingresos)}${_repFilaTotal('Total ingresos',e.totalIngresos,true)}
         <tr><td colspan="3" style="font-weight:700;background:var(--teal-soft,#dff1f3);">Costos de los viajes</td></tr>${_repTabla(e.costos)}${_repFilaTotal('Total costos',e.totalCostos,true)}${_repFilaTotal('Margen bruto',e.margenBruto,true)}
         <tr><td colspan="3" style="font-weight:700;background:var(--teal-soft,#dff1f3);">Gastos</td></tr>${_repTabla(e.gastos)}${_repFilaTotal('Total gastos',e.totalGastos,true)}
         <tr style="font-weight:700;font-size:1rem;color:${e.utilidad>=0?'#0f6e56':'#a32d2d'};"><td colspan="2">${e.utilidad>=0?'Utilidad':'Pérdida'} del período</td><td style="text-align:right;">${fmtCRC2(e.utilidad)}</td></tr></tbody></table>`;
+    }
+    if(_repTipo==='balance'&&_repComp){
+        const rc=_repRangoComp(p);const b=contaBalance(r.hasta),b2=contaBalance(rc.hasta);
+        const tot=(t,a,bb)=>_repFilaComp('',t,a,bb,{strong:true});
+        return `<h3 style="margin:0 0 8px;color:var(--primary-dark);">Balance general al ${fmtFechaCorta(r.hasta)} <span style="font-size:0.8rem;font-weight:400;color:var(--text-light);">comparado con el ${fmtFechaCorta(rc.hasta)}</span></h3>
+        <table class="list-table"><thead><tr>${_REP_TH_COMP('Al '+fmtFechaCorta(rc.hasta))}</tr></thead><tbody>
+        <tr><td colspan="6" style="font-weight:700;background:var(--teal-soft,#dff1f3);">Activo</td></tr>${_repTablaComp(b.activos,b2.activos)}${tot('Total activo',b.totalActivo,b2.totalActivo)}
+        <tr><td colspan="6" style="font-weight:700;background:var(--teal-soft,#dff1f3);">Pasivo</td></tr>${_repTablaComp(b.pasivos,b2.pasivos)}${tot('Total pasivo',b.totalPasivo,b2.totalPasivo)}
+        <tr><td colspan="6" style="font-weight:700;background:var(--teal-soft,#dff1f3);">Patrimonio</td></tr>${_repTablaComp(b.patrimonio,b2.patrimonio)}${_repFilaComp('','Resultado del ejercicio (sin cerrar)',b.utilidadNoCerrada,b2.utilidadNoCerrada)}${tot('Total patrimonio',_contaRound(b.totalPatrimonio+b.utilidadNoCerrada),_contaRound(b2.totalPatrimonio+b2.utilidadNoCerrada))}
+        ${tot('Total pasivo + patrimonio',b.totalPasivoPatrimonio,b2.totalPasivoPatrimonio)}</tbody></table>
+        <div style="margin-top:8px;font-weight:700;color:${b.cuadra?'#0f6e56':'#a32d2d'};">${b.cuadra?'&#10003; Activo = Pasivo + Patrimonio':'&#9888; No cuadra: diferencia '+fmtCRC2(b.totalActivo-b.totalPasivoPatrimonio)}</div>`;
     }
     if(_repTipo==='balance'){
         const b=contaBalance(r.hasta);
@@ -7369,6 +7458,26 @@ function _repCuerpoHtml(p){
         <table class="list-table"><thead><tr><th>Concepto</th><th style="text-align:right;">Entradas</th><th style="text-align:right;">Salidas</th><th style="text-align:right;">Neto</th></tr></thead><tbody>${f.grupos.map(g=>`<tr><td>${esc(g.grupo)}</td><td style="text-align:right;">${fmtCRC2(g.entradas)}</td><td style="text-align:right;">${fmtCRC2(g.salidas)}</td><td style="text-align:right;font-weight:600;color:${g.neto>=0?'#0f6e56':'#a32d2d'};">${fmtCRC2(g.neto)}</td></tr>`).join('')||'<tr><td colspan="4" style="color:var(--text-light);text-align:center;">Sin movimientos</td></tr>'}<tr style="background:var(--bg);font-weight:700;"><td>Total</td><td style="text-align:right;">${fmtCRC2(f.totalEntradas)}</td><td style="text-align:right;">${fmtCRC2(f.totalSalidas)}</td><td style="text-align:right;">${fmtCRC2(f.neto)}</td></tr></tbody></table>
         <h4 style="margin:14px 0 6px;font-size:0.95rem;">Por cuenta</h4><table class="list-table"><thead><tr><th>Cuenta</th><th style="text-align:right;">Saldo inicial</th><th style="text-align:right;">Entradas</th><th style="text-align:right;">Salidas</th><th style="text-align:right;">Saldo final</th><th style="text-align:right;">En su moneda</th></tr></thead><tbody>${f.cuentas.filter(c=>c.inicial||c.entradas||c.salidas).map(c=>`<tr><td>${esc(c.cuenta.codigo+' · '+c.cuenta.nombre)}</td><td style="text-align:right;">${fmtCRC2(c.inicial)}</td><td style="text-align:right;">${fmtCRC2(c.entradas)}</td><td style="text-align:right;">${fmtCRC2(c.salidas)}</td><td style="text-align:right;font-weight:600;">${fmtCRC2(c.final)}</td><td style="text-align:right;">${c.cuenta.moneda&&c.cuenta.moneda!=='CRC'?_contaFmtOrig(c.finalOrig,c.cuenta.moneda):''}</td></tr>`).join('')}<tr style="background:var(--bg);font-weight:700;"><td>Total efectivo</td><td style="text-align:right;">${fmtCRC2(f.inicial)}</td><td style="text-align:right;">${fmtCRC2(f.totalEntradas)}</td><td style="text-align:right;">${fmtCRC2(f.totalSalidas)}</td><td style="text-align:right;">${fmtCRC2(f.final)}</td><td></td></tr></tbody></table>`;
     }
+    if(_repTipo==='centros'){
+        const rc=contaResultadosPorCentro(r.desde,r.hasta);const cs=rc.centros;
+        if(!cs.length)return `<h3 style="margin:0 0 8px;color:var(--primary-dark);">Resultados por centro de costo · ${titRango}</h3><div class="grid-empty"><p>Sin ingresos, costos ni gastos en el per\u00edodo.</p></div>`;
+        const th=`<th style="width:70px;">C\u00f3digo</th><th>Cuenta</th>${cs.map(id=>`<th style="text-align:right;">${esc(contaCentroNombre(id))}</th>`).join('')}<th style="text-align:right;">Total</th>`;
+        const cel=(v,b)=>`<td style="text-align:right;${b?'font-weight:700;':''}${Math.abs(v)<0.005?'color:var(--text-light);':''}">${fmtCRC2(v)}</td>`;
+        const sec=(t,tipo)=>{const fl=rc.filas.filter(f=>f.tipo===tipo);if(!fl.length)return '';return `<tr><td colspan="${cs.length+3}" style="font-weight:700;background:var(--teal-soft,#dff1f3);">${t}</td></tr>`+fl.map(f=>`<tr><td style="color:var(--text-light);">${esc(f.codigo)}</td><td>${esc(f.nombre)}</td>${cs.map(id=>cel(f.por[id]||0)).join('')}${cel(f.total,true)}</tr>`).join('');};
+        const totRow=(t,k,neg)=>`<tr style="font-weight:700;background:var(--bg);"><td colspan="2">${t}</td>${cs.map(id=>cel(rc.tot[id][k],true)).join('')}${cel(rc.tot.__total[k],true)}</tr>`;
+        const utilRow=`<tr style="font-weight:700;font-size:0.95rem;"><td colspan="2">Utilidad / p\u00e9rdida</td>${cs.map(id=>`<td style="text-align:right;color:${rc.tot[id].utilidad>=0?'#0f6e56':'#a32d2d'};">${fmtCRC2(rc.tot[id].utilidad)}</td>`).join('')}<td style="text-align:right;color:${rc.tot.__total.utilidad>=0?'#0f6e56':'#a32d2d'};">${fmtCRC2(rc.tot.__total.utilidad)}</td></tr>`;
+        return `<h3 style="margin:0 0 4px;color:var(--primary-dark);">Resultados por centro de costo · ${titRango}</h3><p class="config-hint" style="margin:0 0 8px;">Cada venta y sus costos van a su l\u00ednea de negocio; planilla, depreciaci\u00f3n y gastos generales van a Administraci\u00f3n. En un asiento manual o en una factura se puede elegir otro centro.</p>
+        <div style="overflow-x:auto;"><table class="list-table"><thead><tr>${th}</tr></thead><tbody>${sec('Ingresos','ingreso')}${totRow('Total ingresos','ing')}${sec('Costos de los viajes','costo')}${totRow('Total costos','cos')}${totRow('Margen bruto','margen')}${sec('Gastos','gasto')}${totRow('Total gastos','gas')}${utilRow}</tbody></table></div>`;
+    }
+    if(_repTipo==='iva'){
+        const iv=contaReporteIVA(r.desde,r.hasta);
+        const card=(t,v,col)=>`<div style="border:1px solid var(--border);border-radius:8px;padding:8px 12px;min-width:180px;"><div style="font-size:0.68rem;color:var(--text-light);text-transform:uppercase;letter-spacing:.5px;">${t}</div><div style="font-size:1rem;font-weight:700;color:${col||'var(--text)'};">${fmtCRC2(v)}</div></div>`;
+        const rows=iv.movs.map(x=>`<tr><td style="white-space:nowrap;">${fmtFechaCorta(x.a.fecha)}</td><td>${_contaLinkAsientoHtml(x.a.id)}</td><td>${esc(x.a.descripcion||'')}${x.l.detalle?' <span style="color:var(--text-light);">· '+esc(x.l.detalle)+'</span>':''}</td><td>${_contaChipOrigen(x.a.origen)}</td><td>${esc(x.tipo)}</td><td style="text-align:right;white-space:nowrap;color:${x.monto<0?'#a32d2d':'inherit'};">${fmtCRC2(x.monto)}</td></tr>`).join('');
+        return `<h3 style="margin:0 0 4px;color:var(--primary-dark);">Reporte de IVA · ${titRango}</h3><p class="config-hint" style="margin:0 0 8px;">Resumen de apoyo para la declaraci\u00f3n (D-104). Toma los movimientos de <strong>${esc(contaCuentaNombre(iv.cuentaPagar))}</strong> (IVA cobrado) y <strong>${esc(contaCuentaNombre(iv.cuentaRecuperar))}</strong> (IVA pagado acreditable). Las cuentas se cambian en Configuraci\u00f3n \u2192 Contabilidad.</p>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;">${card('IVA cobrado (d\u00e9bito fiscal)',iv.cobrado)}${card('IVA pagado acreditable (cr\u00e9dito fiscal)',iv.pagado)}${(iv.ajustesP||iv.ajustesR)?card('Ajustes / reversiones',_contaRound(iv.ajustesP-iv.ajustesR),'#854f0b'):''}${card(iv.neto>=0?'Neto a pagar a Hacienda':'Saldo a favor',Math.abs(iv.neto),iv.neto>=0?'#a32d2d':'#0f6e56')}</div>
+        <div style="font-size:0.78rem;color:var(--text-light);margin-bottom:8px;">Saldo en libros al ${fmtFechaCorta(r.hasta)}: IVA por pagar ${fmtCRC2(iv.saldoFinP)} · IVA por recuperar ${fmtCRC2(iv.saldoFinR)}</div>
+        <table class="list-table"><thead><tr><th>Fecha</th><th>N\u00ba</th><th>Descripci\u00f3n</th><th>Origen</th><th>Tipo</th><th style="text-align:right;">Monto</th></tr></thead><tbody>${rows||'<tr><td colspan="6" style="color:var(--text-light);">Sin movimientos de IVA en el per\u00edodo.</td></tr>'}</tbody></table>`;
+    }
     if(_repTipo==='cxc'){
         const l=contaCxCDetalle();const t=_contaRound(l.reduce((s,x)=>s+x.saldoCRC,0));
         return `<h3 style="margin:0 0 8px;color:var(--primary-dark);">Cuentas por cobrar a clientes · ${l.length} venta${l.length===1?'':'s'} con saldo</h3><table class="list-table"><thead><tr><th>Cliente / venta</th><th>Salida</th><th style="text-align:right;">Total</th><th style="text-align:right;">Cobrado</th><th style="text-align:right;">Saldo</th><th style="text-align:right;">Saldo ₡</th><th>Estado</th></tr></thead><tbody>${l.map(x=>`<tr><td><span class="cliente-link" onclick="openCobranza('${x.venta.id}')">${esc(x.etiqueta)}</span>${x.venta.encargado?'<div class="lt-secondary">'+esc(x.venta.encargado)+'</div>':''}</td><td>${x.salida?fmtFechaCorta(x.salida):'-'}</td><td style="text-align:right;">${_contaFmtOrig(x.total,x.moneda)}</td><td style="text-align:right;">${_contaFmtOrig(x.pagado,x.moneda)}</td><td style="text-align:right;font-weight:600;">${_contaFmtOrig(x.saldo,x.moneda)}</td><td style="text-align:right;">${fmtCRC2(x.saldoCRC)}</td><td>${x.dias>0?'<span class="lt-badge" style="background:#fcebeb;color:#a32d2d;">viajó hace '+x.dias+' d</span>':'<span class="lt-badge" style="background:#e1f5ee;color:#0f6e56;">sale en '+(-x.dias)+' d</span>'}</td></tr>`).join('')||'<tr><td colspan="7" style="color:var(--text-light);text-align:center;">Sin saldos pendientes</td></tr>'}<tr style="background:var(--bg);font-weight:700;"><td colspan="5">Total en colones (al TC de hoy)</td><td style="text-align:right;">${fmtCRC2(t)}</td><td></td></tr></tbody></table>`;
@@ -7381,6 +7490,8 @@ function contaExportarReporte(){
     if(_repTipo==='resultados'){const e=contaEstadoResultados(r.desde,r.hasta);nombre='Estado_resultados_'+p;rows=[].concat(e.ingresos.map(f=>({'Sección':'Ingresos','Código':f.codigo,'Cuenta':f.nombre,'Colones':f.saldo})),[{'Sección':'Ingresos','Cuenta':'TOTAL INGRESOS','Colones':e.totalIngresos}],e.costos.map(f=>({'Sección':'Costos','Código':f.codigo,'Cuenta':f.nombre,'Colones':f.saldo})),[{'Sección':'Costos','Cuenta':'TOTAL COSTOS','Colones':e.totalCostos},{'Sección':'','Cuenta':'MARGEN BRUTO','Colones':e.margenBruto}],e.gastos.map(f=>({'Sección':'Gastos','Código':f.codigo,'Cuenta':f.nombre,'Colones':f.saldo})),[{'Sección':'Gastos','Cuenta':'TOTAL GASTOS','Colones':e.totalGastos},{'Sección':'','Cuenta':'UTILIDAD DEL PERÍODO','Colones':e.utilidad}]);}
     else if(_repTipo==='balance'){const b=contaBalance(r.hasta);nombre='Balance_'+r.hasta;rows=[].concat(b.activos.map(f=>({'Sección':'Activo','Código':f.codigo,'Cuenta':f.nombre,'Colones':f.saldo})),[{'Sección':'Activo','Cuenta':'TOTAL ACTIVO','Colones':b.totalActivo}],b.pasivos.map(f=>({'Sección':'Pasivo','Código':f.codigo,'Cuenta':f.nombre,'Colones':f.saldo})),[{'Sección':'Pasivo','Cuenta':'TOTAL PASIVO','Colones':b.totalPasivo}],b.patrimonio.map(f=>({'Sección':'Patrimonio','Código':f.codigo,'Cuenta':f.nombre,'Colones':f.saldo})),[{'Sección':'Patrimonio','Cuenta':'Utilidad del ejercicio (sin cerrar)','Colones':b.utilidadNoCerrada},{'Sección':'','Cuenta':'TOTAL PASIVO + PATRIMONIO','Colones':b.totalPasivoPatrimonio}]);}
     else if(_repTipo==='flujo'){const f=contaFlujoEfectivo(r.desde,r.hasta);nombre='Flujo_efectivo_'+p;rows=f.grupos.map(g=>({'Concepto':g.grupo,'Entradas':g.entradas,'Salidas':g.salidas,'Neto':g.neto})).concat([{'Concepto':'TOTAL','Entradas':f.totalEntradas,'Salidas':f.totalSalidas,'Neto':f.neto}],f.cuentas.map(c=>({'Concepto':'Cuenta '+c.cuenta.codigo+' '+c.cuenta.nombre,'Saldo inicial':c.inicial,'Entradas':c.entradas,'Salidas':c.salidas,'Saldo final':c.final})));}
+    else if(_repTipo==='centros'){const rc=contaResultadosPorCentro(r.desde,r.hasta);nombre='Resultados_por_centro_'+p;rows=rc.filas.map(f=>{const o={'Tipo':(CONTA_TIPOS.find(t=>t[0]===f.tipo)||[])[1]||f.tipo,'Código':f.codigo,'Cuenta':f.nombre};rc.centros.forEach(id=>{o[contaCentroNombre(id)]=f.por[id]||0;});o['Total']=f.total;return o;});['ing','cos','margen','gas','utilidad'].forEach(k=>{const o={'Tipo':'TOTAL','Cuenta':{ing:'Ingresos',cos:'Costos',margen:'Margen bruto',gas:'Gastos',utilidad:'Utilidad'}[k]};rc.centros.forEach(id=>{o[contaCentroNombre(id)]=rc.tot[id][k];});o['Total']=rc.tot.__total[k];rows.push(o);});}
+    else if(_repTipo==='iva'){const iv=contaReporteIVA(r.desde,r.hasta);nombre='Reporte_IVA_'+p;rows=iv.movs.map(x=>({'Fecha':x.a.fecha,'Asiento':contaNumAsiento(x.a),'Descripción':x.a.descripcion||'','Detalle':x.l.detalle||'','Origen':CONTA_ORIGEN_LABEL[x.a.origen]||x.a.origen,'Tipo':x.tipo,'Monto ₡':x.monto})).concat([{'Tipo':'IVA cobrado','Monto ₡':iv.cobrado},{'Tipo':'IVA pagado acreditable','Monto ₡':iv.pagado},{'Tipo':iv.neto>=0?'Neto a pagar':'Saldo a favor','Monto ₡':Math.abs(iv.neto)}]);}
     else if(_repTipo==='cxc'){nombre='Cuentas_por_cobrar';rows=contaCxCDetalle().map(x=>({'Cliente / venta':x.etiqueta,'Encargada':x.venta.encargado||'','Salida':x.salida,'Moneda':x.moneda,'Total':x.total,'Cobrado':x.pagado,'Saldo':x.saldo,'Saldo ₡':x.saldoCRC,'Días desde la salida':x.dias}));}
     else{nombre='Cuentas_por_pagar';rows=contaCxPDetalle().map(x=>({'Proveedor':x.proveedor,'Descripción':x.doc.descripcion||'','Nº factura':x.doc.numero||'','Venta':x.doc.ventaEtiqueta||'','Vence':x.vence,'Moneda':x.moneda,'Monto':x.monto,'Pagado':x.pagado,'Saldo':x.saldo,'Saldo ₡':x.saldoCRC,'Días vencida':x.dias}));}
     if(!rows.length){alert('No hay datos para exportar.');return;}
