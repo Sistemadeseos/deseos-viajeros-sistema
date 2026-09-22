@@ -3395,6 +3395,7 @@ function cfgGet(){
             europa:  (c.noIncluye&&c.noIncluye.europa)  || defaultNoIncluyeEuropa,
             crucero: (c.noIncluye&&c.noIncluye.crucero) || defaultNoIncluyeCrucero
         },
+        noIncluyeReglasPais: _normNoIncluyeReglas(c.noIncluyeReglasPais),
         politicas: {
             america: (c.politicas&&c.politicas.america) || defaultPoliticas,
             europa:  (c.politicas&&c.politicas.europa)  || defaultPoliticasEuropa,
@@ -8724,7 +8725,15 @@ function renderConfigNoIncluye(){
         <button class="btn btn-sm btn-primary" onclick="document.getElementById('cfgNI-${k}').insertAdjacentHTML('beforeend',renderCfgListItem('',false));initDrag(document.getElementById('cfgNI-${k}'));" style="margin-top:6px;">+ Agregar</button>
     `).join('');
     formats.forEach(([k])=>initDrag(document.getElementById('cfgNI-'+k)));
+    const fila=_cfgNIReglaFila;
+    pane.insertAdjacentHTML('beforeend',`<h3 style="margin-top:18px;">Reglas por pa&iacute;s (se marcan solas)</h3>
+    <p class="config-hint">Al elegir el pa&iacute;s en el editor, el &iacute;tem que contenga el texto indicado se marca solo en &laquo;No incluye&raquo; (y se agrega si falta). Si alguien lo desmarca, el sistema pide confirmaci&oacute;n. Ejemplo: Estados Unidos &rarr; City tax o Fee Resort.</p>
+    <div style="display:flex;gap:6px;font-size:0.66rem;color:var(--text-light);text-transform:uppercase;letter-spacing:.5px;padding:0 0 4px 0;"><span style="flex:1;">Pa&iacute;s(es)</span><span style="flex:1;">Si el &iacute;tem contiene</span><span style="flex:1.6;">Texto completo</span><span style="width:24px;"></span></div>
+    <div id="cfgNIReglas">${cfg.noIncluyeReglasPais.map(fila).join('')}</div>
+    <button class="btn btn-sm btn-primary" style="margin-top:6px;" onclick="document.getElementById('cfgNIReglas').insertAdjacentHTML('beforeend',_cfgNIReglaFila({}))">+ Agregar regla</button>`);
 }
+function _cfgNIReglaFila(r){r=r||{};const inp='padding:5px 8px;font-size:0.82rem;border:1px solid var(--border);border-radius:4px;';
+    return `<div class="service-item config-list-item cfg-ni-regla" style="gap:6px;"><input type="text" class="cfg-nir-paises" value="${esc(r.paises||'')}" placeholder="Pa&iacute;s (alias separados por coma)" style="flex:1;${inp}" onblur="autoSaveConfigSilently()"><input type="text" class="cfg-nir-clave" value="${esc(r.clave||'')}" placeholder="Si el &iacute;tem contiene&hellip;" style="flex:1;${inp}" onblur="autoSaveConfigSilently()"><input type="text" class="cfg-nir-texto" value="${esc(r.texto||'')}" placeholder="Texto a agregar si no existe" style="flex:1.6;${inp}" onblur="autoSaveConfigSilently()"><button class="btn-icon remove" onclick="this.parentElement.remove();autoSaveConfigSilently();">&times;</button></div>`;}
 
 function renderConfigCuentas(){
     const cfg=cfgGet();
@@ -9022,6 +9031,7 @@ function saveConfigFromUI(silent){
         europa:collectConfigListFromDOM('cfgNI-europa',false),
         crucero:collectConfigListFromDOM('cfgNI-crucero',false)
     };
+    {const box=document.getElementById('cfgNIReglas');if(box)c.noIncluyeReglasPais=_normNoIncluyeReglas(Array.from(box.querySelectorAll('.cfg-ni-regla')).map(d=>({paises:d.querySelector('.cfg-nir-paises').value,clave:d.querySelector('.cfg-nir-clave').value,texto:d.querySelector('.cfg-nir-texto').value})));}
     // Cuentas
     c.cuentas=[];
     document.querySelectorAll('#cfgCuentasList > div').forEach(div=>{
@@ -9185,6 +9195,33 @@ function addServicio(){addServicioItem('',true);}
 function addServicioItem(t,ch){const c=document.getElementById('serviciosContainer');const d=document.createElement('div');d.className='service-item';d.draggable=true;d.innerHTML=`<span class="drag-handle" draggable="false">&#9776;</span><input type="checkbox" ${ch?'checked':''} onchange="updatePreview()"><input type="text" value="${esc(t)}" placeholder="Servicio..." oninput="updatePreview()"><button class="btn-icon remove" onclick="this.parentElement.remove();updatePreview();">&times;</button>`;c.appendChild(d);updatePreview();}
 
 // ===== NO INCLUYE =====
+// Reglas por país: al elegir el país, ciertos ítems de "No incluye" se marcan solos (y se agregan si faltan).
+// {paises:'Estados Unidos, USA, EEUU' (alias separados por coma), clave:'city tax' (el ítem que contenga esto), texto:'…' (se agrega si no existe)}
+const defaultNoIncluyeReglasPais=[{paises:'Estados Unidos, USA, EEUU, United States',clave:'city tax',texto:'City tax o Fee Resort pagadero a la llegada'}];
+function _normNoIncluyeReglas(arr){if(!Array.isArray(arr))return defaultNoIncluyeReglasPais.map(r=>Object.assign({},r));return arr.filter(r=>r&&String(r.paises||'').trim()&&String(r.clave||r.texto||'').trim()).map(r=>({paises:String(r.paises).trim(),clave:String(r.clave||r.texto).trim(),texto:String(r.texto||r.clave).trim()}));}
+function _reglaAplicaAPais(r,pais){const p=normalizarParaMatch(pais);if(!p)return false;return String(r.paises).split(/[,|;]/).map(x=>normalizarParaMatch(x)).filter(Boolean).some(a=>p===a||p.includes(a)||a.includes(p));}
+// Marca (o agrega) en el editor los ítems obligatorios para el país elegido. Devuelve cuántos tocó.
+function aplicarReglasNoIncluyePais(){
+    const sel=document.getElementById('paisSelect');const cont=document.getElementById('noIncluyeContainer');if(!sel||!cont)return 0;
+    const pais=sel.value;const reglas=cfgGet().noIncluyeReglasPais.filter(r=>_reglaAplicaAPais(r,pais));
+    let n=0;
+    reglas.forEach(r=>{
+        const clave=normalizarParaMatch(r.clave);
+        const items=Array.from(cont.querySelectorAll('.service-item')).filter(it=>normalizarParaMatch(it.querySelector('input[type="text"]').value).includes(clave));
+        if(!items.length){addNoIncluyeItem(r.texto,true);items.push(cont.lastElementChild);}
+        items.forEach(it=>{const cb=it.querySelector('input[type="checkbox"]');if(cb&&!cb.checked){cb.checked=true;n++;}it.dataset.reglaPais=pais;it.style.background='#fff8e1';it.title='Obligatorio para '+pais+' (regla de No incluye)';});
+    });
+    if(n||reglas.length)updatePreview();
+    return n;
+}
+// Al destildar un ítem obligatorio por país, pide confirmación
+function noIncluyeCheckChange(cb){
+    const it=cb.closest('.service-item');
+    if(it&&it.dataset.reglaPais&&!cb.checked){
+        if(!confirm('Este ítem es obligatorio para '+it.dataset.reglaPais+' (la agencia asume el costo si no va en la cotización).\n\n¿Desmarcarlo igual?')){cb.checked=true;return;}
+    }
+    updatePreview();
+}
 // Items de "No incluye" que arrancan tildados por defecto al cargar la lista de config.
 const NOINCLUYE_TILDADOS_DEFAULT=[
     'Seguro de viaje con coberturas de COVID, se puede adquirir por un costo adicional.',
@@ -9195,7 +9232,7 @@ const _noIncluyeTildadosNorm=new Set(NOINCLUYE_TILDADOS_DEFAULT.map(s=>normaliza
 function noIncluyeVieneTildadoPorDefault(t){return _noIncluyeTildadosNorm.has(normalizarParaMatch(t));}
 function loadNoIncluye(l){const c=document.getElementById('noIncluyeContainer');c.innerHTML='';l.forEach(s=>addNoIncluyeItem(s,noIncluyeVieneTildadoPorDefault(s)));}
 function addNoIncluye(){addNoIncluyeItem('');}
-function addNoIncluyeItem(t,checked){const c=document.getElementById('noIncluyeContainer');const d=document.createElement('div');d.className='service-item';d.draggable=true;const isChecked=checked!==undefined?checked:true;d.innerHTML=`<span class="drag-handle" draggable="false">&#9776;</span><input type="checkbox" ${isChecked?'checked':''} onchange="updatePreview()"><input type="text" value="${esc(t)}" placeholder="No incluido..." oninput="updatePreview()"><button class="btn-icon remove" onclick="this.parentElement.remove();updatePreview();">&times;</button>`;c.appendChild(d);updatePreview();}
+function addNoIncluyeItem(t,checked){const c=document.getElementById('noIncluyeContainer');const d=document.createElement('div');d.className='service-item';d.draggable=true;const isChecked=checked!==undefined?checked:true;d.innerHTML=`<span class="drag-handle" draggable="false">&#9776;</span><input type="checkbox" ${isChecked?'checked':''} onchange="noIncluyeCheckChange(this)"><input type="text" value="${esc(t)}" placeholder="No incluido..." oninput="updatePreview()"><button class="btn-icon remove" onclick="this.parentElement.remove();updatePreview();">&times;</button>`;c.appendChild(d);updatePreview();}
 
 // ===== POLITICAS =====
 function loadPoliticas(l){const c=document.getElementById('politicasContainer');c.innerHTML='';l.forEach(p=>addPoliticaItem(p));}
@@ -10003,7 +10040,7 @@ function renderEncabezados(){
     renderStorageIndicator('storageIndicator');
 }
 function populatePaisSelect(){const enc=getEncabezados();const sel=document.getElementById('paisSelect');const cur=sel.value;sel.innerHTML='<option value="">-- Pa\u00eds --</option>';Object.keys(enc).forEach(p=>{const o=document.createElement('option');o.value=p;o.textContent=p;sel.appendChild(o);});if(cur&&enc[cur])sel.value=cur;onPaisChange();}
-function onPaisChange(){const p=document.getElementById('paisSelect').value;const enc=getEncabezados();const ds=document.getElementById('destinoSelect');const di=document.getElementById('destino');ds.innerHTML='<option value="">-- Destino --</option>';if(p&&enc[p])Object.keys(enc[p]).forEach(d=>{const o=document.createElement('option');o.value=d;o.textContent=d;ds.appendChild(o);});const co=document.createElement('option');co.value='__custom';co.textContent='Escribir manualmente...';ds.appendChild(co);ds.style.display='';di.style.display='none';onDestinoSelect();}
+function onPaisChange(){const p=document.getElementById('paisSelect').value;const enc=getEncabezados();const ds=document.getElementById('destinoSelect');const di=document.getElementById('destino');ds.innerHTML='<option value="">-- Destino --</option>';if(p&&enc[p])Object.keys(enc[p]).forEach(d=>{const o=document.createElement('option');o.value=d;o.textContent=d;ds.appendChild(o);});const co=document.createElement('option');co.value='__custom';co.textContent='Escribir manualmente...';ds.appendChild(co);ds.style.display='';di.style.display='none';onDestinoSelect();try{aplicarReglasNoIncluyePais();}catch(e){console.error('[noIncluye reglas]',e);}}
 function onDestinoSelect(){const ds=document.getElementById('destinoSelect');const di=document.getElementById('destino');const pv=document.getElementById('destinoPreviewImg');const pi=document.getElementById('destinoPreviewImgTag');const p=document.getElementById('paisSelect').value;if(ds.value==='__custom'){di.style.display='';ds.style.display='none';di.focus();selectedHeaderImg=null;pv.classList.remove('visible');}else if(ds.value){di.value=ds.value;di.style.display='none';const img=getDestinoImage(p,ds.value);selectedHeaderImg=img;if(img){pi.src=img;pv.classList.add('visible');}else{pv.classList.remove('visible');}}else{di.style.display='none';selectedHeaderImg=null;pv.classList.remove('visible');}updateHotelesDatalist();updatePreview();}
 // Pobla la lista de sugerencias de hoteles para los inputs op-nombre, segun pais+destino actual.
 // Si no hay destino, muestra todos los hoteles del pais. Si tampoco hay pais, muestra todos.
@@ -10227,7 +10264,7 @@ const ob=document.getElementById('opcionesBody');ob.innerHTML='';(d.opciones||[]
         if(tr){tr.dataset.manualOverride='1';tr.classList.add('row-manual-override');}
     }
 });
-loadNoIncluye(d.noIncluye||cfgGet().noIncluye[d.formato||'america']);loadPoliticas(d.politicas||cfgGet().politicas[d.formato||'america']);loadCuentas(d.cuentas||cfgGet().cuentas);
+loadNoIncluye(d.noIncluye||cfgGet().noIncluye[d.formato||'america']);if(!readOnly){try{aplicarReglasNoIncluyePais();}catch(e){console.error('[noIncluye reglas]',e);}}loadPoliticas(d.politicas||cfgGet().politicas[d.formato||'america']);loadCuentas(d.cuentas||cfgGet().cuentas);
 // Hospedaje (rango fechas, compatibilidad con formato viejo .fechas)
 const hc=document.getElementById('hospedajeContainer');hc.innerHTML='';
 (d.hospedajes||[]).forEach(h=>addHospedaje(h.hotel,h.fechaInicio||'',h.fechaFin||''));
