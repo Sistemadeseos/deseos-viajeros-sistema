@@ -6355,7 +6355,7 @@ const CONTA_ORIGEN_LABEL={apertura:'Apertura',pago_proveedor:'Pago a proveedor',
 // Menú principal organizado como SAP Business One: módulo → pantalla
 const CONTA_MENU=[
     {id:'finanzas',label:'Finanzas',items:[['plan','Plan de cuentas'],['diario','Asientos de diario'],['mayor','Mayor y balance de comprobaci\u00f3n'],['activos','Activos fijos']]},
-    {id:'socios',label:'Socios de negocios',items:[['clientes','Clientes (por cobrar)'],['cxp','Proveedores (por pagar)'],['gastos','Gastos']]},
+    {id:'socios',label:'Socios de negocios',items:[['socio','Estado de cuenta'],['clientes','Clientes (por cobrar)'],['cxp','Proveedores (por pagar)'],['gastos','Gastos']]},
     {id:'bancos',label:'Bancos',items:[['bancos','Conciliaci\u00f3n bancaria']]},
     {id:'informes',label:'Informes financieros',items:[['reportes','Estados financieros'],['margen','M\u00e1rgenes por venta']]},
     {id:'admin',label:'Administraci\u00f3n',items:[['cierres','Per\u00edodos y cierres'],['tc','Tipos de cambio'],['config','Determinaci\u00f3n de cuentas']]}
@@ -6376,6 +6376,31 @@ function _contaRangoPeriodo(p){const y=parseInt(p.slice(0,4),10),m=parseInt(p.sl
 // Monto original del asiento en moneda extranjera (la primera línea que no sea colones); '' si todo es en colones
 function _contaMontoOrigAsiento(a){const l=(a&&Array.isArray(a.lineas)?a.lineas:[]).find(x=>x&&x.moneda&&x.moneda!=='CRC'&&num(x.montoOrig)>0);if(!l)return '';return _contaFmtOrig(l.montoOrig,l.moneda)+(num(l.tc)>0?' <span style="color:var(--text-light);font-size:0.72rem;">@ '+num(l.tc).toLocaleString('es-CR',{minimumFractionDigits:2,maximumFractionDigits:2})+'</span>':'');}
 function _contaMontoOrigTexto(a){const l=(a&&Array.isArray(a.lineas)?a.lineas:[]).find(x=>x&&x.moneda&&x.moneda!=='CRC'&&num(x.montoOrig)>0);return l?(l.moneda+' '+num(l.montoOrig).toFixed(2)):'';}
+// Flecha de enlace (como la flecha dorada de SAP): del asiento al documento que lo originó
+let _contaResaltar='';
+function contaIrAsiento(id){
+    const a=getContaAsientos().find(x=>x&&x.id===id);if(!a){alert('No se encontró el asiento.');return;}
+    ['modalCobranza','modalContaDoc','modalContaPago'].forEach(m=>{try{closeModal(m);}catch(e){}});
+    const view=document.getElementById('viewContabilidad');if(view&&!view.classList.contains('active'))nav('contabilidad');
+    const per=document.getElementById('contaPeriodo');if(per)per.value=a.periodo||String(a.fecha).slice(0,7);
+    _contaResaltar=a.id;_contaTab='diario';renderContabilidad();
+    setTimeout(()=>{const row=document.getElementById('asRow_'+a.id);if(row){row.scrollIntoView({behavior:'smooth',block:'center'});}},50);
+}
+function _contaLinkAsientoHtml(id,extra){const a=id?getContaAsientos().find(x=>x&&x.id===id):null;if(!a)return '';return `<span class="cliente-link" style="font-family:monospace;font-size:0.76rem;white-space:nowrap;" onclick="event.stopPropagation();contaIrAsiento('${esc(a.id)}')" title="Ir al asiento en el Diario">&#10148; ${contaNumAsiento(a)}</span>${extra||''}`;}
+function _contaEnlaceDestino(a){
+    if(!a)return null;const o=a.origen,r=String(a.refId||''),s=String(a.subRef||'');
+    if(o==='cobro'||o==='ingreso_venta')return {label:'Ver la venta y su estado de cuenta',js:`openCobranza('${r}')`};
+    if(o==='proveedor'||o==='gasto'||o==='pago_proveedor')return {label:'Ver la factura o gasto',js:`verContaDoc('${r}')`};
+    if(o==='planilla'&&s)return {label:'Ver la colilla',js:`verColillaDocumento('${s}')`};
+    if(o==='activo_fijo')return {label:'Ver el activo fijo',js:`openActivoModal('${r}')`};
+    if(o==='depreciacion')return {label:'Ver activos fijos',js:`contaTab('activos')`};
+    if(o==='revaluacion')return {label:'Ver tipos de cambio',js:`contaTab('tc')`};
+    if(o==='cierre_anual')return {label:'Ver períodos y cierres',js:`contaTab('cierres')`};
+    if(o==='apertura')return {label:'Ver la conciliación bancaria',js:`_bcoCuenta='${r}';contaTab('bancos')`};
+    if(o==='reversion'&&a.reversaDe)return {label:'Ir al asiento reversado',js:`contaIrAsiento('${a.reversaDe}')`};
+    return null;
+}
+function _contaEnlaceHtml(a){const d=_contaEnlaceDestino(a);if(!d)return '';return `<button class="btn btn-sm btn-ghost" style="padding:1px 7px;font-size:0.8rem;color:#b8860b;border-color:#e6c766;" onclick="event.stopPropagation();${d.js}" title="${esc(d.label)}">&#10148;</button>`;}
 function _contaChipOrigen(o){const col={cobro:'#e1f5ee;color:#0f6e56',planilla:'#ede7f6;color:#5e35b1',ingreso_venta:'#dff1f3;color:#036672',reversion:'#fcebeb;color:#a32d2d',manual:'#f1f3f5;color:#4d5c63'};return `<span class="lt-badge" style="background:${col[o]||col.manual};">${esc(CONTA_ORIGEN_LABEL[o]||o)}</span>`;}
 function renderContabilidad(){
     const body=document.getElementById('contaBody');if(!body)return;
@@ -6385,9 +6410,10 @@ function renderContabilidad(){
     if(tcHoy){const t=contaTCPara(_hitoHoyISO());tcHoy.innerHTML=t.usd?('TC hoy: $1 = '+fmtCRC2(t.usd)+(t.eur?' · €1 = '+fmtCRC2(t.eur):'')+(t.exacto?'':' <span style="color:#a32d2d;">(del '+fmtFechaCorta(t.fecha)+')</span>')):'<span style="color:#a32d2d;">Sin tipo de cambio cargado</span>';}
     const cerrado=contaPeriodoCerrado(p);
     const banner=cerrado?`<div style="background:#fcebeb;color:#a32d2d;border-radius:8px;padding:8px 12px;font-size:0.8rem;margin-bottom:10px;">&#128274; Mes cerrado. No se pueden registrar ni reversar asientos en ${p}. Para hacerlo, reabrilo en la pestaña Cierres.</div>`:'';
-    if(_contaTab==='diario')body.innerHTML=banner+_contaDiarioHtml(p);
+    if(_contaTab==='diario'){body.innerHTML=banner+_contaDiarioHtml(p);_contaResaltar='';}
     else if(_contaTab==='plan')body.innerHTML=_contaPlanHtml(p);
     else if(_contaTab==='clientes')body.innerHTML=_contaClientesHtml(p);
+    else if(_contaTab==='socio')body.innerHTML=_contaSocioHtml(p);
     else if(_contaTab==='mayor')body.innerHTML=banner+_contaMayorHtml(p);
     else if(_contaTab==='cxp')body.innerHTML=banner+_contaCxPHtml(p);
     else if(_contaTab==='gastos')body.innerHTML=banner+_contaGastosHtml(p);
@@ -6413,10 +6439,12 @@ function _contaDiarioHtml(p){
         const rev=a.reversadoPor?'<span class="lt-badge" style="background:#fcebeb;color:#a32d2d;">reversado</span>':'';
         const det=a.lineas.map(l=>`<tr><td style="padding:3px 8px;font-size:0.78rem;">${esc(contaCuentaNombre(l.cuenta))}${l.detalle?'<span style="color:var(--text-light);"> · '+esc(l.detalle)+'</span>':''}${l.moneda&&l.moneda!=='CRC'?`<span style="color:var(--text-light);font-size:0.72rem;"> (${esc(l.moneda)} ${num(l.montoOrig).toLocaleString('es-CR',{minimumFractionDigits:2,maximumFractionDigits:2})} a ${num(l.tc).toLocaleString('es-CR',{minimumFractionDigits:2,maximumFractionDigits:2})})</span>`:''}</td><td style="text-align:right;padding:3px 8px;font-size:0.78rem;">${l.debe?fmtCRC2(l.debe):''}</td><td style="text-align:right;padding:3px 8px;font-size:0.78rem;">${l.haber?fmtCRC2(l.haber):''}</td></tr>`).join('');
         const acciones=(!a.reversadoPor&&a.origen!=='reversion'&&puedeReg&&!contaPeriodoCerrado(a.periodo))?`<button class="btn btn-sm btn-danger" style="padding:2px 8px;font-size:0.7rem;" onclick="contaReversarUI('${a.id}')" title="Crea un asiento espejo que anula este">Reversar</button>`:'';
-        return `<tr onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'':'none'" style="cursor:pointer;">
-            <td style="white-space:nowrap;">${fmtFechaCorta(a.fecha)}</td><td style="white-space:nowrap;font-family:monospace;font-size:0.78rem;">${contaNumAsiento(a)}</td><td>${esc(a.descripcion||'')} ${rev}</td><td>${_contaChipOrigen(a.origen)}</td>
+        const hl=a.id===_contaResaltar;
+        const revLinks=(a.reversadoPor?' <span style="font-size:0.72rem;color:var(--text-light);">por '+_contaLinkAsientoHtml(a.reversadoPor)+'</span>':'')+(a.reversaDe?' <span style="font-size:0.72rem;color:var(--text-light);">reversa a '+_contaLinkAsientoHtml(a.reversaDe)+'</span>':'');
+        return `<tr id="asRow_${esc(a.id)}" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'':'none'" style="cursor:pointer;${hl?'background:#fff8e1;box-shadow:inset 3px 0 0 #e6a700;':''}">
+            <td style="white-space:nowrap;">${fmtFechaCorta(a.fecha)}</td><td style="white-space:nowrap;font-family:monospace;font-size:0.78rem;">${contaNumAsiento(a)} ${_contaEnlaceHtml(a)}</td><td>${esc(a.descripcion||'')} ${rev}${revLinks}</td><td>${_contaChipOrigen(a.origen)}</td>
             <td style="text-align:right;white-space:nowrap;">${_contaMontoOrigAsiento(a)}</td><td style="text-align:right;white-space:nowrap;">${fmtCRC2(a.totalDebe)}</td><td style="text-align:right;white-space:nowrap;">${fmtCRC2(a.totalHaber)}</td><td onclick="event.stopPropagation()">${acciones}</td></tr>
-            <tr style="display:none;background:var(--bg);"><td colspan="8" style="padding:4px 12px 8px;"><table style="width:100%;border-collapse:collapse;"><tbody>${det}</tbody></table><div style="font-size:0.7rem;color:var(--text-light);margin-top:4px;">Registrado por ${esc(a.creadoPor||'sistema')} el ${fmtFechaCorta(new Date(a.creadoTs||0).toISOString().slice(0,10))}${a.reversaDe?' · reversa un asiento anterior':''}</div></td></tr>`;
+            <tr style="display:${hl?'':'none'};background:var(--bg);"><td colspan="8" style="padding:4px 12px 8px;"><table style="width:100%;border-collapse:collapse;"><tbody>${det}</tbody></table><div style="font-size:0.7rem;color:var(--text-light);margin-top:4px;">Registrado por ${esc(a.creadoPor||'sistema')} el ${fmtFechaCorta(new Date(a.creadoTs||0).toISOString().slice(0,10))}${a.reversaDe?' · reversa un asiento anterior':''}</div></td></tr>`;
     }).join('');
     return tools+`<table class="list-table"><thead><tr><th>Fecha</th><th>Nº</th><th>Descripción</th><th>Origen</th><th style="text-align:right;">Monto original</th><th style="text-align:right;">Debe</th><th style="text-align:right;">Haber</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
 }
@@ -6470,6 +6498,65 @@ function _contaPlanHtml(p){
         <table class="list-table"><thead><tr><th style="width:90px;">C&oacute;digo</th><th>Cuenta</th><th style="width:70px;text-align:center;">Moneda</th><th style="text-align:right;">Saldo &#8353;</th></tr></thead><tbody>${filas||'<tr><td colspan="4" style="color:var(--text-light);">Sin cuentas en este caj&oacute;n.</td></tr>'}<tr style="font-weight:700;font-size:0.95rem;"><td colspan="3">Total ${esc(tipoLabel.toLowerCase())}</td><td style="text-align:right;">${fmtCRC2(_contaRound(totalCajon))}</td></tr></tbody></table>
         <p class="config-hint" style="margin-top:8px;">Clic en una cuenta para ver su mayor. Las cuentas marcadas como t&iacute;tulo agrupan a las que empiezan con su c&oacute;digo.</p></div></div>`;
 }
+// --- Estado de cuenta por socio de negocios (cliente o proveedor), como el "Saldo de cuenta" de SAP ---
+let _socioTipo='cliente',_socioId='',_socioSoloSaldo=false;
+// Movimientos de un cliente: cada venta es un cargo y cada cobro un abono, en la moneda de la venta
+function contaSocioMovsCliente(clienteId){
+    const movs=[];
+    getVentas().filter(v=>v&&v.clienteId===clienteId&&v.estado!=='cancelada').forEach(v=>{
+        const moneda=(v.cobranza&&v.cobranza.moneda)||'USD';const total=contaTotalVenta(v);
+        const asV=v.contaIngresoReconocido&&v.contaIngresoReconocido.asientoId;
+        movs.push({fecha:String(v.fechaVenta||v.fechaCreacion||'').slice(0,10),tipo:'Venta',detalle:_contaVentaEtiqueta(v)+(v.fechaInicio?' · sale '+fmtFechaCorta(String(v.fechaInicio).slice(0,10)):''),moneda,cargo:total,abono:0,ventaId:v.id,asientoId:asV||'',estado:v.estado});
+        ((v.cobranza&&v.cobranza.pagos)||[]).forEach(p=>{if(!p)return;const a=contaAsientoExiste('cobro',v.id,p.id);movs.push({fecha:String(p.fecha||'').slice(0,10),tipo:'Cobro',detalle:(p.metodo||'')+(p.referencia?' · ref. '+p.referencia:'')+(p.nota?' · '+p.nota:''),moneda,cargo:0,abono:num(p.monto),ventaId:v.id,asientoId:a?a.id:''});});
+    });
+    return movs.sort((a,b)=>a.fecha.localeCompare(b.fecha)||(a.tipo==='Venta'?-1:1));
+}
+// Movimientos de un proveedor: facturas y gastos son cargos, pagos son abonos
+function contaSocioMovsProveedor(provId){
+    const movs=[];
+    getContaDocs().filter(d=>d&&d.proveedorId===provId&&d.estado!=='anulada').forEach(d=>{
+        const lbl=d.tipo==='factura'?'Factura':'Gasto';
+        movs.push({fecha:String(d.fecha||'').slice(0,10),tipo:lbl,detalle:(d.descripcion||'')+(d.numero?' · N° '+d.numero:'')+(d.ventaEtiqueta?' · '+d.ventaEtiqueta:''),moneda:d.moneda||'CRC',cargo:num(d.monto),abono:d.tipo==='gasto'?num(d.monto):0,docId:d.id,asientoId:d.asientoId||'',vence:d.vence||''});
+        if(d.tipo==='factura')(d.pagos||[]).forEach(p=>{movs.push({fecha:String(p.fecha||'').slice(0,10),tipo:'Pago',detalle:contaCuentaNombre(p.cuentaBanco)+(p.referencia?' · ref. '+p.referencia:''),moneda:d.moneda||'CRC',cargo:0,abono:num(p.monto),docId:d.id,asientoId:p.asientoId||''});});
+    });
+    return movs.sort((a,b)=>a.fecha.localeCompare(b.fecha)||(a.tipo==='Pago'?1:-1));
+}
+function _contaSocioHtml(p){
+    const esCli=_socioTipo==='cliente';
+    const clientes=(function(){const ids=new Set(getVentas().filter(v=>v&&v.clienteId).map(v=>v.clienteId));return getClientes().filter(c=>c&&ids.has(c.id)).sort((a,b)=>String(a.nombreCompleto||'').localeCompare(String(b.nombreCompleto||'')));})();
+    const provs=contaProveedores().slice().sort((a,b)=>a.nombre.localeCompare(b.nombre));
+    const lista=esCli?clientes:provs;
+    if(_socioId&&!lista.some(x=>x.id===_socioId))_socioId='';
+    const opciones='<option value="">-- Elegí '+(esCli?'un cliente':'un proveedor')+' --</option>'+lista.map(x=>`<option value="${esc(x.id)}"${x.id===_socioId?' selected':''}>${esc(esCli?(x.nombreCompleto||'(sin nombre)'):x.nombre)}</option>`).join('');
+    const tools=`<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">
+        <div class="cal-seg"><button class="${esCli?'active':''}" onclick="_socioTipo='cliente';_socioId='';renderContabilidad()">Clientes</button><button class="${esCli?'':'active'}" onclick="_socioTipo='proveedor';_socioId='';renderContabilidad()">Proveedores</button></div>
+        <select onchange="_socioId=this.value;renderContabilidad()" style="min-width:280px;">${opciones}</select>
+        <label style="display:flex;align-items:center;gap:4px;font-size:0.8rem;margin:0;"><input type="checkbox" ${_socioSoloSaldo?'checked':''} onchange="_socioSoloSaldo=this.checked;renderContabilidad()"> Solo ${esCli?'ventas':'documentos'} con saldo</label>
+        <span style="flex:1;"></span>${_socioId?`<button class="btn btn-sm btn-ghost" onclick="contaExportarSocio()">&#128196; Exportar a Excel</button>`:''}</div>`;
+    if(!_socioId)return tools+`<div class="grid-empty"><h3>Estado de cuenta por ${esCli?'cliente':'proveedor'}</h3><p>Eleg&iacute; ${esCli?'un cliente para ver todas sus ventas y cobros':'un proveedor para ver sus facturas, gastos y pagos'}, con el saldo corrido en cada moneda y el enlace a cada asiento.</p></div>`;
+    const socio=lista.find(x=>x.id===_socioId);const nombre=esCli?(socio.nombreCompleto||''):socio.nombre;
+    let movs=esCli?contaSocioMovsCliente(_socioId):contaSocioMovsProveedor(_socioId);
+    if(_socioSoloSaldo){const key=m=>m.ventaId||m.docId;const saldoPor={};movs.forEach(m=>{saldoPor[key(m)]=_contaRound((saldoPor[key(m)]||0)+m.cargo-m.abono);});movs=movs.filter(m=>saldoPor[key(m)]>0.005);}
+    const monedas=Array.from(new Set(movs.map(m=>m.moneda)));
+    const resumen=monedas.map(mo=>{const ms=movs.filter(m=>m.moneda===mo);const c=_contaRound(ms.reduce((s,m)=>s+m.cargo,0)),a=_contaRound(ms.reduce((s,m)=>s+m.abono,0));return `<div style="border:1px solid var(--border);border-radius:8px;padding:8px 12px;min-width:200px;"><div style="font-size:0.68rem;color:var(--text-light);text-transform:uppercase;letter-spacing:.5px;">${esc(mo)}</div><div style="font-size:0.8rem;">${esCli?'Ventas':'Facturado'}: <strong>${_contaFmtOrig(c,mo)}</strong></div><div style="font-size:0.8rem;">${esCli?'Cobrado':'Pagado'}: <strong>${_contaFmtOrig(a,mo)}</strong></div><div style="font-size:0.9rem;font-weight:700;color:${(c-a)>0.005?'#a32d2d':'#0f6e56'};">Saldo: ${_contaFmtOrig(_contaRound(c-a),mo)}</div></div>`;}).join('');
+    const saldo={};
+    const rows=movs.map(m=>{saldo[m.moneda]=_contaRound((saldo[m.moneda]||0)+m.cargo-m.abono);
+        const doc=esCli?`<span class="cliente-link" onclick="openCobranza('${esc(m.ventaId)}')">${esc(m.tipo)}</span>`:`<span class="cliente-link" onclick="verContaDoc('${esc(m.docId)}')">${esc(m.tipo)}</span>`;
+        const esCargo=m.tipo==='Venta'||m.tipo==='Factura'||m.tipo==='Gasto';
+        return `<tr style="${esCargo?'':'color:var(--text-light);'}"><td style="white-space:nowrap;">${m.fecha?fmtFechaCorta(m.fecha):'-'}</td><td>${doc}</td><td style="${esCargo?'':'padding-left:18px;'}">${esc(m.detalle||'')}${m.vence?' <span style="font-size:0.72rem;">(vence '+fmtFechaCorta(m.vence)+')</span>':''}</td><td>${m.asientoId?_contaLinkAsientoHtml(m.asientoId):'<span style="color:var(--text-light);font-size:0.72rem;">sin asiento</span>'}</td><td style="text-align:right;white-space:nowrap;">${m.cargo?_contaFmtOrig(m.cargo,m.moneda):''}</td><td style="text-align:right;white-space:nowrap;">${m.abono?_contaFmtOrig(m.abono,m.moneda):''}</td><td style="text-align:right;white-space:nowrap;font-weight:600;">${_contaFmtOrig(saldo[m.moneda],m.moneda)}</td></tr>`;}).join('');
+    return tools+`<h3 style="margin:0 0 8px;color:var(--primary-dark);">${esc(nombre)} <span style="font-size:0.78rem;font-weight:400;color:var(--text-light);">· ${esCli?'cliente':'proveedor'} · ${movs.length} movimiento${movs.length===1?'':'s'}</span></h3>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;">${resumen||'<span style="color:var(--text-light);font-size:0.8rem;">Sin movimientos.</span>'}</div>
+    <table class="list-table"><thead><tr><th>Fecha</th><th>Documento</th><th>Detalle</th><th>Asiento</th><th style="text-align:right;">${esCli?'Cargo':'Factura'}</th><th style="text-align:right;">${esCli?'Abono':'Pago'}</th><th style="text-align:right;">Saldo</th></tr></thead><tbody>${rows||'<tr><td colspan="7" style="color:var(--text-light);">Sin movimientos.</td></tr>'}</tbody></table>
+    <p class="config-hint" style="margin-top:8px;">El saldo corre por moneda. Clic en el documento para abrirlo y en &#10148; para ir al asiento. Los gastos de proveedor ya pagados aparecen con su pago en la misma l&iacute;nea.</p>`;
+}
+function contaExportarSocio(){
+    if(!_socioId)return;const esCli=_socioTipo==='cliente';
+    const movs=esCli?contaSocioMovsCliente(_socioId):contaSocioMovsProveedor(_socioId);const saldo={};
+    const rows=movs.map(m=>{saldo[m.moneda]=_contaRound((saldo[m.moneda]||0)+m.cargo-m.abono);const a=m.asientoId?getContaAsientos().find(x=>x&&x.id===m.asientoId):null;return {'Fecha':m.fecha,'Documento':m.tipo,'Detalle':m.detalle,'Asiento':a?contaNumAsiento(a):'','Moneda':m.moneda,'Cargo':m.cargo||'','Abono':m.abono||'','Saldo':saldo[m.moneda]};});
+    const ws=XLSX.utils.json_to_sheet(rows);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Estado de cuenta');XLSX.writeFile(wb,'Estado_cuenta_'+(esCli?'cliente':'proveedor')+'_'+_socioId+'.xlsx');
+}
+// Abre el estado de cuenta contable de un cliente o proveedor desde otra pantalla
+function contaAbrirSocio(tipo,id){_socioTipo=tipo==='proveedor'?'proveedor':'cliente';_socioId=id||'';_contaTab='socio';nav('contabilidad');renderContabilidad();}
 // Socios de negocios → Clientes: reutiliza el detalle de cuentas por cobrar de los informes
 function _contaClientesHtml(p){const prev=_repTipo;_repTipo='cxc';let h='';try{h=_repCuerpoHtml(p);}finally{_repTipo=prev;}return h;}
 // --- Mayor / balance de comprobación ---
@@ -6484,7 +6571,7 @@ function _contaMayorHtml(p){
         const movs=[];getContaAsientos().filter(a=>a&&a.fecha>=r.desde&&a.fecha<=r.hasta).sort((a,b)=>a.fecha.localeCompare(b.fecha)||(a.numero-b.numero)).forEach(a=>a.lineas.forEach(l=>{if(l.cuenta===_contaMayorCuenta)movs.push({a,l});}));
         const deudora=!c||['activo','costo','gasto'].includes(c.tipo);
         let saldo=(ini[_contaMayorCuenta]||{}).saldo||0;
-        const rows=movs.map(({a,l})=>{saldo=_contaRound(saldo+(deudora?(l.debe-l.haber):(l.haber-l.debe)));return `<tr><td>${fmtFechaCorta(a.fecha)}</td><td style="white-space:nowrap;font-family:monospace;font-size:0.78rem;">${contaNumAsiento(a)}</td><td>${esc(a.descripcion||'')}${l.detalle?' <span style="color:var(--text-light);">· '+esc(l.detalle)+'</span>':''}</td><td style="text-align:right;white-space:nowrap;">${(l.moneda&&l.moneda!=='CRC'&&num(l.montoOrig)>0)?_contaFmtOrig(l.montoOrig,l.moneda):''}</td><td style="text-align:right;">${l.debe?fmtCRC2(l.debe):''}</td><td style="text-align:right;">${l.haber?fmtCRC2(l.haber):''}</td><td style="text-align:right;font-weight:600;">${fmtCRC2(saldo)}</td></tr>`;}).join('');
+        const rows=movs.map(({a,l})=>{saldo=_contaRound(saldo+(deudora?(l.debe-l.haber):(l.haber-l.debe)));return `<tr><td>${fmtFechaCorta(a.fecha)}</td><td style="white-space:nowrap;">${_contaLinkAsientoHtml(a.id)}</td><td>${esc(a.descripcion||'')}${l.detalle?' <span style="color:var(--text-light);">· '+esc(l.detalle)+'</span>':''}</td><td style="text-align:right;white-space:nowrap;">${(l.moneda&&l.moneda!=='CRC'&&num(l.montoOrig)>0)?_contaFmtOrig(l.montoOrig,l.moneda):''}</td><td style="text-align:right;">${l.debe?fmtCRC2(l.debe):''}</td><td style="text-align:right;">${l.haber?fmtCRC2(l.haber):''}</td><td style="text-align:right;font-weight:600;">${fmtCRC2(saldo)}</td></tr>`;}).join('');
         const s0=(ini[_contaMayorCuenta]||{}).saldo||0;
         return sel+`<table class="list-table"><thead><tr><th>Fecha</th><th>Nº</th><th>Descripción</th><th style="text-align:right;">Monto original</th><th style="text-align:right;">Debe</th><th style="text-align:right;">Haber</th><th style="text-align:right;">Saldo</th></tr></thead><tbody><tr style="background:var(--bg);"><td colspan="6"><em>Saldo inicial al ${fmtFechaCorta(r.desde)}</em></td><td style="text-align:right;font-weight:600;">${fmtCRC2(s0)}</td></tr>${rows||'<tr><td colspan="7" style="color:var(--text-light);text-align:center;">Sin movimientos en el período</td></tr>'}</tbody></table>`;
     }
@@ -6770,7 +6857,7 @@ function guardarContaDoc(){
 function verContaDoc(id){
     const d=getContaDocs().find(x=>x.id===id);if(!d)return;
     const ov=document.getElementById('modalContaDoc');
-    const pagos=(d.pagos||[]).map(p=>`<tr><td>${fmtFechaCorta(p.fecha)}</td><td style="text-align:right;">${_contaFmtOrig(p.monto,d.moneda)}</td><td style="text-align:right;">${fmtCRC2(p.montoCRC)}</td><td>${esc(contaCuentaNombre(p.cuentaBanco))}</td><td>${esc(p.referencia||'')}</td><td>${(tienePermiso('contabilidad.registrar')&&d.estado!=='anulada')?`<button class="btn btn-sm btn-danger" style="padding:2px 8px;font-size:0.7rem;" onclick="contaAnularPagoUI('${d.id}','${p.id}')">Anular</button>`:''}</td></tr>`).join('');
+    const pagos=(d.pagos||[]).map(p=>`<tr><td>${fmtFechaCorta(p.fecha)}${p.asientoId?'<div>'+_contaLinkAsientoHtml(p.asientoId)+'</div>':''}</td><td style="text-align:right;">${_contaFmtOrig(p.monto,d.moneda)}</td><td style="text-align:right;">${fmtCRC2(p.montoCRC)}</td><td>${esc(contaCuentaNombre(p.cuentaBanco))}</td><td>${esc(p.referencia||'')}</td><td>${(tienePermiso('contabilidad.registrar')&&d.estado!=='anulada')?`<button class="btn btn-sm btn-danger" style="padding:2px 8px;font-size:0.7rem;" onclick="contaAnularPagoUI('${d.id}','${p.id}')">Anular</button>`:''}</td></tr>`).join('');
     const adj=d.adjunto?(String(d.adjunto).startsWith('data:application/pdf')||/\.pdf(\?|$)/i.test(d.adjunto)?`<a class="btn btn-sm btn-ghost" href="${esc(d.adjunto)}" target="_blank">Ver comprobante (PDF)</a>`:`<a href="${esc(d.adjunto)}" target="_blank"><img src="${esc(d.adjunto)}" style="max-width:100%;max-height:260px;border-radius:8px;border:1px solid var(--border);"></a>`):'<span style="color:var(--text-light);">Sin comprobante</span>';
     ov.innerHTML=`<div class="modal" style="max-width:720px;"><div class="modal-header"><h3>${d.tipo==='factura'?'Factura de proveedor':'Gasto'}${d.numero?' · '+esc(d.numero):''}</h3><button class="modal-close" onclick="closeModal('modalContaDoc')">&times;</button></div>
     <div class="modal-body" style="font-size:0.86rem;">
@@ -6779,6 +6866,7 @@ function verContaDoc(id){
             <div><span style="color:var(--text-light);">Descripción</span><br>${esc(d.descripcion||'-')}</div><div><span style="color:var(--text-light);">Venta</span><br>${d.ventaId?`<span class="cliente-link" onclick="closeModal('modalContaDoc');openCobranza('${d.ventaId}')">${esc(d.ventaEtiqueta||'')}</span>`:'-'}</div>
             <div><span style="color:var(--text-light);">Monto</span><br><strong>${_contaFmtOrig(d.monto,d.moneda)}</strong> = ${fmtCRC2(d.montoCRC)} (TC ${num(d.tc).toLocaleString('es-CR',{minimumFractionDigits:2})})</div><div><span style="color:var(--text-light);">Estado</span><br>${esc(d.estado)}${d.tipo==='factura'?' · saldo '+_contaFmtOrig(contaDocSaldo(d),d.moneda):''}</div>
             <div><span style="color:var(--text-light);">Cuenta</span><br>${esc(contaCuentaNombre(d.cuentaGasto))}</div><div><span style="color:var(--text-light);">${d.tipo==='factura'?'Por pagar en':'Pagado desde'}</span><br>${esc(contaCuentaNombre(d.tipo==='factura'?d.cuentaCxP:d.cuentaBanco))}</div>
+            <div><span style="color:var(--text-light);">Asiento contable</span><br>${d.asientoId?_contaLinkAsientoHtml(d.asientoId):'<span style="color:var(--text-light);">sin asiento</span>'}</div>
         </div>
         ${d.tipo==='factura'?`<h4 style="font-size:0.9rem;margin:8px 0 6px;">Pagos</h4>${pagos?`<table class="list-table"><thead><tr><th>Fecha</th><th style="text-align:right;">Monto</th><th style="text-align:right;">₡</th><th>Desde</th><th>Ref.</th><th></th></tr></thead><tbody>${pagos}</tbody></table>`:'<div style="color:var(--text-light);">Sin pagos todavía.</div>'}`:''}
         <h4 style="font-size:0.9rem;margin:12px 0 6px;">Comprobante</h4>${adj}
@@ -11866,7 +11954,9 @@ function renderPagosTable(){try{renderCobCostos();}catch(e){}
     }
     const m=v.cobranza.moneda||'USD';
     const sorted=[...v.cobranza.pagos].sort((a,b)=>(a.fecha||'').localeCompare(b.fecha||''));
-    tbody.innerHTML=sorted.map(p=>`<tr><td>${esc(p.fecha||'')}</td><td><strong>${fmtMoney(p.monto,m)}</strong></td><td>${esc(p.metodo||'')}</td><td>${esc(p.referencia||'')}</td><td>${esc(p.nota||'')}</td><td style="white-space:nowrap;"><div style="display:inline-flex;gap:4px;align-items:center;"><button class="btn btn-sm btn-accent" style="padding:4px 10px;font-size:0.7rem;white-space:nowrap;display:inline-flex;align-items:center;gap:2px;" onclick="generarReciboPago('${p.id}')" title="Generar recibo de este pago">&#129534; Recibo</button><button class="btn btn-sm btn-primary" style="padding:4px 8px;font-size:0.7rem;white-space:nowrap;" onclick="editarPago('${p.id}')" title="Editar este pago">&#9998;</button><button class="btn-icon remove" style="display:inline-flex;" onclick="removePago('${p.id}')" title="Eliminar">&times;</button></div></td></tr>`).join('');
+    const verConta=(typeof tienePermiso==='function')&&tienePermiso('contabilidad.ver');
+    const asLink=p=>{if(!verConta)return '';try{const a=contaAsientoExiste('cobro',v.id,p.id);return a?'<div>'+_contaLinkAsientoHtml(a.id)+'</div>':'';}catch(e){return '';}};
+    tbody.innerHTML=sorted.map(p=>`<tr><td>${esc(p.fecha||'')}${asLink(p)}</td><td><strong>${fmtMoney(p.monto,m)}</strong></td><td>${esc(p.metodo||'')}</td><td>${esc(p.referencia||'')}</td><td>${esc(p.nota||'')}</td><td style="white-space:nowrap;"><div style="display:inline-flex;gap:4px;align-items:center;"><button class="btn btn-sm btn-accent" style="padding:4px 10px;font-size:0.7rem;white-space:nowrap;display:inline-flex;align-items:center;gap:2px;" onclick="generarReciboPago('${p.id}')" title="Generar recibo de este pago">&#129534; Recibo</button><button class="btn btn-sm btn-primary" style="padding:4px 8px;font-size:0.7rem;white-space:nowrap;" onclick="editarPago('${p.id}')" title="Editar este pago">&#9998;</button><button class="btn-icon remove" style="display:inline-flex;" onclick="removePago('${p.id}')" title="Eliminar">&times;</button></div></td></tr>`).join('');
 }
 
 // Estado global para saber qué pago se está editando (null = modo creación)
