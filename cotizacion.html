@@ -31,6 +31,33 @@ body{font-family:'Open Sans',sans-serif;background:var(--bg);color:var(--text);m
 .sidebar-item .si-icon{font-size:1rem;width:22px;text-align:center}
 .sidebar-item .si-badge{margin-left:auto;background:var(--accent);color:white;font-size:0.6rem;padding:2px 7px;border-radius:8px;font-weight:700}
 .app-main{flex:1;display:flex;flex-direction:column;overflow:hidden}
+/* ===== MODO CONTABILIDAD (barra lateral propia, estilo menú principal de SAP B1) ===== */
+#contaSidebar{display:none;width:236px;min-width:236px;background:linear-gradient(180deg,#0b3f4a 0%,#072b33 100%);color:white;flex-direction:column;z-index:50}
+body.conta-mode .app-sidebar{display:none}
+body.conta-mode #contaSidebar{display:flex}
+#contaSidebar .sidebar-logo h2{font-size:1.05rem}
+#contaSidebar .sidebar-logo p{font-family:'Open Sans',sans-serif;font-size:0.72rem;opacity:0.65;text-transform:uppercase;letter-spacing:1px}
+.cs-menu{flex:1;overflow-y:auto;padding:8px 0}
+.cs-menu::-webkit-scrollbar{width:4px}.cs-menu::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.15);border-radius:2px}
+.cs-group{padding:9px 16px;font-size:0.78rem;font-weight:700;color:rgba(255,255,255,0.85);cursor:pointer;display:flex;align-items:center;gap:8px;user-select:none}
+.cs-group:hover{background:rgba(255,255,255,0.06)}
+.cs-group .cs-caret{font-size:0.7rem;width:12px;opacity:0.7;transition:transform 0.15s}
+.cs-group.open .cs-caret{transform:rotate(90deg)}
+.cs-group .cs-badge{margin-left:auto;background:#e6a700;color:#fff;border-radius:10px;padding:0 6px;font-size:0.66rem}
+.cs-items{display:none;padding-bottom:4px}
+.cs-group.open + .cs-items{display:block}
+.cs-item{display:flex;align-items:center;gap:8px;padding:7px 16px 7px 36px;font-size:0.78rem;color:rgba(255,255,255,0.68);cursor:pointer;border-left:3px solid transparent}
+.cs-item:hover{background:rgba(255,255,255,0.06);color:#fff}
+.cs-item.active{background:rgba(255,255,255,0.12);color:#fff;border-left-color:var(--primary-vivid);font-weight:600}
+.cs-item .cs-badge{margin-left:auto;background:#e6a700;color:#fff;border-radius:10px;padding:0 6px;font-size:0.66rem}
+.cs-footer{padding:12px 14px;border-top:1px solid rgba(255,255,255,0.1)}
+.cs-back{width:100%;display:flex;align-items:center;justify-content:center;gap:8px;padding:9px 12px;border-radius:8px;border:1px solid rgba(255,255,255,0.35);background:rgba(255,255,255,0.08);color:#fff;font-size:0.8rem;font-weight:600;cursor:pointer;font-family:inherit}
+.cs-back:hover{background:rgba(255,255,255,0.18)}
+body.conta-mode .app-header{background:linear-gradient(135deg,#0b3f4a,#027584)}
+.conta-topbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.conta-topbar label{font-size:0.72rem;opacity:0.85;margin:0;color:#fff;text-transform:uppercase;letter-spacing:.5px}
+.conta-topbar input[type=month]{padding:4px 8px;border-radius:6px;border:1px solid rgba(255,255,255,0.4);background:rgba(255,255,255,0.12);color:#fff;font-size:0.8rem}
+.conta-topbar .conta-tc{font-size:0.74rem;opacity:0.9;white-space:nowrap}
 
 /* ===== HEADER ===== */
 .app-header{background:linear-gradient(135deg,var(--primary-dark),var(--primary));color:white;padding:10px 25px;display:flex;align-items:center;justify-content:space-between;box-shadow:0 2px 10px rgba(0,0,0,0.1)}
@@ -651,6 +678,8 @@ body.sin-costos .btn-calc-toggle,body.sin-costos .calc-row{display:none!importan
     .mobile-menu-btn{display:inline-flex}
     .app-sidebar{position:fixed;top:0;left:0;bottom:0;width:230px;z-index:50;transform:translateX(-100%);transition:transform 0.25s ease-out;box-shadow:2px 0 12px rgba(0,0,0,0.15)}
     .app-sidebar.open{transform:translateX(0)}
+    #contaSidebar{position:fixed;top:0;left:0;bottom:0;width:236px;z-index:50;transform:translateX(-100%);transition:transform 0.25s ease-out;box-shadow:2px 0 12px rgba(0,0,0,0.15)}
+    #contaSidebar.open{transform:translateX(0)}
     /* El header es lo primero del viewport: en iPhone queda debajo del reloj/notch.
        El padding-top real lo define el bloque de SAFE AREAS al final de esta hoja. */
     .app-header{padding:8px 12px;min-height:56px}
@@ -1079,6 +1108,12 @@ onAuthStateChanged(fbAuth, (user) => {
 <div class="sidebar-overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
 
 <!-- ===== MAIN ===== -->
+<!-- ===== SIDEBAR DEL MODO CONTABILIDAD ===== -->
+<div id="contaSidebar">
+    <div class="sidebar-logo"><h2>&#128213; Contabilidad</h2><p>Deseos Viajeros</p></div>
+    <div class="cs-menu" id="contaSidebarMenu"></div>
+    <div class="cs-footer"><button class="cs-back" onclick="contaSalir()">&larr; Volver al sistema</button></div>
+</div>
 <div class="app-main">
 <div class="app-header">
     <div style="display:flex;align-items:center;gap:2px;">
@@ -1263,13 +1298,6 @@ onAuthStateChanged(fbAuth, (user) => {
 
 <!-- VIEW: REPORTE DE PAGOS -->
 <div class="app-view view-list" id="viewContabilidad">
-    <div class="list-search" style="flex-wrap:wrap;align-items:center;">
-        <div id="contaNav" style="display:flex;flex-direction:column;gap:6px;width:100%;"></div>
-        <div style="display:flex;align-items:center;gap:8px;width:100%;">
-        <label style="font-size:0.78rem;color:var(--text-light);margin:0;">Per&iacute;odo</label><input type="month" id="contaPeriodo" onchange="renderContabilidad()" style="width:170px;">
-        <span style="flex:1;"></span><span id="contaTCHoy" style="font-size:0.78rem;color:var(--text-light);"></span>
-        </div>
-    </div>
     <div class="list-view" id="contaBody"></div>
 </div>
 <div class="modal-overlay" id="modalAsiento"></div>
@@ -3759,8 +3787,12 @@ function nav(view){
     else if(view==='tareas')ha.innerHTML='<button class="btn btn-accent" onclick="openTareaModal()">+ Nueva Tarea</button>';
     else if(view==='calendario')ha.innerHTML='<button class="btn btn-accent" onclick="openEventoModal()">+ Nuevo evento</button>';
     else if(view==='dashboard')ha.innerHTML='<button class="btn btn-outline" onclick="renderDashboard()">&#8635; Actualizar</button>';
-    else if(view==='contabilidad')ha.innerHTML=tienePermiso('contabilidad.registrar')?'<button class="btn btn-outline" onclick="openContaDocModal({tipo:\'factura\'})">+ Factura de proveedor</button><button class="btn btn-outline" onclick="openContaDocModal({tipo:\'gasto\'})">+ Gasto</button><button class="btn btn-accent" onclick="openAsientoModal()">+ Asiento manual</button>':'';
+    else if(view==='contabilidad')ha.innerHTML='<div class="conta-topbar"><label>Per&iacute;odo</label><input type="month" id="contaPeriodo" value="'+esc(_contaPeriodoSel||'')+'" onchange="_contaPeriodoSel=this.value;renderContabilidad()"><span class="conta-tc" id="contaTCHoy"></span></div>'+(tienePermiso('contabilidad.registrar')?'<button class="btn btn-outline" onclick="openContaDocModal({tipo:\'factura\'})">+ Factura</button><button class="btn btn-outline" onclick="openContaDocModal({tipo:\'gasto\'})">+ Gasto</button><button class="btn btn-accent" onclick="openAsientoModal()">+ Asiento</button>':'');
     else ha.innerHTML='';
+    // Modo Contabilidad: barra lateral propia y botón "Volver al sistema"
+    if(view==='contabilidad'){if(!document.body.classList.contains('conta-mode')){_contaVolverA=(_vistaActual&&_vistaActual!=='contabilidad')?_vistaActual:'inicio';}document.body.classList.add('conta-mode');}
+    else document.body.classList.remove('conta-mode');
+    _vistaActual=view;
     const viewIds={inicio:'viewInicio',dashboard:'viewDashboard',editor:'viewEditor',historial:'viewHistorial',encabezados:'viewEncabezados',ventas:'viewVentas',clientes:'viewClientes',clientesventas:'viewClientesVentas',tareas:'viewTareas',calendario:'viewCalendario',reportePagos:'viewReportePagos',contabilidad:'viewContabilidad',configuracion:'viewConfiguracion',rrhh:'viewRrhh',documento:'viewDocumento'};
     document.getElementById(viewIds[view]).classList.add('active');
     if(view==='dashboard')renderDashboard();
@@ -6477,17 +6509,24 @@ const CONTA_MENU=[
     {id:'admin',label:'Administraci\u00f3n',items:[['cierres','Per\u00edodos y cierres'],['tc','Tipos de cambio'],['config','Determinaci\u00f3n de cuentas']]}
 ];
 function _contaGrupoDe(t){return CONTA_MENU.find(g=>g.items.some(it=>it[0]===t))||CONTA_MENU[0];}
+let _contaNavAbiertos={};
 function _contaRenderNav(){
-    const nav=document.getElementById('contaNav');if(!nav)return;
-    const g=_contaGrupoDe(_contaTab);
-    nav.innerHTML=`<div class="cal-seg">${CONTA_MENU.map(x=>`<button class="${x.id===g.id?'active':''}" onclick="contaTab('${x.items[0][0]}')">${x.label}</button>`).join('')}</div>
-    <div style="display:flex;gap:6px;flex-wrap:wrap;">${g.items.map(it=>{let n=0;try{if(it[0]==='preliminares')n=contaBorradoresPendientes().length;else if(it[0]==='plantillas')n=contaPeriodicosPendientes().length;}catch(e){}return `<button class="btn btn-sm ${it[0]===_contaTab?'btn-primary':'btn-ghost'}" style="padding:3px 10px;font-size:0.76rem;border-radius:12px;" onclick="contaTab('${it[0]}')">${it[1]}${n?` <span style="background:#e6a700;color:#fff;border-radius:10px;padding:0 6px;font-size:0.68rem;">${n}</span>`:''}</button>`;}).join('')}</div>`;
+    const menu=document.getElementById('contaSidebarMenu');if(!menu)return;
+    const g=_contaGrupoDe(_contaTab);_contaNavAbiertos[g.id]=true;
+    const cnt=id=>{try{if(id==='preliminares')return contaBorradoresPendientes().length;if(id==='plantillas')return contaPeriodicosPendientes().length;}catch(e){}return 0;};
+    menu.innerHTML=CONTA_MENU.map(x=>{const open=!!_contaNavAbiertos[x.id];const nG=x.items.reduce((s,it)=>s+cnt(it[0]),0);
+        return `<div class="cs-group${open?' open':''}" onclick="_contaNavAbiertos['${x.id}']=!_contaNavAbiertos['${x.id}'];_contaRenderNav()"><span class="cs-caret">&#9654;</span>${x.label}${(!open&&nG)?`<span class="cs-badge">${nG}</span>`:''}</div>
+        <div class="cs-items">${x.items.map(it=>{const n=cnt(it[0]);return `<div class="cs-item${it[0]===_contaTab?' active':''}" onclick="contaTab('${it[0]}')">${it[1]}${n?`<span class="cs-badge">${n}</span>`:''}</div>`;}).join('')}</div>`;}).join('');
+    const ht=document.getElementById('headerTitle');if(ht&&document.body.classList.contains('conta-mode')){const it=g.items.find(x=>x[0]===_contaTab);ht.textContent='Contabilidad · '+(it?it[1]:g.label);}
 }
 function contaTab(t){
     if(t==='config'){nav('configuracion');setTimeout(()=>{try{switchConfigTab('contabilidad');}catch(e){}},0);return;}
-    _contaTab=t;renderContabilidad();
+    _contaTab=t;try{localStorage.setItem('dv_conta_tab',t);}catch(e){}renderContabilidad();
+    if(window.innerWidth<=768)closeSidebar();
 }
-function _contaPeriodoUI(){const el=document.getElementById('contaPeriodo');if(el&&!el.value)el.value=_hitoHoyISO().slice(0,7);return el?el.value:_hitoHoyISO().slice(0,7);}
+try{const _t=localStorage.getItem('dv_conta_tab');if(_t&&CONTA_MENU.some(g=>g.items.some(it=>it[0]===_t)))_contaTab=_t;}catch(e){}
+let _contaPeriodoSel='';
+function _contaPeriodoUI(){if(!_contaPeriodoSel)_contaPeriodoSel=_hitoHoyISO().slice(0,7);const el=document.getElementById('contaPeriodo');if(el&&el.value!==_contaPeriodoSel){if(el.value)_contaPeriodoSel=el.value;else el.value=_contaPeriodoSel;}return _contaPeriodoSel;}
 function _contaRangoPeriodo(p){const y=parseInt(p.slice(0,4),10),m=parseInt(p.slice(5,7),10);const fin=new Date(y,m,0).getDate();return {desde:p+'-01',hasta:p+'-'+String(fin).padStart(2,'0')};}
 // Monto original del asiento en moneda extranjera (la primera línea que no sea colones); '' si todo es en colones
 function _contaMontoOrigAsiento(a){const l=(a&&Array.isArray(a.lineas)?a.lineas:[]).find(x=>x&&x.moneda&&x.moneda!=='CRC'&&num(x.montoOrig)>0);if(!l)return '';return _contaFmtOrig(l.montoOrig,l.moneda)+(num(l.tc)>0?' <span style="color:var(--text-light);font-size:0.72rem;">@ '+num(l.tc).toLocaleString('es-CR',{minimumFractionDigits:2,maximumFractionDigits:2})+'</span>':'');}
@@ -14680,8 +14719,10 @@ document.getElementById('paisSelect').value='';document.getElementById('encargad
 function esc(t){const d=document.createElement('div');d.textContent=t;return d.innerHTML;}
 
 // ===== MOBILE SIDEBAR =====
+let _vistaActual='inicio',_contaVolverA='inicio';
+function contaSalir(){const v=_contaVolverA||'inicio';nav(puedeVerVista(v)?v:'inicio');}
 function toggleSidebar(){
-    const sb=document.querySelector('.app-sidebar');
+    const sb=document.body.classList.contains('conta-mode')?document.getElementById('contaSidebar'):document.querySelector('.app-sidebar');
     const ov=document.getElementById('sidebarOverlay');
     if(!sb)return;
     const isOpen=sb.classList.toggle('open');
@@ -14689,6 +14730,7 @@ function toggleSidebar(){
 }
 function closeSidebar(){
     document.querySelector('.app-sidebar').classList.remove('open');
+    const cs=document.getElementById('contaSidebar');if(cs)cs.classList.remove('open');
     document.getElementById('sidebarOverlay').classList.remove('open');
 }
 
