@@ -2203,6 +2203,74 @@ function contaInit(){try{contaActualizarTCHoy(false).then(()=>{try{const el=docu
 const PROV_TIPOS=[['hotel','Hotel','2101','5101'],['aerolinea','Aerolínea','2102','5102'],['seguro','Seguro de viaje','2103','5103'],['traslado','Traslados y tours','2104','5104'],['crucero','Naviera','2105','5105'],['otro','Otro proveedor de viaje','2105','5190'],['servicio','Servicios y gastos generales','2105','6290']];
 function _normContaProveedores(arr){return (Array.isArray(arr)?arr:[]).filter(p=>p&&p.nombre).map(p=>{const t=PROV_TIPOS.find(x=>x[0]===p.tipo)||PROV_TIPOS[5];return {id:String(p.id||('pv_'+Date.now())),nombre:String(p.nombre).trim(),tipo:t[0],cuentaCxP:p.cuentaCxP||t[2],cuentaCosto:p.cuentaCosto||t[3],contacto:String(p.contacto||''),notas:String(p.notas||''),activo:p.activo!==false};});}
 function contaProveedores(){return _normContaProveedores(getConfig().contaProveedores);}
+// --- Plantillas de contabilización y contabilizaciones periódicas (como en SAP B1) ---
+// Plantilla: {id,nombre,descripcion,moneda,lineas:[{cuenta,debe,haber}],periodica,dia,desde:'YYYY-MM',hasta:'YYYY-MM',hechos:{'YYYY-MM':asientoId|borradorId|'omitido'}}
+function _normContaPlantillas(arr){return (Array.isArray(arr)?arr:[]).filter(t=>t&&t.nombre).map(t=>({id:String(t.id||('pl_'+Date.now())),nombre:String(t.nombre).trim(),descripcion:String(t.descripcion||''),moneda:CONTA_MONEDAS.includes(t.moneda)?t.moneda:'CRC',lineas:(Array.isArray(t.lineas)?t.lineas:[]).filter(l=>l&&l.cuenta).map(l=>({cuenta:String(l.cuenta),debe:num(l.debe)||0,haber:num(l.haber)||0})),periodica:!!t.periodica,dia:Math.min(28,Math.max(1,parseInt(t.dia||1,10)||1)),desde:String(t.desde||'').slice(0,7),hasta:String(t.hasta||'').slice(0,7),hechos:(t.hechos&&typeof t.hechos==='object')?t.hechos:{}}));}
+function contaPlantillas(){return _normContaPlantillas(getConfig().contaPlantillas);}
+function contaPlantilla(id){return contaPlantillas().find(t=>t.id===id)||null;}
+function contaGuardarPlantilla(t){
+    const cfg=getConfig();const lista=_normContaPlantillas(cfg.contaPlantillas);
+    if(t.id){const i=lista.findIndex(x=>x.id===t.id);if(i>=0)lista[i]=Object.assign(lista[i],t);else lista.push(t);}
+    else{t.id='pl_'+Date.now()+'_'+Math.random().toString(36).slice(2,5);lista.push(t);}
+    cfg.contaPlantillas=_normContaPlantillas(lista);saveConfig(cfg);return t.id;
+}
+function contaEliminarPlantilla(id){const cfg=getConfig();cfg.contaPlantillas=_normContaPlantillas(cfg.contaPlantillas).filter(t=>t.id!==id);saveConfig(cfg);}
+function contaMarcarPeriodico(id,periodo,valor){const cfg=getConfig();const lista=_normContaPlantillas(cfg.contaPlantillas);const t=lista.find(x=>x.id===id);if(!t)return;t.hechos=Object.assign({},t.hechos,{[periodo]:valor});cfg.contaPlantillas=lista;saveConfig(cfg);}
+// Períodos (YYYY-MM) en los que una plantilla periódica todavía no se registró ni se omitió, hasta el mes actual
+function contaPeriodicosPendientes(){
+    const hoyP=_hitoHoyISO().slice(0,7);const ini=String(contaCfg().fechaInicio||'').slice(0,7);const out=[];
+    contaPlantillas().filter(t=>t.periodica).forEach(t=>{
+        let per=t.desde&&t.desde>ini?t.desde:ini;if(!per)return;
+        while(per<=hoyP&&(!t.hasta||per<=t.hasta)){
+            if(!t.hechos[per]&&!contaPeriodoCerrado(per))out.push({plantilla:t,periodo:per,fecha:per+'-'+String(t.dia).padStart(2,'0')});
+            const y=parseInt(per.slice(0,4),10),m=parseInt(per.slice(5,7),10);per=(m===12?(y+1)+'-01':y+'-'+String(m+1).padStart(2,'0'));
+        }
+    });
+    return out;
+}
+// Líneas de una plantilla convertidas a colones para una fecha (usa el TC del día)
+function _contaLineasDesdePlantilla(t,fecha){
+    const tc=t.moneda==='CRC'?1:(function(){const x=contaTCPara(fecha);return t.moneda==='USD'?(x.usd||0):(x.eur||0);})();
+    return {tc,lineas:t.lineas.map(l=>({cuenta:l.cuenta,debe:_contaRound(l.debe*tc),haber:_contaRound(l.haber*tc),moneda:t.moneda,montoOrig:l.debe||l.haber,tc}))};
+}
+// --- Asientos preliminares (borradores que alguien aprueba antes de entrar a los libros) ---
+// {id,fecha,descripcion,moneda,tc,lineas,origen:'manual'|'periodico',plantillaId,periodo,lineaBancoId,estado:'pendiente'|'aprobado'|'rechazado',creadoPor,creadoTs,resueltoPor,resueltoTs,motivo,asientoId}
+function getContaBorradores(){return getLS('dv_conta_borradores');}
+function saveContaBorradores(arr){return setLS('dv_conta_borradores',Array.isArray(arr)?arr:[]);}
+function contaBorradoresPendientes(){return getContaBorradores().filter(b=>b&&b.estado==='pendiente');}
+function contaPuedeAprobar(){return (typeof soyMaestro==='function'&&soyMaestro())||tienePermiso('contabilidad.aprobar');}
+function contaRequiereAprobacion(){return !!getConfig().contaRequiereAprobacion;}
+function contaCrearBorrador(o){
+    const b={id:'bor_'+Date.now()+'_'+Math.random().toString(36).slice(2,6),fecha:String(o.fecha||'').slice(0,10),descripcion:String(o.descripcion||'').trim(),moneda:o.moneda||'CRC',tc:num(o.tc)||1,lineas:(o.lineas||[]).map(l=>Object.assign({},l)),origen:o.origen||'manual',plantillaId:String(o.plantillaId||''),periodo:String(o.periodo||''),lineaBancoId:String(o.lineaBancoId||''),estado:'pendiente',creadoPor:(window.currentUser&&window.currentUser.email)||'',creadoTs:Date.now(),resueltoPor:'',resueltoTs:0,motivo:'',asientoId:''};
+    const arr=getContaBorradores().map(x=>Object.assign({},x));arr.push(b);saveContaBorradores(arr);
+    if(b.plantillaId&&b.periodo)contaMarcarPeriodico(b.plantillaId,b.periodo,b.id);
+    try{crearNotificacion({paraPermiso:'contabilidad.aprobar',titulo:'Asiento preliminar para aprobar',detalle:fmtFechaCorta(b.fecha)+' · '+b.descripcion+' · '+fmtCRC2(b.lineas.reduce((s,l)=>s+num(l.debe),0))+' · de '+b.creadoPor,origen:'conta_borrador',refId:b.id});}catch(e){}
+    _contaBitacora('Dejó el asiento preliminar "'+b.descripcion+'" para aprobar');
+    return b;
+}
+function contaActualizarBorrador(id,o){const arr=getContaBorradores().map(x=>Object.assign({},x));const b=arr.find(x=>x.id===id);if(!b||b.estado!=='pendiente')return null;Object.assign(b,{fecha:String(o.fecha||b.fecha).slice(0,10),descripcion:String(o.descripcion||b.descripcion).trim(),moneda:o.moneda||b.moneda,tc:num(o.tc)||b.tc,lineas:(o.lineas||b.lineas).map(l=>Object.assign({},l)),editadoPor:(window.currentUser&&window.currentUser.email)||'',editadoTs:Date.now()});saveContaBorradores(arr);return b;}
+function contaAprobarBorrador(id){
+    if(!contaPuedeAprobar()){alert('No tenés permiso para aprobar asientos preliminares.');return null;}
+    const b=getContaBorradores().find(x=>x&&x.id===id);if(!b||b.estado!=='pendiente'){alert('Ese asiento preliminar ya fue resuelto.');return null;}
+    const a=contaRegistrarAsiento({fecha:b.fecha,descripcion:b.descripcion,origen:b.origen==='periodico'?'periodico':'manual',refId:b.plantillaId||'',subRef:b.periodo||'',lineas:b.lineas});
+    if(!a)return null;
+    const arr=getContaBorradores().map(x=>Object.assign({},x));const b2=arr.find(x=>x.id===id);Object.assign(b2,{estado:'aprobado',resueltoPor:(window.currentUser&&window.currentUser.email)||'',resueltoTs:Date.now(),asientoId:a.id});saveContaBorradores(arr);
+    if(b.plantillaId&&b.periodo)contaMarcarPeriodico(b.plantillaId,b.periodo,a.id);
+    if(b.lineaBancoId){try{contaConciliarLinea(b.lineaBancoId,a.id,'creado');}catch(e){}}
+    try{if(b.creadoPor)crearNotificacion({paraEmail:b.creadoPor,titulo:'Asiento preliminar aprobado',detalle:b.descripcion+' → '+contaNumAsiento(a),origen:'conta_borrador',refId:id});}catch(e){}
+    _contaBitacora('Aprobó el asiento preliminar "'+b.descripcion+'" → '+contaNumAsiento(a));
+    return a;
+}
+function contaRechazarBorrador(id,motivo,porAutor){
+    const arr=getContaBorradores().map(x=>Object.assign({},x));const b=arr.find(x=>x&&x.id===id);if(!b||b.estado!=='pendiente')return false;
+    const yo=(window.currentUser&&window.currentUser.email)||'';
+    if(!porAutor&&!contaPuedeAprobar()){alert('No tenés permiso para rechazar asientos preliminares.');return false;}
+    Object.assign(b,{estado:'rechazado',resueltoPor:yo,resueltoTs:Date.now(),motivo:String(motivo||'')});saveContaBorradores(arr);
+    if(b.plantillaId&&b.periodo){const cfg=getConfig();const lista=_normContaPlantillas(cfg.contaPlantillas);const t=lista.find(x=>x.id===b.plantillaId);if(t&&t.hechos[b.periodo]===id){delete t.hechos[b.periodo];cfg.contaPlantillas=lista;saveConfig(cfg);}}
+    try{if(!porAutor&&b.creadoPor)crearNotificacion({paraEmail:b.creadoPor,titulo:'Asiento preliminar rechazado',detalle:b.descripcion+(motivo?' · '+motivo:''),origen:'conta_borrador',refId:id});}catch(e){}
+    _contaBitacora((porAutor?'Descartó':'Rechazó')+' el asiento preliminar "'+b.descripcion+'"'+(motivo?' ('+motivo+')':''));
+    return true;
+}
 function contaProveedor(id){return contaProveedores().find(p=>p.id===id)||null;}
 function contaGuardarProveedor(p){
     const c=getConfig();const lista=_normContaProveedores(c.contaProveedores);
@@ -2463,7 +2531,7 @@ function contaBalance(hasta){
     return {hasta,activos:act,pasivos:pas,patrimonio:pat,totalActivo:tA,totalPasivo:tP,totalPatrimonio:tPat,utilidadNoCerrada:util,totalPasivoPatrimonio:_contaRound(tP+tPat+util),cuadra:Math.abs(tA-(tP+tPat+util))<0.01};
 }
 // Flujo de efectivo (método directo) sobre cuentas bancarias y cajas (activo 11xx)
-const CONTA_FLUJO_GRUPOS={cobro:'Cobros de clientes',pago_proveedor:'Pagos a proveedores',gasto:'Gastos pagados',manual:'Otros movimientos',ingreso_venta:'Otros movimientos',planilla:'Planilla',apertura:'Saldo inicial',revaluacion:'Revaluación cambiaria',reversion:'Reversiones',traspaso:'Traspasos entre cuentas',depreciacion:'Otros movimientos',cierre_anual:'Otros movimientos',proveedor:'Otros movimientos',activo_fijo:'Compra de activos fijos'};
+const CONTA_FLUJO_GRUPOS={cobro:'Cobros de clientes',pago_proveedor:'Pagos a proveedores',gasto:'Gastos pagados',manual:'Otros movimientos',ingreso_venta:'Otros movimientos',planilla:'Planilla',apertura:'Saldo inicial',revaluacion:'Revaluación cambiaria',reversion:'Reversiones',periodico:'Gastos periódicos',traspaso:'Traspasos entre cuentas',depreciacion:'Otros movimientos',cierre_anual:'Otros movimientos',proveedor:'Otros movimientos',activo_fijo:'Compra de activos fijos'};
 function contaFlujoEfectivo(desde,hasta){
     const bancos=contaCfg().cuentas.filter(c=>c.tipo==='activo'&&/^11/.test(c.codigo));const setB=new Set(bancos.map(c=>c.codigo));
     const ini=contaSaldosEx('',_addDiasISO(desde,-1),[]);
@@ -2637,7 +2705,7 @@ let _idb=null,_idbReady=false;
 const _IDB_DB='dv_store',_IDB_STORE='kv';
 // Claves de DATOS (colecciones) que migramos a IndexedDB. El resto de claves dv_ (preferencias de UI,
 // respaldos, estado de vistas) se quedan en localStorage tal como estaban.
-const _CLAVES_DATOS=['dv_cotizaciones','dv_ventas','dv_clientes','dv_encabezados','dv_config','dv_grupos','dv_hoteles','dv_rrhh_colillas','dv_rrhh_vacaciones','dv_rrhh_horasextra','dv_eventos','dv_conta_asientos','dv_conta_tc','dv_conta_docs','dv_conta_bancos','dv_conta_activos'];
+const _CLAVES_DATOS=['dv_cotizaciones','dv_ventas','dv_clientes','dv_encabezados','dv_config','dv_grupos','dv_hoteles','dv_rrhh_colillas','dv_rrhh_vacaciones','dv_rrhh_horasextra','dv_eventos','dv_conta_asientos','dv_conta_tc','dv_conta_docs','dv_conta_bancos','dv_conta_activos','dv_conta_borradores'];
 function _esClaveDatos(k){return _CLAVES_DATOS.indexOf(k)>=0;}
 function _idbOpen(){return new Promise(resolve=>{try{if(!window.indexedDB)return resolve(null);const req=indexedDB.open(_IDB_DB,1);req.onupgradeneeded=()=>{const db=req.result;if(!db.objectStoreNames.contains(_IDB_STORE))db.createObjectStore(_IDB_STORE);};req.onsuccess=()=>resolve(req.result);req.onerror=()=>resolve(null);}catch(e){resolve(null);}});}
 function _idbSet(k,str){if(!_idb)return;try{_idb.transaction(_IDB_STORE,'readwrite').objectStore(_IDB_STORE).put(str,k);}catch(e){console.warn('[idb] set',k,e);}}
@@ -2699,7 +2767,7 @@ function setLSObj(k,v){
 //   destinos/{pais}/{ciudad}_{timestamp}
 
 // Tracking de IDs que ya subimos a Firestore (para poder detectar eliminaciones)
-const _fsDocIds={cotizaciones:new Set(),ventas:new Set(),clientes:new Set(),destinos:new Set(),hoteles:new Set(),grupos:new Set(),rrhh_colillas:new Set(),rrhh_vacaciones:new Set(),rrhh_horasextra:new Set(),notificaciones:new Set(),tareas:new Set(),eventos:new Set(),conta_asientos:new Set(),conta_tc:new Set(),conta_docs:new Set(),conta_bancos:new Set(),conta_activos:new Set()};
+const _fsDocIds={cotizaciones:new Set(),ventas:new Set(),clientes:new Set(),destinos:new Set(),hoteles:new Set(),grupos:new Set(),rrhh_colillas:new Set(),rrhh_vacaciones:new Set(),rrhh_horasextra:new Set(),notificaciones:new Set(),tareas:new Set(),eventos:new Set(),conta_asientos:new Set(),conta_tc:new Set(),conta_docs:new Set(),conta_bancos:new Set(),conta_activos:new Set(),conta_borradores:new Set()};
 
 // ===== METADATA (timestamp + autor en cada save) =====
 // Agrega _lastModifiedAt y _lastModifiedBy a un objeto antes de guardarlo.
@@ -2740,6 +2808,7 @@ function guardarSnapshotRespaldo(motivo){
             conta_docs:getLS('dv_conta_docs'),
             conta_bancos:getLS('dv_conta_bancos'),
             conta_activos:getLS('dv_conta_activos'),
+            conta_borradores:getLS('dv_conta_borradores'),
             config:getLSObj('dv_config')
         };
         localStorage.setItem(key,JSON.stringify(snap));
@@ -2840,6 +2909,8 @@ async function pushToFirestore(key,value){
             await syncArrayCollection('conta_bancos',value,false);
         }else if(key==='dv_conta_activos'){
             await syncArrayCollection('conta_activos',value,false);
+        }else if(key==='dv_conta_borradores'){
+            await syncArrayCollection('conta_borradores',value,false);
         }
     }catch(e){
         console.error('[FS] error en pushToFirestore para',key,':',e);
@@ -3149,7 +3220,7 @@ async function loadAllFromFirestore(){
         guardarLocal('dv_eventos',eventos);
         if(mergedEv.recovered>0)setTimeout(()=>{if(_fsEnabled)pushToFirestore('dv_eventos',eventos).catch(e=>console.error(e));},14500);
         // contabilidad: asientos (inmutables) y tipos de cambio
-        for(const par of [['conta_asientos','dv_conta_asientos',15500],['conta_tc','dv_conta_tc',16000],['conta_docs','dv_conta_docs',16500],['conta_bancos','dv_conta_bancos',17000],['conta_activos','dv_conta_activos',17500]]){
+        for(const par of [['conta_asientos','dv_conta_asientos',15500],['conta_tc','dv_conta_tc',16000],['conta_docs','dv_conta_docs',16500],['conta_bancos','dv_conta_bancos',17000],['conta_activos','dv_conta_activos',17500],['conta_borradores','dv_conta_borradores',18000]]){
             const localC=getLS(par[1]);
             const cSnap=await h.getDocs(h.collection(db,par[0]));
             let itemsC=[];cSnap.forEach(dd=>{itemsC.push(dd.data());_fsDocIds[par[0]].add(dd.id);});
@@ -3343,7 +3414,8 @@ const PERMISOS_CATALOGO=[
     // -- Contabilidad --
     {clave:'contabilidad.ver',       nombre:'Ver contabilidad (diario, mayor, cierres)', modulo:'Contabilidad'},
     {clave:'contabilidad.registrar', nombre:'Registrar y reversar asientos, cargar tipo de cambio', modulo:'Contabilidad'},
-    {clave:'contabilidad.cerrar',    nombre:'Cerrar y reabrir meses',            modulo:'Contabilidad'}
+    {clave:'contabilidad.cerrar',    nombre:'Cerrar y reabrir meses',            modulo:'Contabilidad'},
+    {clave:'contabilidad.aprobar',   nombre:'Aprobar asientos preliminares',     modulo:'Contabilidad'}
 ];
 
 // Permite que un modulo futuro (ej. contabilidad) registre sus permisos sin tocar la UI ni este catalogo.
@@ -5976,7 +6048,7 @@ function openNotifPanel(){
             ${n.detalle?`<div style="font-size:0.8rem;color:var(--text);margin:3px 0;">${esc(n.detalle)}</div>`:''}
             <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;gap:8px;">
                 <span style="font-size:0.7rem;color:var(--text-light);">${_notifFecha(n.creadaTs)}</span>
-                <span style="display:flex;gap:6px;align-items:center;">${n.origen==='tarea'&&n.refId?`<button class="btn btn-sm btn-outline" style="padding:3px 10px;font-size:0.72rem;color:var(--primary-dark);border-color:var(--primary);" onclick="notifAbrirTarea('${n.id}','${n.refId}')">Ver tarea</button>`:''}${(n.origen==='hito'||n.origen==='viaje')&&n.refId?`<button class="btn btn-sm btn-outline" style="padding:3px 10px;font-size:0.72rem;color:var(--primary-dark);border-color:var(--primary);" onclick="notifAbrirChecklist('${n.id}','${n.refId}')">Abrir checklist</button>`:''}${btn}</span>
+                <span style="display:flex;gap:6px;align-items:center;">${n.origen==='tarea'&&n.refId?`<button class="btn btn-sm btn-outline" style="padding:3px 10px;font-size:0.72rem;color:var(--primary-dark);border-color:var(--primary);" onclick="notifAbrirTarea('${n.id}','${n.refId}')">Ver tarea</button>`:''}${n.origen==='conta_borrador'?`<button class="btn btn-sm btn-outline" style="padding:3px 10px;font-size:0.72rem;color:var(--primary-dark);border-color:var(--primary);" onclick="_contaTab='preliminares';nav('contabilidad');renderContabilidad();">Ver preliminares</button>`:''}${(n.origen==='hito'||n.origen==='viaje')&&n.refId?`<button class="btn btn-sm btn-outline" style="padding:3px 10px;font-size:0.72rem;color:var(--primary-dark);border-color:var(--primary);" onclick="notifAbrirChecklist('${n.id}','${n.refId}')">Abrir checklist</button>`:''}${btn}</span>
             </div>
         </div>`;
     };
@@ -6351,10 +6423,10 @@ function iniciarRecordatorios(){
 }
 // ===== CONTABILIDAD: pantalla =====
 let _contaTab='diario';
-const CONTA_ORIGEN_LABEL={apertura:'Apertura',pago_proveedor:'Pago a proveedor',revaluacion:'Revaluación',depreciacion:'Depreciación',activo_fijo:'Activo fijo',cierre_anual:'Cierre anual',manual:'Manual',cobro:'Cobro',planilla:'Planilla',ingreso_venta:'Ingreso por viaje',reversion:'Reversión',gasto:'Gasto',proveedor:'Proveedor',ajuste:'Ajuste'};
+const CONTA_ORIGEN_LABEL={apertura:'Apertura',pago_proveedor:'Pago a proveedor',revaluacion:'Revaluación',depreciacion:'Depreciación',activo_fijo:'Activo fijo',cierre_anual:'Cierre anual',manual:'Manual',cobro:'Cobro',planilla:'Planilla',ingreso_venta:'Ingreso por viaje',reversion:'Reversión',gasto:'Gasto',proveedor:'Proveedor',ajuste:'Ajuste',periodico:'Periódico'};
 // Menú principal organizado como SAP Business One: módulo → pantalla
 const CONTA_MENU=[
-    {id:'finanzas',label:'Finanzas',items:[['plan','Plan de cuentas'],['diario','Asientos de diario'],['mayor','Mayor y balance de comprobaci\u00f3n'],['activos','Activos fijos']]},
+    {id:'finanzas',label:'Finanzas',items:[['plan','Plan de cuentas'],['diario','Asientos de diario'],['preliminares','Asientos preliminares'],['plantillas','Plantillas y peri\u00f3dicos'],['mayor','Mayor y balance de comprobaci\u00f3n'],['activos','Activos fijos']]},
     {id:'socios',label:'Socios de negocios',items:[['socio','Estado de cuenta'],['clientes','Clientes (por cobrar)'],['cxp','Proveedores (por pagar)'],['gastos','Gastos']]},
     {id:'bancos',label:'Bancos',items:[['bancos','Conciliaci\u00f3n bancaria']]},
     {id:'informes',label:'Informes financieros',items:[['reportes','Estados financieros'],['margen','M\u00e1rgenes por venta']]},
@@ -6365,7 +6437,7 @@ function _contaRenderNav(){
     const nav=document.getElementById('contaNav');if(!nav)return;
     const g=_contaGrupoDe(_contaTab);
     nav.innerHTML=`<div class="cal-seg">${CONTA_MENU.map(x=>`<button class="${x.id===g.id?'active':''}" onclick="contaTab('${x.items[0][0]}')">${x.label}</button>`).join('')}</div>
-    <div style="display:flex;gap:6px;flex-wrap:wrap;">${g.items.map(it=>`<button class="btn btn-sm ${it[0]===_contaTab?'btn-primary':'btn-ghost'}" style="padding:3px 10px;font-size:0.76rem;border-radius:12px;" onclick="contaTab('${it[0]}')">${it[1]}</button>`).join('')}</div>`;
+    <div style="display:flex;gap:6px;flex-wrap:wrap;">${g.items.map(it=>{let n=0;try{if(it[0]==='preliminares')n=contaBorradoresPendientes().length;else if(it[0]==='plantillas')n=contaPeriodicosPendientes().length;}catch(e){}return `<button class="btn btn-sm ${it[0]===_contaTab?'btn-primary':'btn-ghost'}" style="padding:3px 10px;font-size:0.76rem;border-radius:12px;" onclick="contaTab('${it[0]}')">${it[1]}${n?` <span style="background:#e6a700;color:#fff;border-radius:10px;padding:0 6px;font-size:0.68rem;">${n}</span>`:''}</button>`;}).join('')}</div>`;
 }
 function contaTab(t){
     if(t==='config'){nav('configuracion');setTimeout(()=>{try{switchConfigTab('contabilidad');}catch(e){}},0);return;}
@@ -6398,6 +6470,7 @@ function _contaEnlaceDestino(a){
     if(o==='cierre_anual')return {label:'Ver períodos y cierres',js:`contaTab('cierres')`};
     if(o==='apertura')return {label:'Ver la conciliación bancaria',js:`_bcoCuenta='${r}';contaTab('bancos')`};
     if(o==='reversion'&&a.reversaDe)return {label:'Ir al asiento reversado',js:`contaIrAsiento('${a.reversaDe}')`};
+    if(o==='periodico')return {label:'Ver la plantilla periódica',js:`contaTab('plantillas')`};
     return null;
 }
 function _contaEnlaceHtml(a){const d=_contaEnlaceDestino(a);if(!d)return '';return `<button class="btn btn-sm btn-ghost" style="padding:1px 7px;font-size:0.8rem;color:#b8860b;border-color:#e6c766;" onclick="event.stopPropagation();${d.js}" title="${esc(d.label)}">&#10148;</button>`;}
@@ -6414,6 +6487,8 @@ function renderContabilidad(){
     else if(_contaTab==='plan')body.innerHTML=_contaPlanHtml(p);
     else if(_contaTab==='clientes')body.innerHTML=_contaClientesHtml(p);
     else if(_contaTab==='socio')body.innerHTML=_contaSocioHtml(p);
+    else if(_contaTab==='preliminares')body.innerHTML=banner+_contaPreliminaresHtml(p);
+    else if(_contaTab==='plantillas')body.innerHTML=banner+_contaPlantillasHtml(p);
     else if(_contaTab==='mayor')body.innerHTML=banner+_contaMayorHtml(p);
     else if(_contaTab==='cxp')body.innerHTML=banner+_contaCxPHtml(p);
     else if(_contaTab==='gastos')body.innerHTML=banner+_contaGastosHtml(p);
@@ -6434,7 +6509,9 @@ function _contaDiarioHtml(p){
         <span style="flex:1;"></span>
         <button class="btn btn-sm btn-ghost" onclick="contaExportarDiario()">&#128196; Exportar a Excel</button>
         <span style="font-size:0.78rem;color:var(--text-light);">${lista.length} asiento${lista.length===1?'':'s'}</span></div>`;
-    if(!lista.length)return tools+`<div class="grid-empty"><h3>Sin asientos en ${p}</h3><p>Los asientos se crean solos al registrar cobros y emitir colillas (desde el ${fmtFechaCorta(contaCfg().fechaInicio)}). También podés registrar asientos manuales.</p></div>`;
+    const nPrel=contaBorradoresPendientes().length,nPer=contaPeriodicosPendientes().length;
+    const aviso=(nPrel||nPer)?`<div style="background:#fff8e1;border-radius:8px;padding:6px 12px;font-size:0.8rem;margin-bottom:10px;">${nPrel?`&#9203; <span class="cliente-link" onclick="contaTab('preliminares')">${nPrel} asiento${nPrel===1?'':'s'} preliminar${nPrel===1?'':'es'} por aprobar</span>`:''}${nPrel&&nPer?' · ':''}${nPer?`&#128197; <span class="cliente-link" onclick="contaTab('plantillas')">${nPer} contabilizaci${nPer===1?'ón':'ones'} periódica${nPer===1?'':'s'} pendiente${nPer===1?'':'s'}</span>`:''}</div>`:'';
+    if(!lista.length)return tools+aviso+`<div class="grid-empty"><h3>Sin asientos en ${p}</h3><p>Los asientos se crean solos al registrar cobros y emitir colillas (desde el ${fmtFechaCorta(contaCfg().fechaInicio)}). También podés registrar asientos manuales.</p></div>`;
     const rows=lista.map(a=>{
         const rev=a.reversadoPor?'<span class="lt-badge" style="background:#fcebeb;color:#a32d2d;">reversado</span>':'';
         const det=a.lineas.map(l=>`<tr><td style="padding:3px 8px;font-size:0.78rem;">${esc(contaCuentaNombre(l.cuenta))}${l.detalle?'<span style="color:var(--text-light);"> · '+esc(l.detalle)+'</span>':''}${l.moneda&&l.moneda!=='CRC'?`<span style="color:var(--text-light);font-size:0.72rem;"> (${esc(l.moneda)} ${num(l.montoOrig).toLocaleString('es-CR',{minimumFractionDigits:2,maximumFractionDigits:2})} a ${num(l.tc).toLocaleString('es-CR',{minimumFractionDigits:2,maximumFractionDigits:2})})</span>`:''}</td><td style="text-align:right;padding:3px 8px;font-size:0.78rem;">${l.debe?fmtCRC2(l.debe):''}</td><td style="text-align:right;padding:3px 8px;font-size:0.78rem;">${l.haber?fmtCRC2(l.haber):''}</td></tr>`).join('');
@@ -6446,7 +6523,7 @@ function _contaDiarioHtml(p){
             <td style="text-align:right;white-space:nowrap;">${_contaMontoOrigAsiento(a)}</td><td style="text-align:right;white-space:nowrap;">${fmtCRC2(a.totalDebe)}</td><td style="text-align:right;white-space:nowrap;">${fmtCRC2(a.totalHaber)}</td><td onclick="event.stopPropagation()">${acciones}</td></tr>
             <tr style="display:${hl?'':'none'};background:var(--bg);"><td colspan="8" style="padding:4px 12px 8px;"><table style="width:100%;border-collapse:collapse;"><tbody>${det}</tbody></table><div style="font-size:0.7rem;color:var(--text-light);margin-top:4px;">Registrado por ${esc(a.creadoPor||'sistema')} el ${fmtFechaCorta(new Date(a.creadoTs||0).toISOString().slice(0,10))}${a.reversaDe?' · reversa un asiento anterior':''}</div></td></tr>`;
     }).join('');
-    return tools+`<table class="list-table"><thead><tr><th>Fecha</th><th>Nº</th><th>Descripción</th><th>Origen</th><th style="text-align:right;">Monto original</th><th style="text-align:right;">Debe</th><th style="text-align:right;">Haber</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
+    return tools+aviso+`<table class="list-table"><thead><tr><th>Fecha</th><th>Nº</th><th>Descripción</th><th>Origen</th><th style="text-align:right;">Monto original</th><th style="text-align:right;">Debe</th><th style="text-align:right;">Haber</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 function contaReversarUI(id){
     if(!exigirPermiso('contabilidad.registrar','reversar asientos'))return;
@@ -6497,6 +6574,113 @@ function _contaPlanHtml(p){
         <div><h3 style="margin:0 0 6px;color:var(--primary-dark);">${esc(tipoLabel)} &middot; saldos al ${fmtFechaCorta(r.hasta)}</h3>
         <table class="list-table"><thead><tr><th style="width:90px;">C&oacute;digo</th><th>Cuenta</th><th style="width:70px;text-align:center;">Moneda</th><th style="text-align:right;">Saldo &#8353;</th></tr></thead><tbody>${filas||'<tr><td colspan="4" style="color:var(--text-light);">Sin cuentas en este caj&oacute;n.</td></tr>'}<tr style="font-weight:700;font-size:0.95rem;"><td colspan="3">Total ${esc(tipoLabel.toLowerCase())}</td><td style="text-align:right;">${fmtCRC2(_contaRound(totalCajon))}</td></tr></tbody></table>
         <p class="config-hint" style="margin-top:8px;">Clic en una cuenta para ver su mayor. Las cuentas marcadas como t&iacute;tulo agrupan a las que empiezan con su c&oacute;digo.</p></div></div>`;
+}
+// --- Asientos preliminares ---
+let _prelVerResueltos=false;
+function _contaPreliminaresHtml(p){
+    const puedeReg=tienePermiso('contabilidad.registrar'),puedeAprob=contaPuedeAprobar();const yo=(window.currentUser&&window.currentUser.email)||'';
+    const todos=getContaBorradores().filter(Boolean).sort((a,b)=>(b.creadoTs||0)-(a.creadoTs||0));
+    const lista=_prelVerResueltos?todos:todos.filter(b=>b.estado==='pendiente');
+    const tools=`<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">
+        ${puedeReg?`<button class="btn btn-sm btn-primary" onclick="openAsientoModal()">+ Asiento</button>`:''}
+        <label style="display:flex;align-items:center;gap:4px;font-size:0.8rem;margin:0;"><input type="checkbox" ${_prelVerResueltos?'checked':''} onchange="_prelVerResueltos=this.checked;renderContabilidad()"> Ver aprobados y rechazados</label>
+        <span style="flex:1;"></span><span style="font-size:0.78rem;color:var(--text-light);">${contaRequiereAprobacion()?'Aprobaci\u00f3n obligatoria activada':'Aprobaci\u00f3n opcional (se activa en Configuraci\u00f3n \u2192 Contabilidad)'}</span></div>`;
+    if(!lista.length)return tools+`<div class="grid-empty"><h3>Sin asientos preliminares${_prelVerResueltos?'':' pendientes'}</h3><p>Un asiento preliminar es un borrador: alguien lo prepara y otra persona con permiso lo aprueba antes de que entre a los libros. Se crean con &laquo;Guardar como preliminar&raquo; en el asiento manual.</p></div>`;
+    const rows=lista.map(b=>{
+        const det=b.lineas.map(l=>`<tr><td style="padding:2px 8px;font-size:0.78rem;">${esc(contaCuentaNombre(l.cuenta))}${l.moneda&&l.moneda!=='CRC'?` <span style="color:var(--text-light);font-size:0.72rem;">(${esc(l.moneda)} ${num(l.montoOrig).toFixed(2)} a ${num(l.tc).toFixed(2)})</span>`:''}</td><td style="text-align:right;padding:2px 8px;font-size:0.78rem;">${l.debe?fmtCRC2(l.debe):''}</td><td style="text-align:right;padding:2px 8px;font-size:0.78rem;">${l.haber?fmtCRC2(l.haber):''}</td></tr>`).join('');
+        const est={pendiente:'<span class="lt-badge" style="background:#fff8e1;color:#8a6d00;">pendiente</span>',aprobado:'<span class="lt-badge" style="background:#e1f5ee;color:#0f6e56;">aprobado</span>',rechazado:'<span class="lt-badge" style="background:#fcebeb;color:#a32d2d;">rechazado</span>'}[b.estado]||esc(b.estado);
+        const cerrado=contaPeriodoCerrado(String(b.fecha).slice(0,7));
+        let acc='';
+        if(b.estado==='pendiente'){
+            if(puedeAprob&&!cerrado)acc+=`<button class="btn btn-sm btn-success" style="padding:2px 8px;font-size:0.7rem;" onclick="contaAprobarUI('${b.id}')">Aprobar</button> `;
+            if(puedeReg)acc+=`<button class="btn btn-sm btn-ghost" style="padding:2px 8px;font-size:0.7rem;" onclick="openAsientoModal({borradorId:'${b.id}'})">Editar</button> `;
+            if(puedeAprob)acc+=`<button class="btn btn-sm btn-danger" style="padding:2px 8px;font-size:0.7rem;" onclick="contaRechazarUI('${b.id}',false)">Rechazar</button>`;
+            else if(b.creadoPor===yo)acc+=`<button class="btn btn-sm btn-danger" style="padding:2px 8px;font-size:0.7rem;" onclick="contaRechazarUI('${b.id}',true)">Descartar</button>`;
+        }else if(b.asientoId)acc=_contaLinkAsientoHtml(b.asientoId);
+        const quien=`<div class="lt-secondary">por ${esc(b.creadoPor||'-')} · ${fmtFechaCorta(new Date(b.creadoTs||0).toISOString().slice(0,10))}${b.estado!=='pendiente'?' · '+(b.estado==='aprobado'?'aprobado':'rechazado')+' por '+esc(b.resueltoPor||'-')+(b.motivo?' · '+esc(b.motivo):''):''}${cerrado&&b.estado==='pendiente'?' · <span style="color:#a32d2d;">mes cerrado: reabrilo o cambiá la fecha</span>':''}</div>`;
+        return `<tr onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'':'none'" style="cursor:pointer;"><td style="white-space:nowrap;">${fmtFechaCorta(b.fecha)}</td><td>${esc(b.descripcion)}${quien}</td><td>${_contaChipOrigen(b.origen==='periodico'?'periodico':'manual')}</td><td>${est}</td><td style="text-align:right;white-space:nowrap;">${fmtCRC2(b.lineas.reduce((s,l)=>s+num(l.debe),0))}</td><td onclick="event.stopPropagation()" style="white-space:nowrap;">${acc}</td></tr>
+        <tr style="display:none;background:var(--bg);"><td colspan="6" style="padding:4px 12px 8px;"><table style="width:100%;border-collapse:collapse;"><tbody>${det}</tbody></table></td></tr>`;
+    }).join('');
+    return tools+`<table class="list-table"><thead><tr><th>Fecha</th><th>Descripci\u00f3n</th><th>Origen</th><th>Estado</th><th style="text-align:right;">Total</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+function contaAprobarUI(id){const b=getContaBorradores().find(x=>x&&x.id===id);if(!b)return;if(!confirm('¿Aprobar y registrar en los libros?\n\n'+fmtFechaCorta(b.fecha)+' · '+b.descripcion))return;if(contaAprobarBorrador(id))renderContabilidad();}
+function contaRechazarUI(id,porAutor){const m=prompt(porAutor?'¿Descartar este asiento preliminar? Motivo (opcional):':'Motivo del rechazo (le llega a quien lo preparó):','');if(m===null)return;if(contaRechazarBorrador(id,m,porAutor))renderContabilidad();}
+// --- Plantillas y contabilizaciones periódicas ---
+function _contaPlantillasHtml(p){
+    const puedeReg=tienePermiso('contabilidad.registrar');
+    const pend=contaPeriodicosPendientes();const plantillas=contaPlantillas();
+    const tools=`<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">
+        ${puedeReg?`<button class="btn btn-sm btn-primary" onclick="openPlantillaModal()">+ Nueva plantilla</button>`:''}
+        ${puedeReg&&pend.length?`<button class="btn btn-sm btn-success" onclick="contaRegistrarPeriodicosUI()">&#10003; Registrar los ${pend.length} pendientes</button>`:''}
+        <span style="flex:1;"></span><span style="font-size:0.78rem;color:var(--text-light);">${plantillas.length} plantilla${plantillas.length===1?'':'s'}</span></div>`;
+    const pendHtml=pend.length?`<h3 style="margin:0 0 6px;color:var(--primary-dark);font-size:0.95rem;">Contabilizaciones peri\u00f3dicas pendientes</h3>
+        <table class="list-table" style="margin-bottom:16px;"><thead><tr><th>Mes</th><th>Plantilla</th><th style="text-align:right;">Monto</th><th></th></tr></thead><tbody>${pend.map(x=>{const t=x.plantilla;const tot=t.lineas.reduce((s,l)=>s+l.debe,0);return `<tr><td style="white-space:nowrap;">${esc(labelMes(x.periodo))}</td><td><div style="font-weight:600;">${esc(t.nombre)}</div><div class="lt-secondary">${esc(t.descripcion||'')} · d\u00eda ${t.dia}</div></td><td style="text-align:right;white-space:nowrap;">${_contaFmtOrig(tot,t.moneda)}</td><td style="white-space:nowrap;">${puedeReg?`<button class="btn btn-sm btn-primary" style="padding:2px 8px;font-size:0.7rem;" onclick="openAsientoModal({plantillaId:'${t.id}',periodo:'${x.periodo}',fecha:'${x.fecha}'})">Revisar y registrar</button> <button class="btn btn-sm btn-ghost" style="padding:2px 8px;font-size:0.7rem;" onclick="if(confirm('¿Omitir ${esc(t.nombre)} en ${esc(labelMes(x.periodo))}? No se va a registrar ese mes.')){contaMarcarPeriodico('${t.id}','${x.periodo}','omitido');renderContabilidad();}">Omitir</button>`:''}</td></tr>`;}).join('')}</tbody></table>`:'';
+    if(!plantillas.length)return tools+pendHtml+`<div class="grid-empty"><h3>Sin plantillas</h3><p>Una plantilla guarda las cuentas y montos de un asiento que se repite (alquiler, internet, honorarios del contador). Si la marc\u00e1s como <strong>peri\u00f3dica</strong>, cada mes aparece ac\u00e1 como pendiente para revisarla y registrarla con un clic.</p></div>`;
+    const rows=plantillas.map(t=>{
+        const tot=t.lineas.reduce((s,l)=>s+l.debe,0);const lin=t.lineas.map(l=>`${esc(contaCuentaNombre(l.cuenta))} ${l.debe?'D '+_contaFmtOrig(l.debe,t.moneda):''}${l.haber?'H '+_contaFmtOrig(l.haber,t.moneda):''}`).join(' · ');
+        const per=t.periodica?`<span class="lt-badge" style="background:#e1f5ee;color:#0f6e56;">peri\u00f3dica · d\u00eda ${t.dia}</span>${t.desde?' desde '+esc(labelMes(t.desde)):''}${t.hasta?' hasta '+esc(labelMes(t.hasta)):''}`:'<span class="lt-badge" style="background:#f1f3f5;color:#4d5c63;">manual</span>';
+        const hechos=Object.keys(t.hechos||{}).sort().reverse().slice(0,6).map(k=>{const v=t.hechos[k];if(v==='omitido')return `<span style="color:var(--text-light);">${esc(k)} omitido</span>`;if(String(v).startsWith('bor_'))return `<span style="color:#8a6d00;">${esc(k)} preliminar</span>`;const a=getContaAsientos().find(x=>x&&x.id===v);return a?`${esc(k)} ${_contaLinkAsientoHtml(a.id)}`:esc(k);}).join(' · ');
+        return `<tr><td><div style="font-weight:600;">${esc(t.nombre)}</div><div class="lt-secondary">${esc(t.descripcion||'')}</div><div class="lt-secondary" style="margin-top:2px;">${lin}</div>${hechos?`<div class="lt-secondary" style="margin-top:2px;">${hechos}</div>`:''}</td><td>${per}</td><td style="text-align:right;white-space:nowrap;">${_contaFmtOrig(tot,t.moneda)}</td><td style="white-space:nowrap;">${puedeReg?`<button class="btn btn-sm btn-primary" style="padding:2px 8px;font-size:0.7rem;" onclick="openAsientoModal({plantillaId:'${t.id}'})">Usar</button> <button class="btn btn-sm btn-ghost" style="padding:2px 8px;font-size:0.7rem;" onclick="openPlantillaModal('${t.id}')">Editar</button> <button class="btn btn-sm btn-danger" style="padding:2px 8px;font-size:0.7rem;" onclick="if(confirm('¿Eliminar la plantilla ${esc(t.nombre)}? Los asientos ya registrados no se tocan.')){contaEliminarPlantilla('${t.id}');renderContabilidad();}">&times;</button>`:''}</td></tr>`;
+    }).join('');
+    return tools+pendHtml+`<h3 style="margin:0 0 6px;color:var(--primary-dark);font-size:0.95rem;">Plantillas de contabilizaci\u00f3n</h3><table class="list-table"><thead><tr><th>Plantilla</th><th>Frecuencia</th><th style="text-align:right;">Monto</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+// Registra de una vez todas las periódicas pendientes (con el TC del día de cada una); si hace falta aprobación, quedan como preliminares
+function contaRegistrarPeriodicosUI(){
+    if(!exigirPermiso('contabilidad.registrar','registrar asientos'))return;
+    const pend=contaPeriodicosPendientes();if(!pend.length)return;
+    const directo=!contaRequiereAprobacion()||contaPuedeAprobar();
+    if(!confirm((directo?'¿Registrar ':'¿Dejar como preliminares ')+pend.length+' contabilizaci'+(pend.length===1?'ón':'ones')+' periódica'+(pend.length===1?'':'s')+'?\n\n'+pend.map(x=>labelMes(x.periodo)+' · '+x.plantilla.nombre).join('\n')))return;
+    let ok=0,fallos=[];
+    pend.forEach(x=>{const t=x.plantilla;const conv=_contaLineasDesdePlantilla(t,x.fecha);if(!(conv.tc>0)){fallos.push(t.nombre+' ('+x.periodo+'): sin tipo de cambio');return;}
+        const desc=(t.descripcion||t.nombre)+' · '+labelMes(x.periodo);
+        if(directo){const a=contaRegistrarAsiento({fecha:x.fecha,descripcion:desc,origen:'periodico',refId:t.id,subRef:x.periodo,silencioso:true,lineas:conv.lineas});if(a){contaMarcarPeriodico(t.id,x.periodo,a.id);ok++;}else fallos.push(t.nombre+' ('+x.periodo+'): no se pudo registrar');}
+        else{contaCrearBorrador({fecha:x.fecha,descripcion:desc,moneda:t.moneda,tc:conv.tc,lineas:conv.lineas,origen:'periodico',plantillaId:t.id,periodo:x.periodo});ok++;}
+    });
+    if(ok)_contaBitacora((directo?'Registró ':'Dejó como preliminares ')+ok+' contabilización(es) periódica(s)');
+    renderContabilidad();
+    if(fallos.length)alert('Listo: '+ok+'. No se pudieron procesar:\n- '+fallos.join('\n- '));
+}
+// Editor de plantilla (nombre, cuentas y montos, periodicidad)
+let _plLineas=[];
+function openPlantillaModal(id){
+    if(!exigirPermiso('contabilidad.registrar','crear plantillas'))return;
+    const t=id?contaPlantilla(id):null;
+    _plLineas=t?t.lineas.map(l=>({cuenta:l.cuenta,debe:l.debe||'',haber:l.haber||''})):[{cuenta:'',debe:'',haber:''},{cuenta:'',debe:'',haber:''}];
+    const ov=document.getElementById('modalAsiento');
+    ov.innerHTML=`<div class="modal" style="max-width:760px;"><div class="modal-header"><h3>${t?'Editar plantilla':'Nueva plantilla de contabilizaci\u00f3n'}</h3><button class="modal-close" onclick="closeModal('modalAsiento')">&times;</button></div>
+    <div class="modal-body"><input type="hidden" id="plId" value="${esc(t?t.id:'')}">
+        <div class="form-row"><div class="form-group"><label>Nombre</label><input type="text" id="plNombre" value="${esc(t?t.nombre:'')}" placeholder="Ej: Alquiler de oficina"></div><div class="form-group"><label>Moneda de los montos</label><select id="plMoneda" onchange="_plRender()"><option value="CRC"${(!t||t.moneda==='CRC')?' selected':''}>Colones (₡)</option><option value="USD"${t&&t.moneda==='USD'?' selected':''}>D\u00f3lares ($)</option><option value="EUR"${t&&t.moneda==='EUR'?' selected':''}>Euros (€)</option></select></div></div>
+        <div class="form-group"><label>Descripci\u00f3n del asiento</label><input type="text" id="plDesc" value="${esc(t?t.descripcion:'')}" placeholder="Ej: Alquiler de oficina"></div>
+        <div id="plLineasBox"></div>
+        <button type="button" class="btn btn-sm btn-ghost" onclick="_plLineas.push({cuenta:'',debe:'',haber:''});_plRender()">+ L\u00ednea</button>
+        <div id="plTotales" style="margin-top:8px;font-size:0.85rem;"></div>
+        <div style="border-top:1px solid var(--border);margin-top:12px;padding-top:10px;">
+            <label style="display:flex;align-items:center;gap:8px;margin:0 0 8px;text-transform:none;letter-spacing:0;font-size:0.86rem;"><input type="checkbox" id="plPeriodica" ${t&&t.periodica?'checked':''} onchange="document.getElementById('plPerBox').style.display=this.checked?'':'none'"> <strong>Contabilizaci\u00f3n peri\u00f3dica</strong> (cada mes aparece como pendiente para registrarla)</label>
+            <div id="plPerBox" class="form-row" style="display:${t&&t.periodica?'':'none'};"><div class="form-group"><label>D\u00eda del mes</label><input type="number" id="plDia" min="1" max="28" value="${t?t.dia:1}"></div><div class="form-group"><label>Desde (mes)</label><input type="month" id="plDesde" value="${esc(t?t.desde:_hitoHoyISO().slice(0,7))}"></div><div class="form-group"><label>Hasta (opcional)</label><input type="month" id="plHasta" value="${esc(t?t.hasta:'')}"></div></div>
+        </div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modalAsiento')">Cancelar</button><button class="btn btn-success" onclick="guardarPlantillaUI()">Guardar plantilla</button></div></div>`;
+    ov.classList.add('open');_plRender();
+}
+function _plRender(){
+    const m=document.getElementById('plMoneda').value;const opts=contaCuentasActivas().map(c=>`<option value="${esc(c.codigo)}">${esc(c.codigo+' · '+c.nombre)}</option>`).join('');
+    document.getElementById('plLineasBox').innerHTML=`<div style="display:grid;grid-template-columns:1fr 130px 130px 28px;gap:6px;font-size:0.68rem;color:var(--text-light);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;"><span>Cuenta</span><span>Debe</span><span>Haber</span><span></span></div>`+_plLineas.map((l,i)=>`<div style="display:grid;grid-template-columns:1fr 130px 130px 28px;gap:6px;margin-bottom:5px;align-items:center;">
+        <select onchange="_plLineas[${i}].cuenta=this.value"><option value="">-- Cuenta --</option>${opts.replace(`value="${l.cuenta}"`,`value="${l.cuenta}" selected`)}</select>
+        <input type="number" step="0.01" min="0" value="${esc(String(l.debe))}" oninput="_plLineas[${i}].debe=this.value;if(this.value)_plLineas[${i}].haber='';" onblur="_plRender()" placeholder="0">
+        <input type="number" step="0.01" min="0" value="${esc(String(l.haber))}" oninput="_plLineas[${i}].haber=this.value;if(this.value)_plLineas[${i}].debe='';" onblur="_plRender()" placeholder="0">
+        <button type="button" class="btn-icon remove" onclick="_plLineas.splice(${i},1);_plRender()">&times;</button></div>`).join('');
+    const d=_plLineas.reduce((s,l)=>s+(parseFloat(l.debe)||0),0),h=_plLineas.reduce((s,l)=>s+(parseFloat(l.haber)||0),0);const dif=Math.round((d-h)*100)/100;
+    document.getElementById('plTotales').innerHTML=`Debe ${_contaFmtOrig(d,m)} · Haber ${_contaFmtOrig(h,m)} · <strong style="color:${Math.abs(dif)<0.005?'#0f6e56':'#a32d2d'};">${Math.abs(dif)<0.005?'Cuadra':'Diferencia '+_contaFmtOrig(dif,m)}</strong> <span style="color:var(--text-light);">(los montos se pueden dejar en 0 y completarlos al usar la plantilla)</span>`;
+}
+function guardarPlantillaUI(){
+    const g=id=>document.getElementById(id);const nombre=(g('plNombre').value||'').trim();if(!nombre){alert('Poné un nombre a la plantilla.');return;}
+    const lineas=_plLineas.filter(l=>l.cuenta).map(l=>({cuenta:l.cuenta,debe:parseFloat(l.debe)||0,haber:parseFloat(l.haber)||0}));
+    if(lineas.length<2){alert('La plantilla necesita al menos dos líneas con cuenta.');return;}
+    const periodica=!!g('plPeriodica').checked;
+    if(periodica){const d=lineas.reduce((s,l)=>s+l.debe,0),h=lineas.reduce((s,l)=>s+l.haber,0);if(!(d>0)||Math.abs(d-h)>0.005){alert('Una plantilla periódica necesita montos fijos que cuadren (Debe = Haber), porque se registra sola cada mes.');return;}}
+    const prev=contaPlantilla(g('plId').value);
+    contaGuardarPlantilla({id:g('plId').value||'',nombre,descripcion:(g('plDesc').value||'').trim(),moneda:g('plMoneda').value,lineas,periodica,dia:parseInt(g('plDia').value||'1',10)||1,desde:g('plDesde').value||'',hasta:g('plHasta').value||'',hechos:prev?prev.hechos:{}});
+    closeModal('modalAsiento');_contaTab='plantillas';renderContabilidad();
 }
 // --- Estado de cuenta por socio de negocios (cliente o proveedor), como el "Saldo de cuenta" de SAP ---
 let _socioTipo='cliente',_socioId='',_socioSoloSaldo=false;
@@ -6630,20 +6814,33 @@ function contaCerrarUI(p){if(!exigirPermiso('contabilidad.cerrar','cerrar meses'
 function contaReabrirUI(p){if(!exigirPermiso('contabilidad.cerrar','reabrir meses'))return;const m=prompt('Motivo para reabrir el mes '+p+' (queda en la bitácora):','');if(m===null)return;if(contaReabrirPeriodo(p,m))renderContabilidad();}
 function contaReconocerUI(){if(!exigirPermiso('contabilidad.registrar','registrar asientos'))return;const n=contaReconocerIngresosHasta(_hitoHoyISO());alert(n?('Se reconoció el ingreso de '+n+' viaje'+(n===1?'':'s')+'.'):'No hay viajes pendientes de reconocer.');renderContabilidad();}
 // --- Asiento manual ---
-let _asLineas=[];
-function openAsientoModal(){
+let _asLineas=[];let _asCtx={};
+// opts: {plantillaId} (precarga), {borradorId} (editar preliminar), {fecha}
+function openAsientoModal(opts){
     if(!exigirPermiso('contabilidad.registrar','registrar asientos'))return;
+    opts=opts||{};_asCtx={borradorId:opts.borradorId||'',plantillaId:opts.plantillaId||'',periodo:opts.periodo||''};
     _asLineas=[{cuenta:'',debe:'',haber:''},{cuenta:'',debe:'',haber:''}];window._asLinea='';
+    let fecha=opts.fecha||_hitoHoyISO(),moneda='CRC',tc='',desc='',titulo='Asiento manual';
+    const bor=opts.borradorId?getContaBorradores().find(b=>b&&b.id===opts.borradorId):null;
+    const pl=opts.plantillaId?contaPlantilla(opts.plantillaId):null;
+    if(bor){titulo='Editar asiento preliminar';fecha=bor.fecha;moneda=bor.moneda||'CRC';tc=bor.tc||'';desc=bor.descripcion;_asLineas=bor.lineas.map(l=>({cuenta:l.cuenta,debe:l.debe?num(l.montoOrig||l.debe):'',haber:l.haber?num(l.montoOrig||l.haber):''}));}
+    else if(pl){titulo='Asiento desde plantilla · '+pl.nombre;moneda=pl.moneda;desc=pl.descripcion||pl.nombre;_asLineas=pl.lineas.map(l=>({cuenta:l.cuenta,debe:l.debe||'',haber:l.haber||''}));if(opts.periodo)desc=desc+' · '+labelMes(opts.periodo);}
+    const puedeDirecto=!contaRequiereAprobacion()||contaPuedeAprobar();
     const ov=document.getElementById('modalAsiento');
-    ov.innerHTML=`<div class="modal" style="max-width:760px;"><div class="modal-header"><h3>Asiento manual</h3><button class="modal-close" onclick="closeModal('modalAsiento')">&times;</button></div>
+    ov.innerHTML=`<div class="modal" style="max-width:760px;"><div class="modal-header"><h3>${esc(titulo)}</h3><button class="modal-close" onclick="closeModal('modalAsiento')">&times;</button></div>
     <div class="modal-body">
-        <div class="form-row"><div class="form-group"><label>Fecha</label><input type="date" id="asFecha" value="${_hitoHoyISO()}" onchange="_asRender()"></div><div class="form-group"><label>Moneda de los montos</label><select id="asMoneda" onchange="_asRender()"><option value="CRC">Colones (₡)</option><option value="USD">Dólares ($)</option><option value="EUR">Euros (€)</option></select></div><div class="form-group"><label>Tipo de cambio</label><input type="number" step="0.01" id="asTC" onchange="_asRender()"></div></div>
-        <div class="form-group"><label>Descripción</label><input type="text" id="asDesc" placeholder="Ej: Pago de alquiler de setiembre"></div>
+        ${bor?`<div style="background:#fff8e1;border-radius:8px;padding:6px 10px;font-size:0.78rem;margin-bottom:8px;">Preliminar creado por ${esc(bor.creadoPor||'-')} el ${fmtFechaCorta(new Date(bor.creadoTs||0).toISOString().slice(0,10))}. Los cambios se guardan en el preliminar; entra a los libros cuando se aprueba.</div>`:''}
+        <div class="form-row"><div class="form-group"><label>Fecha</label><input type="date" id="asFecha" value="${esc(fecha)}" onchange="_asRender()"></div><div class="form-group"><label>Moneda de los montos</label><select id="asMoneda" onchange="document.getElementById('asTC').value='';_asRender()"><option value="CRC"${moneda==='CRC'?' selected':''}>Colones (₡)</option><option value="USD"${moneda==='USD'?' selected':''}>Dólares ($)</option><option value="EUR"${moneda==='EUR'?' selected':''}>Euros (€)</option></select></div><div class="form-group"><label>Tipo de cambio</label><input type="number" step="0.01" id="asTC" value="${esc(String(tc||''))}" onchange="_asRender()"></div></div>
+        <div class="form-group"><label>Descripción</label><input type="text" id="asDesc" value="${esc(desc)}" placeholder="Ej: Pago de alquiler de setiembre"></div>
         <div id="asLineasBox"></div>
         <button type="button" class="btn btn-sm btn-ghost" onclick="_asLineas.push({cuenta:'',debe:'',haber:''});_asRender()">+ Línea</button>
         <div id="asTotales" style="margin-top:10px;font-size:0.85rem;"></div>
     </div>
-    <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modalAsiento')">Cancelar</button><button class="btn btn-success" onclick="guardarAsientoManual()">Registrar asiento</button></div></div>`;
+    <div class="modal-footer" style="flex-wrap:wrap;gap:6px;"><button class="btn btn-ghost" onclick="closeModal('modalAsiento')">Cancelar</button>
+        ${!bor?`<button class="btn btn-ghost" onclick="guardarAsientoComoPlantilla()" title="Guarda cuentas, montos y descripción para reutilizarlos">&#128190; Guardar como plantilla</button>`:''}
+        <span style="flex:1;"></span>
+        ${bor?`<button class="btn btn-primary" onclick="guardarAsientoManual('borrador')">Guardar cambios</button>${contaPuedeAprobar()?`<button class="btn btn-success" onclick="guardarAsientoManual('aprobar')">Aprobar y registrar</button>`:''}`:`<button class="btn ${puedeDirecto?'btn-ghost':'btn-success'}" onclick="guardarAsientoManual('borrador')" title="Queda pendiente de aprobación; no entra a los libros todavía">Guardar como preliminar</button>${puedeDirecto?`<button class="btn btn-success" onclick="guardarAsientoManual()">Registrar asiento</button>`:''}`}
+    </div></div>`;
     ov.classList.add('open');
     _asRender();
 }
@@ -6663,16 +6860,45 @@ function _asRender(){
     const sym=m==='USD'?'$':(m==='EUR'?'€':'₡');
     document.getElementById('asTotales').innerHTML=`Debe ${sym}${d.toLocaleString('es-CR',{minimumFractionDigits:2})} · Haber ${sym}${h.toLocaleString('es-CR',{minimumFractionDigits:2})} · <strong style="color:${Math.abs(dif)<0.005?'#0f6e56':'#a32d2d'};">${Math.abs(dif)<0.005?'Cuadra':'Diferencia '+sym+dif.toLocaleString('es-CR',{minimumFractionDigits:2})}</strong>${m!=='CRC'?` · en colones: ${fmtCRC2(d*tc)}`:''}`;
 }
-function guardarAsientoManual(){
+// Lee el modal y devuelve {fecha,moneda,tc,descripcion,lineas} ya convertido a colones, o null si falta algo
+function _asLeer(){
     const fecha=document.getElementById('asFecha').value;const m=document.getElementById('asMoneda').value;const tc=_asTC();const desc=(document.getElementById('asDesc').value||'').trim();
-    if(!desc){alert('Escribí una descripción.');return;}
-    if(m!=='CRC'&&!(tc>0)){alert('Indicá el tipo de cambio.');return;}
+    if(!desc){alert('Escribí una descripción.');return null;}
+    if(m!=='CRC'&&!(tc>0)){alert('Indicá el tipo de cambio.');return null;}
     const lineas=_asLineas.filter(l=>l.cuenta&&((parseFloat(l.debe)||0)>0||(parseFloat(l.haber)||0)>0)).map(l=>{const o=(parseFloat(l.debe)||0)||(parseFloat(l.haber)||0);return {cuenta:l.cuenta,debe:_contaRound((parseFloat(l.debe)||0)*tc),haber:_contaRound((parseFloat(l.haber)||0)*tc),moneda:m,montoOrig:o,tc};});
-    const a=contaRegistrarAsiento({fecha,descripcion:desc,origen:'manual',lineas});
+    if(lineas.length<2){alert('Un asiento necesita al menos dos líneas con monto.');return null;}
+    const td=_contaRound(lineas.reduce((s,l)=>s+l.debe,0)),th=_contaRound(lineas.reduce((s,l)=>s+l.haber,0));
+    if(Math.abs(td-th)>0.01){alert('El asiento no cuadra: Debe '+fmtCRC2(td)+' vs Haber '+fmtCRC2(th)+'.');return null;}
+    return {fecha,moneda:m,tc,descripcion:desc,lineas};
+}
+// modo: undefined = registrar directo · 'borrador' = guardar/actualizar preliminar · 'aprobar' = aprobar el preliminar con los cambios
+function guardarAsientoManual(modo){
+    const d=_asLeer();if(!d)return;
+    if(_asCtx.borradorId){
+        const b=contaActualizarBorrador(_asCtx.borradorId,d);if(!b){alert('Ese preliminar ya no está pendiente.');closeModal('modalAsiento');renderContabilidad();return;}
+        if(modo==='aprobar'){if(!contaAprobarBorrador(_asCtx.borradorId))return;}
+        closeModal('modalAsiento');renderContabilidad();return;
+    }
+    if(modo==='borrador'||(contaRequiereAprobacion()&&!contaPuedeAprobar())){
+        contaCrearBorrador(Object.assign({origen:_asCtx.plantillaId?'periodico':'manual',plantillaId:_asCtx.plantillaId,periodo:_asCtx.periodo,lineaBancoId:window._asLinea||''},d));window._asLinea='';
+        closeModal('modalAsiento');renderContabilidad();
+        alert('Quedó guardado como asiento preliminar. Entra a los libros cuando alguien con permiso lo apruebe (Finanzas → Asientos preliminares).');return;
+    }
+    const a=contaRegistrarAsiento({fecha:d.fecha,descripcion:d.descripcion,origen:_asCtx.plantillaId?'periodico':'manual',refId:_asCtx.plantillaId||'',subRef:_asCtx.periodo||'',lineas:d.lineas});
     if(!a)return;
+    if(_asCtx.plantillaId&&_asCtx.periodo)contaMarcarPeriodico(_asCtx.plantillaId,_asCtx.periodo,a.id);
     if(window._asLinea){contaConciliarLinea(window._asLinea,a.id,'creado');window._asLinea='';}
-    _contaBitacora('Registró el asiento manual '+contaNumAsiento(a)+' · '+desc);
+    _contaBitacora('Registró el asiento manual '+contaNumAsiento(a)+' · '+d.descripcion);
     closeModal('modalAsiento');renderContabilidad();
+}
+function guardarAsientoComoPlantilla(){
+    const m=document.getElementById('asMoneda').value;const desc=(document.getElementById('asDesc').value||'').trim();
+    const lineas=_asLineas.filter(l=>l.cuenta).map(l=>({cuenta:l.cuenta,debe:parseFloat(l.debe)||0,haber:parseFloat(l.haber)||0}));
+    if(lineas.length<2){alert('La plantilla necesita al menos dos líneas con cuenta.');return;}
+    const nombre=prompt('Nombre de la plantilla:',desc||'');if(!nombre||!nombre.trim())return;
+    const id=contaGuardarPlantilla({nombre:nombre.trim(),descripcion:desc,moneda:m,lineas,periodica:false,dia:1,desde:'',hasta:'',hechos:{}});
+    alert('Plantilla guardada. Podés hacerla periódica desde Finanzas → Plantillas y periódicos.');
+    if(_contaTab==='plantillas')renderContabilidad();return id;
 }
 
 // ===== CONFIGURACIÓN → CONTABILIDAD =====
@@ -6697,7 +6923,7 @@ function _collectContaFromDOM(){
     const mapeo={bancoPorMetodo:{},cxcClientes:g('cfgMapCxc'),anticiposClientes:g('cfgMapAnt'),ingresoPorTipo:{},planilla:{salarios:g('cfgMapPlSal'),cargas:g('cfgMapPlCar'),ccssPorPagar:g('cfgMapPlCcss'),rentaPorPagar:g('cfgMapPlRenta'),otrasDedPorPagar:g('cfgMapPlOtras'),salariosPorPagar:g('cfgMapPlNeto')},cargaPatronalPct:parseFloat(g('cfgContaPatronal'))||0,difCambGanancia:g('cfgMapDifG'),difCambPerdida:g('cfgMapDifP')};
     document.querySelectorAll('#cfgContaBancos [data-metodo]').forEach(row=>{const k=row.getAttribute('data-metodo');mapeo.bancoPorMetodo[k]={};CONTA_MONEDAS.forEach(m=>{const s=row.querySelector('select[data-moneda="'+m+'"]');if(s)mapeo.bancoPorMetodo[k][m]=s.value;});});
     document.querySelectorAll('#cfgContaIngresos select[data-tipo]').forEach(s=>{mapeo.ingresoPorTipo[s.getAttribute('data-tipo')]=s.value;});
-    return {cuentas,mapeo,fechaInicio:g('cfgContaInicio')};
+    return {cuentas,mapeo,fechaInicio:g('cfgContaInicio'),requiereAprobacion:!!document.getElementById('cfgContaAprob')?.checked};
 }
 function renderConfigContabilidad(){
     const pane=document.getElementById('cfgPane-contabilidad');if(!pane)return;
@@ -6707,6 +6933,7 @@ function renderConfigContabilidad(){
     const activos=['activo'],pasivos=['pasivo'],ingresos=['ingreso'],gastos=['gasto'];
     pane.innerHTML=`<p class="config-hint">Los libros se llevan en <strong>colones</strong>. Los asientos se generan solos desde los cobros y las colillas emitidas a partir de la <strong>fecha de inicio</strong>; lo anterior a esa fecha no entra en los libros.</p>
     <div class="form-row" style="max-width:520px;"><div class="form-group"><label>Fecha de inicio de la contabilidad</label><input type="date" id="cfgContaInicio" value="${esc(cfg.contaFechaInicio||'')}" onchange="autoSaveConfigSilently()"></div><div class="form-group"><label>Carga patronal CCSS (%)</label><input type="number" step="0.01" id="cfgContaPatronal" value="${esc(String(mp.cargaPatronalPct))}" onblur="autoSaveConfigSilently()" title="Se usa si la colilla no trae el monto de carga patronal"></div></div>
+    <label style="display:flex;align-items:center;gap:8px;margin:4px 0 12px;font-size:0.84rem;text-transform:none;letter-spacing:0;"><input type="checkbox" id="cfgContaAprob" ${cfg.contaRequiereAprobacion?'checked':''} onchange="autoSaveConfigSilently()"> Los asientos manuales y peri&oacute;dicos de quienes <strong>no</strong> tienen el permiso &laquo;Aprobar asientos preliminares&raquo; quedan como <strong>preliminares</strong> hasta que alguien los apruebe.</label>
     <h3 style="font-size:0.95rem;margin:14px 0 6px;color:var(--primary-dark);">Cuentas que usan los asientos automáticos</h3>
     <p class="config-hint">Cobros: a qué cuenta entra el dinero según el método de pago y la moneda de la venta.</p>
     <div id="cfgContaBancos" style="display:grid;grid-template-columns:150px repeat(3,1fr);gap:6px 10px;align-items:center;max-width:820px;margin-bottom:12px;font-size:0.8rem;"><span></span><strong>Colones</strong><strong>Dólares</strong><strong>Euros</strong>${metodos.map(k=>{const fila=mp.bancoPorMetodo[k]||mp.bancoPorMetodo['Otro'];return `<span data-metodo="${esc(k)}" style="display:contents;"><span>${esc(k)}</span>${CONTA_MONEDAS.map(m=>_cfgCuentaSelect('',fila[m],activos).replace('<select class=""','<select data-moneda="'+m+'"')).join('')}</span>`;}).join('')}</div>
@@ -8704,7 +8931,7 @@ function saveConfigFromUI(silent){
     // Checklist con fecha (hitos) y aerolíneas. Si la pestaña no está dibujada, se conserva lo guardado.
     {const hs=_collectHitosFromDOM();if(hs){c.hitos=hs;c.checklist=hs.map(h=>h.texto);}const as=_collectAerolineasFromDOM();if(as)c.aerolineas=as;const se=document.getElementById('cfgSupervisorEmail');if(se)c.supervisorEmail=_normEmail(se.value)||SUPERVISOR_EMAIL_DEFAULT;}
     // Contabilidad (solo si la pestaña está dibujada)
-    {const ct=_collectContaFromDOM();if(ct){c.contaCuentas=ct.cuentas;c.contaMapeo=ct.mapeo;if(/^\d{4}-\d{2}-\d{2}$/.test(ct.fechaInicio||''))c.contaFechaInicio=ct.fechaInicio;}}
+    {const ct=_collectContaFromDOM();if(ct){c.contaCuentas=ct.cuentas;c.contaMapeo=ct.mapeo;c.contaRequiereAprobacion=!!ct.requiereAprobacion;if(/^\d{4}-\d{2}-\d{2}$/.test(ct.fechaInicio||''))c.contaFechaInicio=ct.fechaInicio;}}
     // Alertas (textarea)
     c.alertas=collectConfigListFromDOM('cfgAlertasList',true);
     // Fees
