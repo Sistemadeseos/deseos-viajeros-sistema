@@ -1264,9 +1264,11 @@ onAuthStateChanged(fbAuth, (user) => {
 <!-- VIEW: REPORTE DE PAGOS -->
 <div class="app-view view-list" id="viewContabilidad">
     <div class="list-search" style="flex-wrap:wrap;align-items:center;">
-        <div class="cal-seg" id="contaSeg"><button class="active" data-ct="diario" onclick="contaTab('diario')">Diario</button><button data-ct="mayor" onclick="contaTab('mayor')">Mayor</button><button data-ct="cxp" onclick="contaTab('cxp')">Proveedores</button><button data-ct="gastos" onclick="contaTab('gastos')">Gastos</button><button data-ct="margen" onclick="contaTab('margen')">M&aacute;rgenes</button><button data-ct="bancos" onclick="contaTab('bancos')">Bancos</button><button data-ct="reportes" onclick="contaTab('reportes')">Reportes</button><button data-ct="activos" onclick="contaTab('activos')">Activos</button><button data-ct="tc" onclick="contaTab('tc')">Tipo de cambio</button><button data-ct="cierres" onclick="contaTab('cierres')">Cierres</button></div>
-        <label style="font-size:0.78rem;color:var(--text-light);margin-left:8px;">Per&iacute;odo</label><input type="month" id="contaPeriodo" onchange="renderContabilidad()" style="width:170px;">
+        <div id="contaNav" style="display:flex;flex-direction:column;gap:6px;width:100%;"></div>
+        <div style="display:flex;align-items:center;gap:8px;width:100%;">
+        <label style="font-size:0.78rem;color:var(--text-light);margin:0;">Per&iacute;odo</label><input type="month" id="contaPeriodo" onchange="renderContabilidad()" style="width:170px;">
         <span style="flex:1;"></span><span id="contaTCHoy" style="font-size:0.78rem;color:var(--text-light);"></span>
+        </div>
     </div>
     <div class="list-view" id="contaBody"></div>
 </div>
@@ -1837,6 +1839,28 @@ const defaultAlertas=['A partir del 11 de enero 2025 es obligatoria la vacuna de
 // =====================================================================================
 const CONTA_TIPOS=[['activo','Activo'],['pasivo','Pasivo'],['patrimonio','Patrimonio'],['ingreso','Ingresos'],['costo','Costos'],['gasto','Gastos']];
 const CONTA_MONEDAS=['CRC','USD','EUR'];
+// Títulos: cuentas que solo agrupan (como en SAP Business One). No admiten movimientos.
+// El padre de una cuenta activa es el título más largo cuyo código sea prefijo del suyo.
+const defaultContaTitulos=[
+    {codigo:'11',nombre:'Efectivo y bancos',tipo:'activo'},
+    {codigo:'12',nombre:'Cuentas por cobrar y anticipos',tipo:'activo'},
+    {codigo:'13',nombre:'Impuestos por recuperar',tipo:'activo'},
+    {codigo:'14',nombre:'Activos fijos',tipo:'activo'},
+    {codigo:'21',nombre:'Cuentas por pagar y anticipos',tipo:'pasivo'},
+    {codigo:'22',nombre:'Impuestos, retenciones y planilla por pagar',tipo:'pasivo'},
+    {codigo:'23',nombre:'Provisiones laborales',tipo:'pasivo'},
+    {codigo:'31',nombre:'Capital',tipo:'patrimonio'},
+    {codigo:'32',nombre:'Resultados acumulados',tipo:'patrimonio'},
+    {codigo:'33',nombre:'Resultado del período',tipo:'patrimonio'},
+    {codigo:'41',nombre:'Ventas de viajes y servicios',tipo:'ingreso'},
+    {codigo:'42',nombre:'Comisiones',tipo:'ingreso'},
+    {codigo:'43',nombre:'Otros ingresos',tipo:'ingreso'},
+    {codigo:'44',nombre:'Diferencial cambiario',tipo:'ingreso'},
+    {codigo:'51',nombre:'Costos de los viajes',tipo:'costo'},
+    {codigo:'61',nombre:'Gastos de personal',tipo:'gasto'},
+    {codigo:'62',nombre:'Gastos operativos',tipo:'gasto'},
+    {codigo:'64',nombre:'Diferencial cambiario',tipo:'gasto'}
+].map(t=>Object.assign({moneda:'',titulo:true},t));
 const defaultContaCuentas=[
     {codigo:'1101',nombre:'Caja colones',tipo:'activo',moneda:'CRC'},
     {codigo:'1102',nombre:'Caja dólares',tipo:'activo',moneda:'USD'},
@@ -1900,7 +1924,7 @@ const defaultContaCuentas=[
     {codigo:'6210',nombre:'Depreciación',tipo:'gasto',moneda:'CRC'},
     {codigo:'6290',nombre:'Otros gastos',tipo:'gasto',moneda:''},
     {codigo:'6401',nombre:'Pérdida por diferencial cambiario',tipo:'gasto',moneda:'CRC'}
-];
+].concat(defaultContaTitulos);
 // Cuentas por defecto para los asientos automáticos (se ajustan en Configuración → Contabilidad)
 const defaultContaMapeo={
     bancoPorMetodo:{
@@ -1918,7 +1942,9 @@ const defaultContaMapeo={
 function _normContaCuentas(arr){
     const src=(Array.isArray(arr)&&arr.length)?arr:defaultContaCuentas;
     const vistos=new Set();const out=[];
-    src.forEach(c=>{if(!c)return;const codigo=String(c.codigo||'').trim();const nombre=String(c.nombre||'').trim();if(!codigo||!nombre||vistos.has(codigo))return;vistos.add(codigo);out.push({codigo,nombre,tipo:CONTA_TIPOS.some(t=>t[0]===c.tipo)?c.tipo:'gasto',moneda:CONTA_MONEDAS.includes(c.moneda)?c.moneda:''});});
+    src.forEach(c=>{if(!c)return;const codigo=String(c.codigo||'').trim();const nombre=String(c.nombre||'').trim();if(!codigo||!nombre||vistos.has(codigo))return;vistos.add(codigo);out.push({codigo,nombre,tipo:CONTA_TIPOS.some(t=>t[0]===c.tipo)?c.tipo:'gasto',titulo:!!c.titulo,moneda:CONTA_MONEDAS.includes(c.moneda)?c.moneda:''});});
+    // Planes guardados antes de existir los títulos: se les agregan los títulos sugeridos (sin pisar códigos ya usados)
+    if(!out.some(x=>x.titulo))defaultContaTitulos.forEach(t=>{if(!vistos.has(t.codigo)){vistos.add(t.codigo);out.push(Object.assign({},t));}});
     return out.sort((a,b)=>a.codigo.localeCompare(b.codigo));
 }
 function _normContaMapeo(m){
@@ -1937,6 +1963,13 @@ function saveContaTC(arr){return setLS('dv_conta_tc',Array.isArray(arr)?arr:[]);
 // --- Helpers ---
 function contaCfg(){const c=cfgGet();return {cuentas:c.contaCuentas,mapeo:c.contaMapeo,fechaInicio:c.contaFechaInicio,cierres:c.contaCierres,bitacora:c.contaBitacora};}
 function contaCuenta(codigo){return contaCfg().cuentas.find(c=>c.codigo===String(codigo))||null;}
+// Cuentas activas (las que reciben movimientos); los títulos solo agrupan
+function contaCuentasActivas(tipos){return contaCfg().cuentas.filter(c=>!c.titulo&&(!tipos||tipos.includes(c.tipo)));}
+function contaTitulos(tipo){return contaCfg().cuentas.filter(c=>c.titulo&&(!tipo||c.tipo===tipo));}
+// Título padre de una cuenta: el título más largo (del mismo cajón) cuyo código es prefijo del suyo
+function contaTituloDe(codigo){codigo=String(codigo||'');let best=null;contaCfg().cuentas.forEach(t=>{if(!t.titulo||t.codigo===codigo||!codigo.startsWith(t.codigo))return;if(!best||t.codigo.length>best.codigo.length)best=t;});return best;}
+// Número de asiento para mostrar: serie por año (AS-2026-0001); los asientos anteriores a las series conservan su número corrido
+function contaNumAsiento(a){if(!a)return '';return a.serie?('AS-'+a.serie+'-'+String(a.numero||0).padStart(4,'0')):('#'+(a.numero||''));}
 function contaCuentaNombre(codigo){const c=contaCuenta(codigo);return c?(c.codigo+' · '+c.nombre):String(codigo||'');}
 function contaPeriodoDe(fecha){return String(fecha||'').slice(0,7);}
 function contaPeriodoCerrado(periodo){return (contaCfg().cierres||[]).some(x=>x&&x.periodo===periodo);}
@@ -1989,7 +2022,9 @@ function contaACRC(monto,moneda,fecha){
     return {crc:_contaRound(v*tc),tc,tcFecha:t.fecha};
 }
 // --- Asientos ---
-function _contaNumeroSiguiente(arr){return arr.reduce((m,a)=>Math.max(m,parseInt(a&&a.numero||0,10)||0),0)+1;}
+// Serie por año contable (como las series de numeración de SAP): AS-2026-0001, AS-2026-0002… sin huecos, porque los asientos nunca se borran.
+function _contaSerieDe(fecha){return String(fecha||'').slice(0,4);}
+function _contaNumeroSiguiente(arr,fecha){const s=_contaSerieDe(fecha);return arr.reduce((m,a)=>Math.max(m,(a&&String(a.serie||'')===s)?(parseInt(a.numero||0,10)||0):0),0)+1;}
 function contaAsientoExiste(origen,refId,subRef){return getContaAsientos().find(a=>a&&a.origen===origen&&String(a.refId||'')===String(refId||'')&&String(a.subRef||'')===String(subRef||'')&&!a.reversadoPor)||null;}
 // Registra un asiento. opts:{fecha,descripcion,origen,refId,subRef,lineas:[{cuenta,debe,haber,moneda,montoOrig,tc,detalle}],silencioso}
 // Devuelve el asiento o null (y explica el motivo por alert salvo silencioso).
@@ -2005,10 +2040,12 @@ function contaRegistrarAsiento(opts){
     if(lineas.length<2)return fallo('Un asiento necesita al menos dos líneas con monto.');
     const faltan=lineas.filter(l=>!cuentas.some(c=>c.codigo===l.cuenta)).map(l=>l.cuenta);
     if(faltan.length)return fallo('Cuenta(s) inexistente(s) en el plan de cuentas: '+faltan.join(', '));
+    const tit=lineas.filter(l=>(cuentas.find(c=>c.codigo===l.cuenta)||{}).titulo).map(l=>l.cuenta);
+    if(tit.length)return fallo('Las cuentas '+tit.join(', ')+' son títulos (solo agrupan) y no admiten movimientos. Elegí una cuenta activa.');
     const td=_contaRound(lineas.reduce((s,l)=>s+l.debe,0)),th=_contaRound(lineas.reduce((s,l)=>s+l.haber,0));
     if(Math.abs(td-th)>0.01)return fallo('El asiento no cuadra: Debe '+fmtCRC2(td)+' vs Haber '+fmtCRC2(th)+'.');
     const arr=getContaAsientos().map(x=>Object.assign({},x));
-    const a={id:'as_'+Date.now()+'_'+Math.random().toString(36).slice(2,6),numero:_contaNumeroSiguiente(arr),fecha,periodo:contaPeriodoDe(fecha),descripcion:String(opts.descripcion||'').trim(),origen:opts.origen||'manual',refId:String(opts.refId||''),subRef:String(opts.subRef||''),lineas,totalDebe:td,totalHaber:th,creadoPor:(window.currentUser&&window.currentUser.email)||'',creadoTs:Date.now(),reversaDe:String(opts.reversaDe||''),reversadoPor:''};
+    const a={id:'as_'+Date.now()+'_'+Math.random().toString(36).slice(2,6),numero:_contaNumeroSiguiente(arr,fecha),serie:_contaSerieDe(fecha),fecha,periodo:contaPeriodoDe(fecha),descripcion:String(opts.descripcion||'').trim(),origen:opts.origen||'manual',refId:String(opts.refId||''),subRef:String(opts.subRef||''),lineas,totalDebe:td,totalHaber:th,creadoPor:(window.currentUser&&window.currentUser.email)||'',creadoTs:Date.now(),reversaDe:String(opts.reversaDe||''),reversadoPor:''};
     arr.push(a);saveContaAsientos(arr);
     return a;
 }
@@ -2021,12 +2058,12 @@ function contaReversarAsiento(id,motivo,silencioso){
     const hoy=_hitoHoyISO();
     // La reversión va en el mes del original si está abierto; si ya se cerró, va en el primer mes abierto (hoy)
     const fecha=contaPeriodoCerrado(o.periodo)?hoy:o.fecha;
-    const r=contaRegistrarAsiento({fecha,descripcion:'Reversión de asiento #'+o.numero+(motivo?' · '+motivo:'')+' · '+(o.descripcion||''),origen:'reversion',refId:o.refId,subRef:o.subRef,reversaDe:o.id,silencioso,lineas:o.lineas.map(l=>({cuenta:l.cuenta,debe:l.haber,haber:l.debe,moneda:l.moneda,montoOrig:l.montoOrig,tc:l.tc,detalle:l.detalle}))});
+    const r=contaRegistrarAsiento({fecha,descripcion:'Reversión de asiento '+contaNumAsiento(o)+(motivo?' · '+motivo:'')+' · '+(o.descripcion||''),origen:'reversion',refId:o.refId,subRef:o.subRef,reversaDe:o.id,silencioso,lineas:o.lineas.map(l=>({cuenta:l.cuenta,debe:l.haber,haber:l.debe,moneda:l.moneda,montoOrig:l.montoOrig,tc:l.tc,detalle:l.detalle}))});
     if(!r)return null;
     const arr2=getContaAsientos().map(x=>Object.assign({},x));
     const o2=arr2.find(x=>x.id===id);if(o2){o2.reversadoPor=r.id;o2.reversadoTs=Date.now();o2.reversadoMotivo=String(motivo||'');}
     saveContaAsientos(arr2);
-    _contaBitacora('Reversó el asiento #'+o.numero+(motivo?' ('+motivo+')':''));
+    _contaBitacora('Reversó el asiento '+contaNumAsiento(o)+(motivo?' ('+motivo+')':''));
     return r;
 }
 // --- Asientos automáticos: COBROS ---
@@ -2495,7 +2532,7 @@ function contaEditarActivo(id,campos){const arr=getContaActivos().map(x=>Object.
 function contaDepreciarPeriodo(periodo,silencioso){
     if(!/^\d{4}-\d{2}$/.test(periodo))return null;
     if(contaAsientoExiste('depreciacion',periodo,'')){if(!silencioso)alert('El mes '+periodo+' ya tiene la depreciación registrada.');return null;}
-    const r=_contaRangoPeriodo(periodo);const gastoDep=contaCuenta('6210')?'6210':contaCfg().cuentas.find(c=>c.tipo==='gasto').codigo;const depAcum=contaCuenta('1490')?'1490':null;
+    const r=_contaRangoPeriodo(periodo);const gastoDep=contaCuenta('6210')?'6210':contaCuentasActivas(['gasto'])[0].codigo;const depAcum=contaCuenta('1490')?'1490':null;
     if(!depAcum){if(!silencioso)alert('Falta la cuenta 1490 Depreciación acumulada en el plan de cuentas.');return null;}
     const lineas=[];let total=0;
     getContaActivos().forEach(a=>{if(!a||a.estado!=='activo')return;if(String(a.fechaCompra).slice(0,7)>=periodo)return; // empieza el mes siguiente a la compra
@@ -6315,7 +6352,25 @@ function iniciarRecordatorios(){
 // ===== CONTABILIDAD: pantalla =====
 let _contaTab='diario';
 const CONTA_ORIGEN_LABEL={apertura:'Apertura',pago_proveedor:'Pago a proveedor',revaluacion:'Revaluación',depreciacion:'Depreciación',activo_fijo:'Activo fijo',cierre_anual:'Cierre anual',manual:'Manual',cobro:'Cobro',planilla:'Planilla',ingreso_venta:'Ingreso por viaje',reversion:'Reversión',gasto:'Gasto',proveedor:'Proveedor',ajuste:'Ajuste'};
-function contaTab(t){_contaTab=t;const seg=document.getElementById('contaSeg');if(seg)seg.querySelectorAll('button').forEach(b=>b.classList.toggle('active',b.getAttribute('data-ct')===t));renderContabilidad();}
+// Menú principal organizado como SAP Business One: módulo → pantalla
+const CONTA_MENU=[
+    {id:'finanzas',label:'Finanzas',items:[['plan','Plan de cuentas'],['diario','Asientos de diario'],['mayor','Mayor y balance de comprobaci\u00f3n'],['activos','Activos fijos']]},
+    {id:'socios',label:'Socios de negocios',items:[['clientes','Clientes (por cobrar)'],['cxp','Proveedores (por pagar)'],['gastos','Gastos']]},
+    {id:'bancos',label:'Bancos',items:[['bancos','Conciliaci\u00f3n bancaria']]},
+    {id:'informes',label:'Informes financieros',items:[['reportes','Estados financieros'],['margen','M\u00e1rgenes por venta']]},
+    {id:'admin',label:'Administraci\u00f3n',items:[['cierres','Per\u00edodos y cierres'],['tc','Tipos de cambio'],['config','Determinaci\u00f3n de cuentas']]}
+];
+function _contaGrupoDe(t){return CONTA_MENU.find(g=>g.items.some(it=>it[0]===t))||CONTA_MENU[0];}
+function _contaRenderNav(){
+    const nav=document.getElementById('contaNav');if(!nav)return;
+    const g=_contaGrupoDe(_contaTab);
+    nav.innerHTML=`<div class="cal-seg">${CONTA_MENU.map(x=>`<button class="${x.id===g.id?'active':''}" onclick="contaTab('${x.items[0][0]}')">${x.label}</button>`).join('')}</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;">${g.items.map(it=>`<button class="btn btn-sm ${it[0]===_contaTab?'btn-primary':'btn-ghost'}" style="padding:3px 10px;font-size:0.76rem;border-radius:12px;" onclick="contaTab('${it[0]}')">${it[1]}</button>`).join('')}</div>`;
+}
+function contaTab(t){
+    if(t==='config'){nav('configuracion');setTimeout(()=>{try{switchConfigTab('contabilidad');}catch(e){}},0);return;}
+    _contaTab=t;renderContabilidad();
+}
 function _contaPeriodoUI(){const el=document.getElementById('contaPeriodo');if(el&&!el.value)el.value=_hitoHoyISO().slice(0,7);return el?el.value:_hitoHoyISO().slice(0,7);}
 function _contaRangoPeriodo(p){const y=parseInt(p.slice(0,4),10),m=parseInt(p.slice(5,7),10);const fin=new Date(y,m,0).getDate();return {desde:p+'-01',hasta:p+'-'+String(fin).padStart(2,'0')};}
 // Monto original del asiento en moneda extranjera (la primera línea que no sea colones); '' si todo es en colones
@@ -6324,12 +6379,15 @@ function _contaMontoOrigTexto(a){const l=(a&&Array.isArray(a.lineas)?a.lineas:[]
 function _contaChipOrigen(o){const col={cobro:'#e1f5ee;color:#0f6e56',planilla:'#ede7f6;color:#5e35b1',ingreso_venta:'#dff1f3;color:#036672',reversion:'#fcebeb;color:#a32d2d',manual:'#f1f3f5;color:#4d5c63'};return `<span class="lt-badge" style="background:${col[o]||col.manual};">${esc(CONTA_ORIGEN_LABEL[o]||o)}</span>`;}
 function renderContabilidad(){
     const body=document.getElementById('contaBody');if(!body)return;
+    _contaRenderNav();
     const p=_contaPeriodoUI();
     const tcHoy=document.getElementById('contaTCHoy');
     if(tcHoy){const t=contaTCPara(_hitoHoyISO());tcHoy.innerHTML=t.usd?('TC hoy: $1 = '+fmtCRC2(t.usd)+(t.eur?' · €1 = '+fmtCRC2(t.eur):'')+(t.exacto?'':' <span style="color:#a32d2d;">(del '+fmtFechaCorta(t.fecha)+')</span>')):'<span style="color:#a32d2d;">Sin tipo de cambio cargado</span>';}
     const cerrado=contaPeriodoCerrado(p);
     const banner=cerrado?`<div style="background:#fcebeb;color:#a32d2d;border-radius:8px;padding:8px 12px;font-size:0.8rem;margin-bottom:10px;">&#128274; Mes cerrado. No se pueden registrar ni reversar asientos en ${p}. Para hacerlo, reabrilo en la pestaña Cierres.</div>`:'';
     if(_contaTab==='diario')body.innerHTML=banner+_contaDiarioHtml(p);
+    else if(_contaTab==='plan')body.innerHTML=_contaPlanHtml(p);
+    else if(_contaTab==='clientes')body.innerHTML=_contaClientesHtml(p);
     else if(_contaTab==='mayor')body.innerHTML=banner+_contaMayorHtml(p);
     else if(_contaTab==='cxp')body.innerHTML=banner+_contaCxPHtml(p);
     else if(_contaTab==='gastos')body.innerHTML=banner+_contaGastosHtml(p);
@@ -6356,7 +6414,7 @@ function _contaDiarioHtml(p){
         const det=a.lineas.map(l=>`<tr><td style="padding:3px 8px;font-size:0.78rem;">${esc(contaCuentaNombre(l.cuenta))}${l.detalle?'<span style="color:var(--text-light);"> · '+esc(l.detalle)+'</span>':''}${l.moneda&&l.moneda!=='CRC'?`<span style="color:var(--text-light);font-size:0.72rem;"> (${esc(l.moneda)} ${num(l.montoOrig).toLocaleString('es-CR',{minimumFractionDigits:2,maximumFractionDigits:2})} a ${num(l.tc).toLocaleString('es-CR',{minimumFractionDigits:2,maximumFractionDigits:2})})</span>`:''}</td><td style="text-align:right;padding:3px 8px;font-size:0.78rem;">${l.debe?fmtCRC2(l.debe):''}</td><td style="text-align:right;padding:3px 8px;font-size:0.78rem;">${l.haber?fmtCRC2(l.haber):''}</td></tr>`).join('');
         const acciones=(!a.reversadoPor&&a.origen!=='reversion'&&puedeReg&&!contaPeriodoCerrado(a.periodo))?`<button class="btn btn-sm btn-danger" style="padding:2px 8px;font-size:0.7rem;" onclick="contaReversarUI('${a.id}')" title="Crea un asiento espejo que anula este">Reversar</button>`:'';
         return `<tr onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'':'none'" style="cursor:pointer;">
-            <td style="white-space:nowrap;">${fmtFechaCorta(a.fecha)}</td><td>#${a.numero}</td><td>${esc(a.descripcion||'')} ${rev}</td><td>${_contaChipOrigen(a.origen)}</td>
+            <td style="white-space:nowrap;">${fmtFechaCorta(a.fecha)}</td><td style="white-space:nowrap;font-family:monospace;font-size:0.78rem;">${contaNumAsiento(a)}</td><td>${esc(a.descripcion||'')} ${rev}</td><td>${_contaChipOrigen(a.origen)}</td>
             <td style="text-align:right;white-space:nowrap;">${_contaMontoOrigAsiento(a)}</td><td style="text-align:right;white-space:nowrap;">${fmtCRC2(a.totalDebe)}</td><td style="text-align:right;white-space:nowrap;">${fmtCRC2(a.totalHaber)}</td><td onclick="event.stopPropagation()">${acciones}</td></tr>
             <tr style="display:none;background:var(--bg);"><td colspan="8" style="padding:4px 12px 8px;"><table style="width:100%;border-collapse:collapse;"><tbody>${det}</tbody></table><div style="font-size:0.7rem;color:var(--text-light);margin-top:4px;">Registrado por ${esc(a.creadoPor||'sistema')} el ${fmtFechaCorta(new Date(a.creadoTs||0).toISOString().slice(0,10))}${a.reversaDe?' · reversa un asiento anterior':''}</div></td></tr>`;
     }).join('');
@@ -6365,7 +6423,7 @@ function _contaDiarioHtml(p){
 function contaReversarUI(id){
     if(!exigirPermiso('contabilidad.registrar','reversar asientos'))return;
     const a=getContaAsientos().find(x=>x.id===id);if(!a)return;
-    const motivo=prompt('Motivo de la reversión del asiento #'+a.numero+':','');
+    const motivo=prompt('Motivo de la reversión del asiento '+contaNumAsiento(a)+':','');
     if(motivo===null)return;
     if(contaReversarAsiento(id,motivo,false))renderContabilidad();
 }
@@ -6378,15 +6436,47 @@ function contaGenerarPendientesUI(){
 function contaExportarDiario(){
     const p=_contaPeriodoUI();const r=_contaRangoPeriodo(p);
     const rows=[];
-    getContaAsientos().filter(a=>a&&a.fecha>=r.desde&&a.fecha<=r.hasta).sort((a,b)=>a.fecha.localeCompare(b.fecha)||(a.numero-b.numero)).forEach(a=>{a.lineas.forEach(l=>{rows.push({'Fecha':a.fecha,'Nº':a.numero,'Descripción':a.descripcion,'Origen':CONTA_ORIGEN_LABEL[a.origen]||a.origen,'Monto original del asiento':_contaMontoOrigTexto(a),'Cuenta':l.cuenta,'Nombre de cuenta':(contaCuenta(l.cuenta)||{}).nombre||'','Detalle':l.detalle||'','Debe ₡':l.debe||0,'Haber ₡':l.haber||0,'Moneda':l.moneda||'CRC','Monto original':l.montoOrig||0,'Tipo de cambio':l.tc||1,'Reversado':a.reversadoPor?'Sí':''});});});
+    getContaAsientos().filter(a=>a&&a.fecha>=r.desde&&a.fecha<=r.hasta).sort((a,b)=>a.fecha.localeCompare(b.fecha)||(a.numero-b.numero)).forEach(a=>{a.lineas.forEach(l=>{rows.push({'Fecha':a.fecha,'Nº':contaNumAsiento(a),'Descripción':a.descripcion,'Origen':CONTA_ORIGEN_LABEL[a.origen]||a.origen,'Monto original del asiento':_contaMontoOrigTexto(a),'Cuenta':l.cuenta,'Nombre de cuenta':(contaCuenta(l.cuenta)||{}).nombre||'','Detalle':l.detalle||'','Debe ₡':l.debe||0,'Haber ₡':l.haber||0,'Moneda':l.moneda||'CRC','Monto original':l.montoOrig||0,'Tipo de cambio':l.tc||1,'Reversado':a.reversadoPor?'Sí':''});});});
     if(!rows.length){alert('No hay asientos en '+p+'.');return;}
     const ws=XLSX.utils.json_to_sheet(rows);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Diario '+p);XLSX.writeFile(wb,'Libro_diario_'+p+'.xlsx');
 }
+// --- Plan de cuentas (árbol estilo SAP: cajón → título → cuenta activa) ---
+let _contaPlanCajon='activo';
+function _contaArbolTipo(tipo){
+    // Devuelve [{titulo, cuentas:[...]}] para un cajón; las cuentas sin título van en un grupo "Sin título"
+    const cuentas=contaCfg().cuentas.filter(c=>c.tipo===tipo);
+    const titulos=cuentas.filter(c=>c.titulo).sort((a,b)=>a.codigo.localeCompare(b.codigo));
+    const grupos=titulos.map(t=>({titulo:t,cuentas:[]}));const sueltas={titulo:null,cuentas:[]};
+    cuentas.filter(c=>!c.titulo).forEach(c=>{const t=contaTituloDe(c.codigo);const g=t?grupos.find(x=>x.titulo.codigo===t.codigo):null;(g||sueltas).cuentas.push(c);});
+    if(sueltas.cuentas.length)grupos.push(sueltas);
+    return grupos;
+}
+function _contaPlanHtml(p){
+    const r=_contaRangoPeriodo(p);const s=contaSaldos('',r.hasta);
+    const saldoDe=code=>(s[code]||{}).saldo||0;
+    const cajones=CONTA_TIPOS.map(t=>{const tot=_contaRound(contaCfg().cuentas.filter(c=>c.tipo===t[0]&&!c.titulo).reduce((a,c)=>a+saldoDe(c.codigo),0));return `<button class="btn btn-sm ${_contaPlanCajon===t[0]?'btn-primary':'btn-ghost'}" style="display:flex;justify-content:space-between;gap:10px;width:100%;text-align:left;" onclick="_contaPlanCajon='${t[0]}';renderContabilidad()"><span>${t[1]}</span><span style="font-size:0.72rem;opacity:.85;">${fmtCRC2(tot)}</span></button>`;}).join('');
+    const grupos=_contaArbolTipo(_contaPlanCajon);
+    const tipoLabel=(CONTA_TIPOS.find(t=>t[0]===_contaPlanCajon)||[])[1]||'';
+    let totalCajon=0;
+    const filas=grupos.map(g=>{
+        const sub=_contaRound(g.cuentas.reduce((a,c)=>a+saldoDe(c.codigo),0));totalCajon+=sub;
+        const head=g.titulo?`<tr style="background:var(--bg);font-weight:700;"><td style="font-family:monospace;">${esc(g.titulo.codigo)}</td><td>&#128193; ${esc(g.titulo.nombre)}</td><td style="text-align:center;color:var(--text-light);font-weight:400;font-size:0.72rem;">t&iacute;tulo</td><td style="text-align:right;">${fmtCRC2(sub)}</td></tr>`:`<tr style="background:var(--bg);font-weight:700;"><td></td><td>Sin t&iacute;tulo</td><td></td><td style="text-align:right;">${fmtCRC2(sub)}</td></tr>`;
+        const hijos=g.cuentas.map(c=>`<tr style="cursor:pointer;" onclick="_contaMayorCuenta='${esc(c.codigo)}';contaTab('mayor')" title="Ver el mayor de esta cuenta"><td style="font-family:monospace;padding-left:22px;">${esc(c.codigo)}</td><td style="padding-left:22px;">${esc(c.nombre)}</td><td style="text-align:center;font-size:0.72rem;color:var(--text-light);">${esc(c.moneda||'Mixta')}</td><td style="text-align:right;${Math.abs(saldoDe(c.codigo))<0.005?'color:var(--text-light);':''}">${fmtCRC2(saldoDe(c.codigo))}</td></tr>`).join('');
+        return head+hijos;
+    }).join('');
+    return `<div style="display:grid;grid-template-columns:230px 1fr;gap:14px;align-items:start;">
+        <div style="display:flex;flex-direction:column;gap:4px;"><div style="font-size:0.68rem;color:var(--text-light);text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px;">Cajones</div>${cajones}<button class="btn btn-sm btn-ghost" style="margin-top:8px;" onclick="contaTab('config')">&#9998; Editar plan de cuentas</button></div>
+        <div><h3 style="margin:0 0 6px;color:var(--primary-dark);">${esc(tipoLabel)} &middot; saldos al ${fmtFechaCorta(r.hasta)}</h3>
+        <table class="list-table"><thead><tr><th style="width:90px;">C&oacute;digo</th><th>Cuenta</th><th style="width:70px;text-align:center;">Moneda</th><th style="text-align:right;">Saldo &#8353;</th></tr></thead><tbody>${filas||'<tr><td colspan="4" style="color:var(--text-light);">Sin cuentas en este caj&oacute;n.</td></tr>'}<tr style="font-weight:700;font-size:0.95rem;"><td colspan="3">Total ${esc(tipoLabel.toLowerCase())}</td><td style="text-align:right;">${fmtCRC2(_contaRound(totalCajon))}</td></tr></tbody></table>
+        <p class="config-hint" style="margin-top:8px;">Clic en una cuenta para ver su mayor. Las cuentas marcadas como t&iacute;tulo agrupan a las que empiezan con su c&oacute;digo.</p></div></div>`;
+}
+// Socios de negocios → Clientes: reutiliza el detalle de cuentas por cobrar de los informes
+function _contaClientesHtml(p){const prev=_repTipo;_repTipo='cxc';let h='';try{h=_repCuerpoHtml(p);}finally{_repTipo=prev;}return h;}
 // --- Mayor / balance de comprobación ---
 let _contaMayorCuenta='';
 function _contaMayorHtml(p){
     const r=_contaRangoPeriodo(p);
-    const cuentas=contaCfg().cuentas;
+    const cuentas=contaCuentasActivas();
     const ini=contaSaldos('',_addDiasISO(r.desde,-1));const per=contaSaldos(r.desde,r.hasta);
     const sel=`<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;"><label style="font-size:0.78rem;color:var(--text-light);">Cuenta</label><select onchange="_contaMayorCuenta=this.value;renderContabilidad()" style="min-width:260px;"><option value="">Todas (balance de comprobación)</option>${cuentas.map(c=>`<option value="${esc(c.codigo)}"${_contaMayorCuenta===c.codigo?' selected':''}>${esc(c.codigo+' · '+c.nombre)}</option>`).join('')}</select><span style="flex:1;"></span><button class="btn btn-sm btn-ghost" onclick="contaExportarMayor()">&#128196; Exportar a Excel</button></div>`;
     if(_contaMayorCuenta){
@@ -6394,12 +6484,19 @@ function _contaMayorHtml(p){
         const movs=[];getContaAsientos().filter(a=>a&&a.fecha>=r.desde&&a.fecha<=r.hasta).sort((a,b)=>a.fecha.localeCompare(b.fecha)||(a.numero-b.numero)).forEach(a=>a.lineas.forEach(l=>{if(l.cuenta===_contaMayorCuenta)movs.push({a,l});}));
         const deudora=!c||['activo','costo','gasto'].includes(c.tipo);
         let saldo=(ini[_contaMayorCuenta]||{}).saldo||0;
-        const rows=movs.map(({a,l})=>{saldo=_contaRound(saldo+(deudora?(l.debe-l.haber):(l.haber-l.debe)));return `<tr><td>${fmtFechaCorta(a.fecha)}</td><td>#${a.numero}</td><td>${esc(a.descripcion||'')}${l.detalle?' <span style="color:var(--text-light);">· '+esc(l.detalle)+'</span>':''}</td><td style="text-align:right;white-space:nowrap;">${(l.moneda&&l.moneda!=='CRC'&&num(l.montoOrig)>0)?_contaFmtOrig(l.montoOrig,l.moneda):''}</td><td style="text-align:right;">${l.debe?fmtCRC2(l.debe):''}</td><td style="text-align:right;">${l.haber?fmtCRC2(l.haber):''}</td><td style="text-align:right;font-weight:600;">${fmtCRC2(saldo)}</td></tr>`;}).join('');
+        const rows=movs.map(({a,l})=>{saldo=_contaRound(saldo+(deudora?(l.debe-l.haber):(l.haber-l.debe)));return `<tr><td>${fmtFechaCorta(a.fecha)}</td><td style="white-space:nowrap;font-family:monospace;font-size:0.78rem;">${contaNumAsiento(a)}</td><td>${esc(a.descripcion||'')}${l.detalle?' <span style="color:var(--text-light);">· '+esc(l.detalle)+'</span>':''}</td><td style="text-align:right;white-space:nowrap;">${(l.moneda&&l.moneda!=='CRC'&&num(l.montoOrig)>0)?_contaFmtOrig(l.montoOrig,l.moneda):''}</td><td style="text-align:right;">${l.debe?fmtCRC2(l.debe):''}</td><td style="text-align:right;">${l.haber?fmtCRC2(l.haber):''}</td><td style="text-align:right;font-weight:600;">${fmtCRC2(saldo)}</td></tr>`;}).join('');
         const s0=(ini[_contaMayorCuenta]||{}).saldo||0;
         return sel+`<table class="list-table"><thead><tr><th>Fecha</th><th>Nº</th><th>Descripción</th><th style="text-align:right;">Monto original</th><th style="text-align:right;">Debe</th><th style="text-align:right;">Haber</th><th style="text-align:right;">Saldo</th></tr></thead><tbody><tr style="background:var(--bg);"><td colspan="6"><em>Saldo inicial al ${fmtFechaCorta(r.desde)}</em></td><td style="text-align:right;font-weight:600;">${fmtCRC2(s0)}</td></tr>${rows||'<tr><td colspan="7" style="color:var(--text-light);text-align:center;">Sin movimientos en el período</td></tr>'}</tbody></table>`;
     }
     let tD=0,tH=0;
-    const rows=cuentas.map(c=>{const i=ini[c.codigo]||{saldo:0};const m=per[c.codigo]||{debe:0,haber:0};const deudora=['activo','costo','gasto'].includes(c.tipo);const fin=_contaRound(i.saldo+(deudora?(m.debe-m.haber):(m.haber-m.debe)));if(!i.saldo&&!m.debe&&!m.haber)return '';tD+=m.debe;tH+=m.haber;return `<tr style="cursor:pointer;" onclick="_contaMayorCuenta='${c.codigo}';renderContabilidad()"><td>${esc(c.codigo)}</td><td>${esc(c.nombre)}</td><td>${esc((CONTA_TIPOS.find(t=>t[0]===c.tipo)||[])[1]||'')}</td><td style="text-align:right;">${fmtCRC2(i.saldo)}</td><td style="text-align:right;">${fmtCRC2(m.debe)}</td><td style="text-align:right;">${fmtCRC2(m.haber)}</td><td style="text-align:right;font-weight:600;">${fmtCRC2(fin)}</td></tr>`;}).join('');
+    const filaCta=c=>{const i=ini[c.codigo]||{saldo:0};const m=per[c.codigo]||{debe:0,haber:0};const deudora=['activo','costo','gasto'].includes(c.tipo);const fin=_contaRound(i.saldo+(deudora?(m.debe-m.haber):(m.haber-m.debe)));if(!i.saldo&&!m.debe&&!m.haber)return '';tD+=m.debe;tH+=m.haber;return `<tr style="cursor:pointer;" onclick="_contaMayorCuenta='${c.codigo}';renderContabilidad()"><td>${esc(c.codigo)}</td><td>${esc(c.nombre)}</td><td>${esc((CONTA_TIPOS.find(t=>t[0]===c.tipo)||[])[1]||'')}</td><td style="text-align:right;">${fmtCRC2(i.saldo)}</td><td style="text-align:right;">${fmtCRC2(m.debe)}</td><td style="text-align:right;">${fmtCRC2(m.haber)}</td><td style="text-align:right;font-weight:600;">${fmtCRC2(fin)}</td></tr>`;};
+    const rows=CONTA_TIPOS.map(t=>_contaArbolTipo(t[0]).map(g=>{
+        const hijos=g.cuentas.map(filaCta).join('');if(!hijos)return '';
+        const sum=k=>_contaRound(g.cuentas.reduce((a,c)=>a+((k==='ini'?(ini[c.codigo]||{}).saldo:(per[c.codigo]||{})[k])||0),0));
+        const deud=['activo','costo','gasto'].includes(t[0]);const fin=_contaRound(sum('ini')+(deud?(sum('debe')-sum('haber')):(sum('haber')-sum('debe'))));
+        const head=`<tr style="background:var(--bg);font-weight:700;"><td style="font-family:monospace;">${g.titulo?esc(g.titulo.codigo):''}</td><td colspan="2">&#128193; ${g.titulo?esc(g.titulo.nombre):'Sin t\u00edtulo'} <span style="font-weight:400;font-size:0.72rem;color:var(--text-light);">${t[1]}</span></td><td style="text-align:right;">${fmtCRC2(sum('ini'))}</td><td style="text-align:right;">${fmtCRC2(sum('debe'))}</td><td style="text-align:right;">${fmtCRC2(sum('haber'))}</td><td style="text-align:right;">${fmtCRC2(fin)}</td></tr>`;
+        return head+hijos;
+    }).join('')).join('');
     return sel+`<table class="list-table"><thead><tr><th>Código</th><th>Cuenta</th><th>Tipo</th><th style="text-align:right;">Saldo inicial</th><th style="text-align:right;">Debe</th><th style="text-align:right;">Haber</th><th style="text-align:right;">Saldo final</th></tr></thead><tbody>${rows||'<tr><td colspan="7" style="color:var(--text-light);text-align:center;">Sin movimientos</td></tr>'}<tr style="background:var(--bg);font-weight:700;"><td colspan="4">Totales del período</td><td style="text-align:right;">${fmtCRC2(tD)}</td><td style="text-align:right;">${fmtCRC2(tH)}</td><td style="text-align:right;${Math.abs(tD-tH)>0.01?'color:#a32d2d;':''}">${Math.abs(tD-tH)>0.01?'Descuadre '+fmtCRC2(tD-tH):'Cuadra'}</td></tr></tbody></table>`;
 }
 function contaExportarMayor(){
@@ -6466,7 +6563,7 @@ function openAsientoModal(){
 function _asTC(){const m=document.getElementById('asMoneda').value;const f=document.getElementById('asFecha').value;const el=document.getElementById('asTC');if(m==='CRC'){el.value='1';el.disabled=true;return 1;}el.disabled=false;if(!el.value){const t=contaTCPara(f);el.value=m==='USD'?(t.usd||''):(t.eur||'');}return parseFloat(el.value)||0;}
 function _asRender(){
     const tc=_asTC();const m=document.getElementById('asMoneda').value;
-    const cuentas=contaCfg().cuentas;
+    const cuentas=contaCuentasActivas();
     const opts=cuentas.map(c=>`<option value="${esc(c.codigo)}">${esc(c.codigo+' · '+c.nombre)}</option>`).join('');
     const box=document.getElementById('asLineasBox');
     box.innerHTML=`<div style="display:grid;grid-template-columns:1fr 130px 130px 28px;gap:6px;font-size:0.68rem;color:var(--text-light);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;"><span>Cuenta</span><span>Debe</span><span>Haber</span><span></span></div>`+_asLineas.map((l,i)=>`<div style="display:grid;grid-template-columns:1fr 130px 130px 28px;gap:6px;margin-bottom:5px;align-items:center;">
@@ -6487,27 +6584,28 @@ function guardarAsientoManual(){
     const a=contaRegistrarAsiento({fecha,descripcion:desc,origen:'manual',lineas});
     if(!a)return;
     if(window._asLinea){contaConciliarLinea(window._asLinea,a.id,'creado');window._asLinea='';}
-    _contaBitacora('Registró el asiento manual #'+a.numero+' · '+desc);
+    _contaBitacora('Registró el asiento manual '+contaNumAsiento(a)+' · '+desc);
     closeModal('modalAsiento');renderContabilidad();
 }
 
 // ===== CONFIGURACIÓN → CONTABILIDAD =====
 function _cfgCuentaSelect(cls,valor,filtroTipo){
-    const cuentas=contaCfg().cuentas.filter(c=>!filtroTipo||filtroTipo.includes(c.tipo));
+    const cuentas=contaCuentasActivas(filtroTipo);
     return `<select class="${cls}" onchange="autoSaveConfigSilently()" style="padding:4px 6px;font-size:0.8rem;border:1px solid var(--border);border-radius:4px;max-width:100%;flex:1;min-width:0;">${cuentas.map(c=>`<option value="${esc(c.codigo)}"${c.codigo===valor?' selected':''}>${esc(c.codigo+' · '+c.nombre)}</option>`).join('')}</select>`;
 }
 function renderCfgContaCuentaItem(c){
     c=c||{};const inp='padding:5px 8px;font-size:0.82rem;border:1px solid var(--border);border-radius:4px;';
-    return `<div class="service-item config-list-item cfg-cta" draggable="true"><span class="drag-handle" draggable="false">&#9776;</span>
+    return `<div class="service-item config-list-item cfg-cta" draggable="true" style="${c.titulo?'font-weight:700;background:#f4f7f8;':''}"><span class="drag-handle" draggable="false">&#9776;</span>
         <input type="text" class="cfg-cta-codigo" onblur="autoSaveConfigSilently()" value="${esc(c.codigo||'')}" placeholder="Código" style="width:80px;${inp}">
         <input type="text" class="cfg-cta-nombre" onblur="autoSaveConfigSilently()" value="${esc(c.nombre||'')}" placeholder="Nombre de la cuenta" style="flex:1;${inp}">
         <select class="cfg-cta-tipo" onchange="autoSaveConfigSilently()" style="width:130px;${inp}">${CONTA_TIPOS.map(t=>`<option value="${t[0]}"${(c.tipo||'gasto')===t[0]?' selected':''}>${t[1]}</option>`).join('')}</select>
         <select class="cfg-cta-moneda" onchange="autoSaveConfigSilently()" style="width:90px;${inp}"><option value=""${!c.moneda?' selected':''}>Mixta</option>${CONTA_MONEDAS.map(m=>`<option value="${m}"${c.moneda===m?' selected':''}>${m}</option>`).join('')}</select>
+        <label style="width:64px;margin:0;display:flex;align-items:center;gap:3px;font-size:0.72rem;text-transform:none;letter-spacing:0;" title="Un título solo agrupa cuentas; no admite movimientos"><input type="checkbox" class="cfg-cta-titulo" ${c.titulo?'checked':''} onchange="this.closest('.cfg-cta').style.fontWeight=this.checked?'700':'';autoSaveConfigSilently()">Título</label>
         <button class="btn-icon remove" onclick="this.parentElement.remove();autoSaveConfigSilently();">&times;</button></div>`;
 }
 function _collectContaFromDOM(){
     const cont=document.getElementById('cfgContaCuentasList');if(!cont)return null;
-    const cuentas=Array.from(cont.querySelectorAll('.cfg-cta')).map(d=>({codigo:(d.querySelector('.cfg-cta-codigo')?.value||'').trim(),nombre:(d.querySelector('.cfg-cta-nombre')?.value||'').trim(),tipo:d.querySelector('.cfg-cta-tipo')?.value||'gasto',moneda:d.querySelector('.cfg-cta-moneda')?.value||''})).filter(c=>c.codigo&&c.nombre);
+    const cuentas=Array.from(cont.querySelectorAll('.cfg-cta')).map(d=>({codigo:(d.querySelector('.cfg-cta-codigo')?.value||'').trim(),nombre:(d.querySelector('.cfg-cta-nombre')?.value||'').trim(),tipo:d.querySelector('.cfg-cta-tipo')?.value||'gasto',moneda:d.querySelector('.cfg-cta-moneda')?.value||'',titulo:!!d.querySelector('.cfg-cta-titulo')?.checked})).filter(c=>c.codigo&&c.nombre);
     const g=id=>document.getElementById(id)?.value||'';
     const mapeo={bancoPorMetodo:{},cxcClientes:g('cfgMapCxc'),anticiposClientes:g('cfgMapAnt'),ingresoPorTipo:{},planilla:{salarios:g('cfgMapPlSal'),cargas:g('cfgMapPlCar'),ccssPorPagar:g('cfgMapPlCcss'),rentaPorPagar:g('cfgMapPlRenta'),otrasDedPorPagar:g('cfgMapPlOtras'),salariosPorPagar:g('cfgMapPlNeto')},cargaPatronalPct:parseFloat(g('cfgContaPatronal'))||0,difCambGanancia:g('cfgMapDifG'),difCambPerdida:g('cfgMapDifP')};
     document.querySelectorAll('#cfgContaBancos [data-metodo]').forEach(row=>{const k=row.getAttribute('data-metodo');mapeo.bancoPorMetodo[k]={};CONTA_MONEDAS.forEach(m=>{const s=row.querySelector('select[data-moneda="'+m+'"]');if(s)mapeo.bancoPorMetodo[k][m]=s.value;});});
@@ -6540,8 +6638,8 @@ function renderConfigContabilidad(){
         <label style="display:flex;align-items:center;gap:6px;margin:0;"><span style="min-width:150px;">Pérdida cambiaria</span><span id="wrapDifP"></span></label>
     </div>
     <h3 style="font-size:0.95rem;margin:14px 0 6px;color:var(--primary-dark);">Plan de cuentas</h3>
-    <p class="config-hint">Código, nombre, tipo y moneda (Mixta = admite cualquier moneda). Cambiar el código de una cuenta con movimientos deja huérfanos esos asientos: mejor agregar una cuenta nueva.</p>
-    <div style="display:flex;gap:5px;font-size:0.66rem;color:var(--text-light);text-transform:uppercase;letter-spacing:.5px;padding:0 0 4px 24px;"><span style="width:80px;">Código</span><span style="flex:1;">Nombre</span><span style="width:130px;">Tipo</span><span style="width:90px;">Moneda</span><span style="width:24px;"></span></div>
+    <p class="config-hint">Código, nombre, tipo y moneda (Mixta = admite cualquier moneda). Las cuentas marcadas como <strong>Título</strong> solo agrupan (por ejemplo 11 &middot; Efectivo y bancos agrupa a 1101, 1110&hellip;) y no admiten movimientos; el plan se ve en &aacute;rbol en Contabilidad &rarr; Finanzas &rarr; Plan de cuentas. Cambiar el código de una cuenta con movimientos deja huérfanos esos asientos: mejor agregar una cuenta nueva.</p>
+    <div style="display:flex;gap:5px;font-size:0.66rem;color:var(--text-light);text-transform:uppercase;letter-spacing:.5px;padding:0 0 4px 24px;"><span style="width:80px;">Código</span><span style="flex:1;">Nombre</span><span style="width:130px;">Tipo</span><span style="width:90px;">Moneda</span><span style="width:64px;"></span><span style="width:24px;"></span></div>
     <div id="cfgContaCuentasList">${cfg.contaCuentas.map(c=>renderCfgContaCuentaItem(c)).join('')}</div>
     <button class="btn btn-sm btn-primary" onclick="document.getElementById('cfgContaCuentasList').insertAdjacentHTML('beforeend',renderCfgContaCuentaItem({codigo:'',nombre:'',tipo:'gasto',moneda:''}));initDrag(document.getElementById('cfgContaCuentasList'));" style="margin-top:8px;">+ Agregar cuenta</button>
     <button class="btn btn-sm btn-ghost" onclick="if(confirm('¿Volver al plan de cuentas sugerido? Se pierden los cambios hechos a la lista.')){const c=getConfig();c.contaCuentas=defaultContaCuentas.slice();saveConfig(c);renderConfigContabilidad();}" style="margin-top:8px;">Restaurar plan sugerido</button>`;
@@ -6556,7 +6654,7 @@ function renderConfigContabilidad(){
 // ===== CONTABILIDAD fase 2: pantallas (Proveedores/CxP, Gastos, Márgenes) =====
 function _contaSym(m){return m==='USD'?'$':(m==='EUR'?'€':'₡');}
 function _contaFmtOrig(n,m){return _contaSym(m)+num(n).toLocaleString('es-CR',{minimumFractionDigits:2,maximumFractionDigits:2});}
-function _contaSelectCuentas(id,valor,tipos,extraAttr){const cuentas=contaCfg().cuentas.filter(c=>!tipos||tipos.includes(c.tipo));return `<select id="${id}" ${extraAttr||''}>${cuentas.map(c=>`<option value="${esc(c.codigo)}"${c.codigo===valor?' selected':''}>${esc(c.codigo+' · '+c.nombre)}</option>`).join('')}</select>`;}
+function _contaSelectCuentas(id,valor,tipos,extraAttr){const cuentas=contaCuentasActivas(tipos);return `<select id="${id}" ${extraAttr||''}>${cuentas.map(c=>`<option value="${esc(c.codigo)}"${c.codigo===valor?' selected':''}>${esc(c.codigo+' · '+c.nombre)}</option>`).join('')}</select>`;}
 function _contaVentaOpciones(sel){const vs=getVentas().filter(v=>v&&v.estado!=='cancelada').slice().sort((a,b)=>String(b.fechaInicio||'').localeCompare(String(a.fechaInicio||'')));return '<option value="">-- Sin venta (gasto general) --</option>'+vs.map(v=>`<option value="${esc(v.id)}"${v.id===sel?' selected':''}>${esc(_contaVentaEtiqueta(v))}${v.fechaInicio?' · '+fmtFechaCorta(v.fechaInicio):''}</option>`).join('');}
 function _contaAgingCards(titulo,a,color){const f=k=>fmtCRC2(a[k]);return `<div style="flex:1;min-width:280px;background:#fff;border:1px solid var(--border);border-radius:10px;padding:10px 14px;"><div style="font-size:0.74rem;font-weight:700;color:var(--text-light);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">${titulo} · ${a.n} pendiente${a.n===1?'':'s'}</div><div style="font-family:'Playfair Display',serif;font-size:1.25rem;color:${color};font-weight:700;">${fmtCRC2(a.total)}</div><div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;font-size:0.72rem;margin-top:6px;"><div><div style="color:var(--text-light);">Vigente</div>${f('vigente')}</div><div><div style="color:var(--text-light);">1-30 d</div>${f('d30')}</div><div><div style="color:#854f0b;">31-60 d</div>${f('d60')}</div><div><div style="color:#a32d2d;">+60 d</div>${f('d90')}</div></div></div>`;}
 let _cxpFiltro='pendiente',_cxpProv='';
@@ -6789,9 +6887,9 @@ function _contaBancosHtml(p){
     const asientoDe=id=>getContaAsientos().find(a=>a.id===id);
     const rows=lineas.map(x=>{
         let est='',acc='';
-        if(x.estado==='conciliado'){const a=asientoDe(x.asientoId);est=`<span class="lt-badge" style="background:#e1f5ee;color:#0f6e56;">&#10003; ${x.matchTipo==='auto'?'auto':(x.matchTipo==='creado'?'registrado':'manual')}</span>${a?`<div class="lt-secondary">#${a.numero} · ${esc(a.descripcion||'').slice(0,60)}</div>`:''}`;if(puedeReg)acc=`<button class="btn btn-sm btn-ghost" style="padding:2px 8px;font-size:0.7rem;" onclick="contaDesconciliarLinea('${x.id}');renderContabilidad()">Deshacer</button>`;}
+        if(x.estado==='conciliado'){const a=asientoDe(x.asientoId);est=`<span class="lt-badge" style="background:#e1f5ee;color:#0f6e56;">&#10003; ${x.matchTipo==='auto'?'auto':(x.matchTipo==='creado'?'registrado':'manual')}</span>${a?`<div class="lt-secondary">${contaNumAsiento(a)} · ${esc(a.descripcion||'').slice(0,60)}</div>`:''}`;if(puedeReg)acc=`<button class="btn btn-sm btn-ghost" style="padding:2px 8px;font-size:0.7rem;" onclick="contaDesconciliarLinea('${x.id}');renderContabilidad()">Deshacer</button>`;}
         else if(x.estado==='ignorado'){est='<span class="lt-badge" style="background:#f1f3f5;color:#4d5c63;">ignorado</span>';if(puedeReg)acc=`<button class="btn btn-sm btn-ghost" style="padding:2px 8px;font-size:0.7rem;" onclick="contaIgnorarLinea('${x.id}');renderContabilidad()">Reactivar</button>`;}
-        else{const a=x.sugeridoId?asientoDe(x.sugeridoId):null;est=a?`<span class="lt-badge" style="background:#faeeda;color:#854f0b;">sugerido${x.sugeridos>1?' ('+x.sugeridos+')':''}</span><div class="lt-secondary">#${a.numero} · ${esc(a.descripcion||'').slice(0,60)}</div>`:'<span class="lt-badge" style="background:#fcebeb;color:#a32d2d;">sin asiento</span>';
+        else{const a=x.sugeridoId?asientoDe(x.sugeridoId):null;est=a?`<span class="lt-badge" style="background:#faeeda;color:#854f0b;">sugerido${x.sugeridos>1?' ('+x.sugeridos+')':''}</span><div class="lt-secondary">${contaNumAsiento(a)} · ${esc(a.descripcion||'').slice(0,60)}</div>`:'<span class="lt-badge" style="background:#fcebeb;color:#a32d2d;">sin asiento</span>';
             if(puedeReg){acc=(a?`<button class="btn btn-sm btn-success" style="padding:2px 8px;font-size:0.7rem;" onclick="contaConciliarLinea('${x.id}','${a.id}','manual');renderContabilidad()">Confirmar</button>`:'')+`<button class="btn btn-sm btn-ghost" style="padding:2px 8px;font-size:0.7rem;" onclick="openBancoLineaModal('${x.id}')">Resolver</button>`;}}
         return `<tr><td style="white-space:nowrap;">${fmtFechaCorta(x.fecha)}</td><td><div>${esc(x.descripcion||'')}</div>${x.referencia?`<div class="lt-secondary">ref. ${esc(x.referencia)}</div>`:''}</td><td style="text-align:right;color:#a32d2d;">${x.debito?F(x.debito):''}</td><td style="text-align:right;color:#0f6e56;">${x.credito?F(x.credito):''}</td><td>${est}</td><td><div class="lt-actions">${acc}</div></td></tr>`;}).join('');
     const sinBancoHtml=rep.sinBanco.length?`<h3 style="font-size:0.95rem;margin:18px 0 6px;color:var(--primary-dark);">En libros y no en el banco (${rep.sinBanco.length})</h3><table class="list-table"><thead><tr><th>Fecha</th><th>Nº</th><th>Descripción</th><th style="text-align:right;">Monto</th></tr></thead><tbody>${rep.sinBanco.slice(0,40).map(s=>`<tr><td>${fmtFechaCorta(s.asiento.fecha)}</td><td>#${s.asiento.numero}</td><td>${esc(s.asiento.descripcion||'')}</td><td style="text-align:right;">${F(s.monto)}</td></tr>`).join('')}</tbody></table>`:'';
@@ -6837,7 +6935,7 @@ function _contaEjecutarImport(){
     _contaTab='bancos';renderContabilidad();
 }
 function contaEmparejarUI(confirmar){if(!exigirPermiso('contabilidad.registrar','conciliar'))return;const e=contaEmparejar(_bcoCuenta,confirmar);alert((confirmar?'Conciliados: '+e.confirmadas+'. ':'')+'Con sugerencia: '+e.sugeridas+'.');renderContabilidad();}
-function contaExportarBancos(){const rows=getContaBancos().filter(x=>x&&x.cuenta===_bcoCuenta).sort((a,b)=>a.fecha.localeCompare(b.fecha)).map(x=>{const a=x.asientoId?getContaAsientos().find(y=>y.id===x.asientoId):null;return {'Fecha':x.fecha,'Referencia':x.referencia,'Descripción':x.descripcion,'Débito':x.debito||'','Crédito':x.credito||'','Estado':x.estado,'Asiento':a?('#'+a.numero+' '+a.descripcion):'','Tipo':x.matchTipo||''};});if(!rows.length){alert('No hay movimientos.');return;}const ws=XLSX.utils.json_to_sheet(rows);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Banco');XLSX.writeFile(wb,'Conciliacion_'+_bcoCuenta+'.xlsx');}
+function contaExportarBancos(){const rows=getContaBancos().filter(x=>x&&x.cuenta===_bcoCuenta).sort((a,b)=>a.fecha.localeCompare(b.fecha)).map(x=>{const a=x.asientoId?getContaAsientos().find(y=>y.id===x.asientoId):null;return {'Fecha':x.fecha,'Referencia':x.referencia,'Descripción':x.descripcion,'Débito':x.debito||'','Crédito':x.credito||'','Estado':x.estado,'Asiento':a?(contaNumAsiento(a)+' '+a.descripcion):'','Tipo':x.matchTipo||''};});if(!rows.length){alert('No hay movimientos.');return;}const ws=XLSX.utils.json_to_sheet(rows);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Banco');XLSX.writeFile(wb,'Conciliacion_'+_bcoCuenta+'.xlsx');}
 // --- Resolver una línea del banco ---
 function openBancoLineaModal(id){
     const x=getContaBancos().find(y=>y.id===id);if(!x)return;
@@ -6908,7 +7006,19 @@ function openAsientoModalDesdeLinea(lineaId){
 // ===== CONTABILIDAD fase 4: pantallas Reportes y Activos =====
 let _repTipo='resultados',_repAcum=false;
 function _repRango(p){const r=_contaRangoPeriodo(p);return _repAcum?{desde:p.slice(0,4)+'-01-01',hasta:r.hasta}:r;}
-function _repTabla(filas,neg){return filas.map(f=>`<tr><td style="color:var(--text-light);">${esc(f.codigo)}</td><td>${esc(f.nombre)}</td><td style="text-align:right;">${fmtCRC2(neg?-f.saldo:f.saldo)}</td></tr>`).join('');}
+function _repTabla(filas,neg){
+    // Agrupa por título (árbol estilo SAP) con subtotal por grupo; si no hay títulos, lista plana
+    const grupos=[];const idx={};
+    filas.forEach(f=>{const t=contaTituloDe(f.codigo);const k=t?t.codigo:'__';if(!idx[k]){idx[k]=grupos.length;grupos.push({titulo:t,filas:[]});}grupos[idx[k]].filas.push(f);});
+    grupos.sort((a,b)=>String(a.titulo?a.titulo.codigo:'zz').localeCompare(String(b.titulo?b.titulo.codigo:'zz')));
+    const conTitulo=grupos.some(g=>g.titulo);
+    return grupos.map(g=>{
+        const cuerpo=g.filas.map(f=>`<tr><td style="color:var(--text-light);${conTitulo?'padding-left:18px;':''}">${esc(f.codigo)}</td><td style="${conTitulo?'padding-left:18px;':''}">${esc(f.nombre)}</td><td style="text-align:right;">${fmtCRC2(neg?-f.saldo:f.saldo)}</td></tr>`).join('');
+        if(!conTitulo)return cuerpo;
+        const sub=_contaRound(g.filas.reduce((s,f)=>s+f.saldo,0));
+        return `<tr style="font-weight:600;"><td style="color:var(--text-light);">${g.titulo?esc(g.titulo.codigo):''}</td><td>${g.titulo?esc(g.titulo.nombre):'Sin t\u00edtulo'}</td><td style="text-align:right;">${fmtCRC2(neg?-sub:sub)}</td></tr>`+cuerpo;
+    }).join('');
+}
 function _repFilaTotal(t,v,strong){return `<tr style="background:var(--bg);${strong?'font-weight:700;':''}"><td colspan="2">${t}</td><td style="text-align:right;">${fmtCRC2(v)}</td></tr>`;}
 function _contaReportesHtml(p){
     const r=_repRango(p);
