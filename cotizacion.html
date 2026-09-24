@@ -555,6 +555,17 @@ body.sin-costos .btn-calc-toggle,body.sin-costos .calc-row{display:none!importan
 .cobranza-progress{height:10px;background:var(--border);border-radius:5px;overflow:hidden;margin-bottom:14px}
 .cobranza-progress-bar{height:100%;background:linear-gradient(90deg,var(--primary-vivid),var(--success));border-radius:5px;transition:width 0.4s;display:flex;align-items:center;justify-content:flex-end;padding-right:6px;color:white;font-size:0.65rem;font-weight:700}
 .pagos-table{width:100%;border-collapse:collapse;font-size:0.78rem;margin-top:8px}
+/* ===== VIÁTICOS ===== */
+.vi-card{border:1px solid var(--border);border-radius:10px;background:#fff;padding:12px 14px;margin-bottom:10px;cursor:pointer;transition:box-shadow .15s}
+.vi-card:hover{box-shadow:0 2px 10px rgba(0,0,0,0.08)}
+.vi-comp{display:grid;grid-template-columns:76px 1fr auto;gap:10px;align-items:center;border:1px solid var(--border);border-radius:8px;padding:8px;margin-bottom:6px;background:#fafbfc}
+.vi-comp.rechazado{border-color:#e6a1a1;background:#fff5f5}
+.vi-thumb{width:76px;height:76px;object-fit:cover;border-radius:6px;border:1px solid var(--border);cursor:zoom-in;background:#eee}
+.vi-thumb-empty{width:76px;height:76px;border-radius:6px;border:1px dashed #c33;display:flex;align-items:center;justify-content:center;font-size:0.62rem;color:#c33;text-align:center;padding:4px}
+.vi-cam{display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border-radius:8px;background:var(--primary);color:#fff;font-weight:600;cursor:pointer;font-size:0.82rem}
+.vi-cam input{display:none}
+.vi-foto-full{max-width:96vw;max-height:92vh;object-fit:contain;border-radius:8px;box-shadow:0 4px 30px rgba(0,0,0,0.5)}
+@media (max-width:768px){.vi-comp{grid-template-columns:64px 1fr}.vi-comp > :last-child{grid-column:1/-1}.vi-thumb,.vi-thumb-empty{width:64px;height:64px}}
 .pagos-table th{background:var(--bg);padding:6px;text-align:left;font-size:0.7rem;text-transform:uppercase;color:var(--text-light);font-weight:700}
 .pagos-table td{padding:6px;border-bottom:1px solid var(--border)}
 .pagos-table .btn-icon{width:22px;height:22px;font-size:0.72rem}
@@ -1091,6 +1102,7 @@ onAuthStateChanged(fbAuth, (user) => {
         <div class="sidebar-item" onclick="nav('clientes')"><span class="si-icon">&#128101;</span>Clientes<span class="si-badge" id="badgeClientes"></span></div>
         <div class="sidebar-item" onclick="nav('tareas')"><span class="si-icon">&#9989;</span>Tareas<span class="si-badge" id="badgeTareas"></span></div>
         <div class="sidebar-item" onclick="nav('calendario')"><span class="si-icon">&#128197;</span>Calendario</div>
+        <div class="sidebar-item" data-view="viaticos" onclick="nav('viaticos')"><span class="si-icon">&#129534;</span>Vi&aacute;ticos<span class="si-badge" id="badgeViaticos"></span></div>
     </div>
     <div class="sidebar-section">
         <div class="sidebar-section-label">Contabilidad</div>
@@ -1305,6 +1317,9 @@ onAuthStateChanged(fbAuth, (user) => {
 <div class="modal-overlay" id="modalContaPago" style="z-index:260;"></div>
 <div class="modal-overlay" id="modalContaProv"></div>
 <div class="app-view view-list" id="viewTareas"></div>
+<div class="app-view view-list" id="viewViaticos"><div class="list-view" id="viaticosBody" style="width:100%;"></div></div>
+<div class="modal-overlay" id="modalViatico" style="z-index:240;"></div>
+<div class="modal-overlay" id="modalViaticoFoto" style="z-index:270;background:rgba(0,0,0,0.85);" onclick="closeModal('modalViaticoFoto')"></div>
 <div class="app-view view-list" id="viewCalendario"></div>
 
 <div class="app-view view-list" id="viewReportePagos"
@@ -2776,7 +2791,7 @@ let _idb=null,_idbReady=false;
 const _IDB_DB='dv_store',_IDB_STORE='kv';
 // Claves de DATOS (colecciones) que migramos a IndexedDB. El resto de claves dv_ (preferencias de UI,
 // respaldos, estado de vistas) se quedan en localStorage tal como estaban.
-const _CLAVES_DATOS=['dv_cotizaciones','dv_ventas','dv_clientes','dv_encabezados','dv_config','dv_grupos','dv_hoteles','dv_rrhh_colillas','dv_rrhh_vacaciones','dv_rrhh_horasextra','dv_eventos','dv_conta_asientos','dv_conta_tc','dv_conta_docs','dv_conta_bancos','dv_conta_activos','dv_conta_borradores'];
+const _CLAVES_DATOS=['dv_cotizaciones','dv_ventas','dv_clientes','dv_encabezados','dv_config','dv_grupos','dv_hoteles','dv_rrhh_colillas','dv_rrhh_vacaciones','dv_rrhh_horasextra','dv_eventos','dv_conta_asientos','dv_conta_tc','dv_conta_docs','dv_conta_bancos','dv_conta_activos','dv_conta_borradores','dv_viaticos'];
 function _esClaveDatos(k){return _CLAVES_DATOS.indexOf(k)>=0;}
 function _idbOpen(){return new Promise(resolve=>{try{if(!window.indexedDB)return resolve(null);const req=indexedDB.open(_IDB_DB,1);req.onupgradeneeded=()=>{const db=req.result;if(!db.objectStoreNames.contains(_IDB_STORE))db.createObjectStore(_IDB_STORE);};req.onsuccess=()=>resolve(req.result);req.onerror=()=>resolve(null);}catch(e){resolve(null);}});}
 function _idbSet(k,str){if(!_idb)return;try{_idb.transaction(_IDB_STORE,'readwrite').objectStore(_IDB_STORE).put(str,k);}catch(e){console.warn('[idb] set',k,e);}}
@@ -2838,7 +2853,7 @@ function setLSObj(k,v){
 //   destinos/{pais}/{ciudad}_{timestamp}
 
 // Tracking de IDs que ya subimos a Firestore (para poder detectar eliminaciones)
-const _fsDocIds={cotizaciones:new Set(),ventas:new Set(),clientes:new Set(),destinos:new Set(),hoteles:new Set(),grupos:new Set(),rrhh_colillas:new Set(),rrhh_vacaciones:new Set(),rrhh_horasextra:new Set(),notificaciones:new Set(),tareas:new Set(),eventos:new Set(),conta_asientos:new Set(),conta_tc:new Set(),conta_docs:new Set(),conta_bancos:new Set(),conta_activos:new Set(),conta_borradores:new Set()};
+const _fsDocIds={cotizaciones:new Set(),ventas:new Set(),clientes:new Set(),destinos:new Set(),hoteles:new Set(),grupos:new Set(),rrhh_colillas:new Set(),rrhh_vacaciones:new Set(),rrhh_horasextra:new Set(),notificaciones:new Set(),tareas:new Set(),eventos:new Set(),conta_asientos:new Set(),conta_tc:new Set(),conta_docs:new Set(),conta_bancos:new Set(),conta_activos:new Set(),conta_borradores:new Set(),viaticos:new Set()};
 
 // ===== METADATA (timestamp + autor en cada save) =====
 // Agrega _lastModifiedAt y _lastModifiedBy a un objeto antes de guardarlo.
@@ -2880,6 +2895,7 @@ function guardarSnapshotRespaldo(motivo){
             conta_bancos:getLS('dv_conta_bancos'),
             conta_activos:getLS('dv_conta_activos'),
             conta_borradores:getLS('dv_conta_borradores'),
+            viaticos:getLS('dv_viaticos'),
             config:getLSObj('dv_config')
         };
         localStorage.setItem(key,JSON.stringify(snap));
@@ -2982,6 +2998,8 @@ async function pushToFirestore(key,value){
             await syncArrayCollection('conta_activos',value,false);
         }else if(key==='dv_conta_borradores'){
             await syncArrayCollection('conta_borradores',value,false);
+        }else if(key==='dv_viaticos'){
+            await syncArrayCollection('viaticos',value,true);
         }
     }catch(e){
         console.error('[FS] error en pushToFirestore para',key,':',e);
@@ -3291,7 +3309,7 @@ async function loadAllFromFirestore(){
         guardarLocal('dv_eventos',eventos);
         if(mergedEv.recovered>0)setTimeout(()=>{if(_fsEnabled)pushToFirestore('dv_eventos',eventos).catch(e=>console.error(e));},14500);
         // contabilidad: asientos (inmutables) y tipos de cambio
-        for(const par of [['conta_asientos','dv_conta_asientos',15500],['conta_tc','dv_conta_tc',16000],['conta_docs','dv_conta_docs',16500],['conta_bancos','dv_conta_bancos',17000],['conta_activos','dv_conta_activos',17500],['conta_borradores','dv_conta_borradores',18000]]){
+        for(const par of [['conta_asientos','dv_conta_asientos',15500],['conta_tc','dv_conta_tc',16000],['conta_docs','dv_conta_docs',16500],['conta_bancos','dv_conta_bancos',17000],['conta_activos','dv_conta_activos',17500],['conta_borradores','dv_conta_borradores',18000],['viaticos','dv_viaticos',18500]]){
             const localC=getLS(par[1]);
             const cSnap=await h.getDocs(h.collection(db,par[0]));
             let itemsC=[];cSnap.forEach(dd=>{itemsC.push(dd.data());_fsDocIds[par[0]].add(dd.id);});
@@ -3483,6 +3501,9 @@ const PERMISOS_CATALOGO=[
     {clave:'tareas.ver',     nombre:'Ver la sección de Tareas',            modulo:'Tareas'},
     {clave:'tareas.crear',   nombre:'Crear tareas',                            modulo:'Tareas'},
     {clave:'tareas.ver_todas',nombre:'Ver las tareas de todo el equipo',       modulo:'Tareas'},
+    // -- Viáticos --
+    {clave:'viaticos.aprobar',   nombre:'Aprobar o rechazar liquidaciones de viáticos', modulo:'Viáticos'},
+    {clave:'viaticos.ver_todos', nombre:'Ver los viáticos de todo el equipo',           modulo:'Viáticos'},
     // -- Contabilidad --
     {clave:'contabilidad.ver',       nombre:'Ver contabilidad (diario, mayor, cierres)', modulo:'Contabilidad'},
     {clave:'contabilidad.registrar', nombre:'Registrar y reversar asientos, cargar tipo de cambio', modulo:'Contabilidad'},
@@ -3742,6 +3763,7 @@ function puedeVerVista(view){
     if(view==='inicio'||view==='documento'||view==='encabezados')return true;
     if(view==='configuracion')return soyMaestro()||tienePermiso('config.general.gestionar')||tienePermiso('config.usuarios.gestionar');
     if(view==='tareas')return true;   // todos pueden ver sus propias tareas
+    if(view==='viaticos')return true; // todas cargan sus propios viáticos
     const m={contabilidad:'contabilidad.ver',dashboard:'dashboard.ver',editor:'cotizaciones.crear_editar',historial:'cotizaciones.ver',ventas:'ventas.ver',clientes:'contactos.ver',clientesventas:'contactos.ver',reportePagos:'cobranza.ver',rrhh:'rrhh.ver'};
     const p=m[view];
     return p?tienePermiso(p):true;
@@ -3777,8 +3799,9 @@ function nav(view){
     const items=document.querySelectorAll('.sidebar-item');
     const map={inicio:0,dashboard:1,editor:2,historial:3,ventas:4,clientes:5,tareas:6,calendario:7,reportePagos:8,contabilidad:9,configuracion:10,rrhh:11};
     if(map[view]!==undefined)items[map[view]].classList.add('active');
+    else{const si=document.querySelector('.sidebar-item[data-view="'+view+'"]');if(si)si.classList.add('active');}
     document.querySelectorAll('.app-view').forEach(v=>v.classList.remove('active'));
-    const titles={inicio:'',dashboard:'Dashboard',editor:'Editor de Cotizaci\u00f3n',historial:'Historial de Cotizaciones',encabezados:'Destinos',ventas:'Ventas',clientes:'Clientes',clientesventas:'Clientes',tareas:'Tareas',calendario:'Calendario',reportePagos:'Reporte de pagos',contabilidad:'Contabilidad',configuracion:'Configuraci\u00f3n',rrhh:'Planilla',documento:'Documento'};
+    const titles={inicio:'',dashboard:'Dashboard',editor:'Editor de Cotizaci\u00f3n',historial:'Historial de Cotizaciones',encabezados:'Destinos',ventas:'Ventas',clientes:'Clientes',clientesventas:'Clientes',tareas:'Tareas',calendario:'Calendario',reportePagos:'Reporte de pagos',contabilidad:'Contabilidad',configuracion:'Configuraci\u00f3n',rrhh:'Planilla',documento:'Documento',viaticos:'Vi\u00e1ticos'};
     document.getElementById('headerTitle').textContent=titles[view]||'';
     const ha=document.getElementById('headerActions');
     if(view==='editor')ha.innerHTML='<button class="btn btn-outline" onclick="resetForm()">&#128260; Nueva</button>'+(tienePermiso('cotizaciones.exportar')?'<button class="btn btn-accent" onclick="window.print()">&#128424; Exportar PDF</button>':'');
@@ -3786,6 +3809,7 @@ function nav(view){
     else if(view==='clientesventas')ha.innerHTML='<button class="btn btn-accent" onclick="nuevoClienteConVenta()">+ Nuevo Cliente</button>';
     else if(view==='tareas')ha.innerHTML='<button class="btn btn-accent" onclick="openTareaModal()">+ Nueva Tarea</button>';
     else if(view==='calendario')ha.innerHTML='<button class="btn btn-accent" onclick="openEventoModal()">+ Nuevo evento</button>';
+    else if(view==='viaticos')ha.innerHTML='<button class="btn btn-accent" onclick="openViaticoModal()">+ Nueva liquidaci\u00f3n</button>';
     else if(view==='dashboard')ha.innerHTML='<button class="btn btn-outline" onclick="renderDashboard()">&#8635; Actualizar</button>';
     else if(view==='contabilidad')ha.innerHTML='<div class="conta-topbar"><label>Per&iacute;odo</label><input type="month" id="contaPeriodo" value="'+esc(_contaPeriodoSel||'')+'" onchange="_contaPeriodoSel=this.value;renderContabilidad()"><span class="conta-tc" id="contaTCHoy"></span></div>'+(tienePermiso('contabilidad.registrar')?'<button class="btn btn-outline" onclick="openContaDocModal({tipo:\'factura\'})">+ Factura</button><button class="btn btn-outline" onclick="openContaDocModal({tipo:\'gasto\'})">+ Gasto</button><button class="btn btn-accent" onclick="openAsientoModal()">+ Asiento</button>':'');
     else ha.innerHTML='';
@@ -3793,7 +3817,7 @@ function nav(view){
     if(view==='contabilidad'){if(!document.body.classList.contains('conta-mode')){_contaVolverA=(_vistaActual&&_vistaActual!=='contabilidad')?_vistaActual:'inicio';}document.body.classList.add('conta-mode');}
     else document.body.classList.remove('conta-mode');
     _vistaActual=view;
-    const viewIds={inicio:'viewInicio',dashboard:'viewDashboard',editor:'viewEditor',historial:'viewHistorial',encabezados:'viewEncabezados',ventas:'viewVentas',clientes:'viewClientes',clientesventas:'viewClientesVentas',tareas:'viewTareas',calendario:'viewCalendario',reportePagos:'viewReportePagos',contabilidad:'viewContabilidad',configuracion:'viewConfiguracion',rrhh:'viewRrhh',documento:'viewDocumento'};
+    const viewIds={inicio:'viewInicio',dashboard:'viewDashboard',editor:'viewEditor',historial:'viewHistorial',encabezados:'viewEncabezados',ventas:'viewVentas',clientes:'viewClientes',clientesventas:'viewClientesVentas',tareas:'viewTareas',calendario:'viewCalendario',reportePagos:'viewReportePagos',contabilidad:'viewContabilidad',configuracion:'viewConfiguracion',rrhh:'viewRrhh',documento:'viewDocumento',viaticos:'viewViaticos'};
     document.getElementById(viewIds[view]).classList.add('active');
     if(view==='dashboard')renderDashboard();
     if(view==='historial')renderHistorial();
@@ -3807,6 +3831,7 @@ function nav(view){
     if(view==='contabilidad')renderContabilidad();
     if(view==='configuracion')renderConfiguracion();
     if(view==='rrhh')renderRrhh();
+    if(view==='viaticos')renderViaticos();
     if(view==='ventas')applyVentasHeaderActions();
     updateBadges();
     // En mobile, cerrar sidebar al navegar
@@ -3820,6 +3845,7 @@ function updateBadges(){
     const clientesCount=c.filter(x=>idsConVenta.has(x.id)).length;
     const bh=document.getElementById('badgeHistorial'),bv=document.getElementById('badgeVentas'),bc=document.getElementById('badgeClientes'),bcv=document.getElementById('badgeClientesVentas');
     bh.textContent=h.length||'';bv.textContent=v.length||'';bc.textContent=c.filter(x=>!_esContactoAcomp(x)).length||'';if(bcv)bcv.textContent=clientesCount||'';
+    try{const bvi=document.getElementById('badgeViaticos');if(bvi){const n=viaticosPendientesBadge();bvi.textContent=n||'';}}catch(e){}
     const bt=document.getElementById('badgeTareas');
     if(bt){try{bt.textContent=_tareasPendientesCount()||'';}catch(e){bt.textContent='';}}
 }
@@ -6124,7 +6150,7 @@ function openNotifPanel(){
             ${n.detalle?`<div style="font-size:0.8rem;color:var(--text);margin:3px 0;">${esc(n.detalle)}</div>`:''}
             <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;gap:8px;">
                 <span style="font-size:0.7rem;color:var(--text-light);">${_notifFecha(n.creadaTs)}</span>
-                <span style="display:flex;gap:6px;align-items:center;">${n.origen==='tarea'&&n.refId?`<button class="btn btn-sm btn-outline" style="padding:3px 10px;font-size:0.72rem;color:var(--primary-dark);border-color:var(--primary);" onclick="notifAbrirTarea('${n.id}','${n.refId}')">Ver tarea</button>`:''}${n.origen==='conta_borrador'?`<button class="btn btn-sm btn-outline" style="padding:3px 10px;font-size:0.72rem;color:var(--primary-dark);border-color:var(--primary);" onclick="_contaTab='preliminares';nav('contabilidad');renderContabilidad();">Ver preliminares</button>`:''}${(n.origen==='hito'||n.origen==='viaje')&&n.refId?`<button class="btn btn-sm btn-outline" style="padding:3px 10px;font-size:0.72rem;color:var(--primary-dark);border-color:var(--primary);" onclick="notifAbrirChecklist('${n.id}','${n.refId}')">Abrir checklist</button>`:''}${btn}</span>
+                <span style="display:flex;gap:6px;align-items:center;">${n.origen==='tarea'&&n.refId?`<button class="btn btn-sm btn-outline" style="padding:3px 10px;font-size:0.72rem;color:var(--primary-dark);border-color:var(--primary);" onclick="notifAbrirTarea('${n.id}','${n.refId}')">Ver tarea</button>`:''}${n.origen==='conta_borrador'?`<button class="btn btn-sm btn-outline" style="padding:3px 10px;font-size:0.72rem;color:var(--primary-dark);border-color:var(--primary);" onclick="_contaTab='preliminares';nav('contabilidad');renderContabilidad();">Ver preliminares</button>`:''}${n.origen==='viatico'&&n.refId?`<button class="btn btn-sm btn-outline" style="padding:3px 10px;font-size:0.72rem;color:var(--primary-dark);border-color:var(--primary);" onclick="nav('viaticos');verViatico('${n.refId}')">Ver liquidaci\u00f3n</button>`:''}${(n.origen==='hito'||n.origen==='viaje')&&n.refId?`<button class="btn btn-sm btn-outline" style="padding:3px 10px;font-size:0.72rem;color:var(--primary-dark);border-color:var(--primary);" onclick="notifAbrirChecklist('${n.id}','${n.refId}')">Abrir checklist</button>`:''}${btn}</span>
             </div>
         </div>`;
     };
@@ -6983,6 +7009,162 @@ function guardarAsientoComoPlantilla(){
     alert('Plantilla guardada. Podés hacerla periódica desde Finanzas → Plantillas y periódicos.');
     if(_contaTab==='plantillas')renderContabilidad();return id;
 }
+
+// =====================================================================================
+// VIÁTICOS: liquidaciones con foto de cada comprobante, envío y aprobación.
+// dv_viaticos: {id,titulo,fechaDesde,fechaHasta,ventaId,ventaEtiqueta,colaboradora(email),estado:'borrador'|'enviada'|'aprobada'|'rechazada',
+//   comprobantes:[{id,foto(dataURL→URL Storage),fecha,comercio,monto,moneda,categoria,pago:'tarjeta'|'propio',nota,estado:'ok'|'rechazado',motivo}],
+//   enviadaTs,resueltaPor,resueltaTs,motivo,historial:[{ts,quien,txt}],creadoTs,asientoId}
+// Las liquidaciones nunca se borran: una rechazada vuelve a borrador para corregirla o queda como historial.
+// =====================================================================================
+const VIATICO_CATS=[['transporte','Transporte / taxi / Uber'],['combustible','Combustible'],['peajes','Peajes y parqueo'],['alimentacion','Alimentación'],['hospedaje','Hospedaje'],['boletos','Boletos y entradas'],['otros','Otros']];
+const VIATICO_PAGO=[['tarjeta','Tarjeta de la empresa'],['propio','Dinero propio (se reembolsa)']];
+function getViaticos(){return getLS('dv_viaticos');}
+function saveViaticos(arr){return setLS('dv_viaticos',Array.isArray(arr)?arr:[]);}
+function _viEmail(){return _normEmail(window.currentUser&&window.currentUser.email);}
+function _viPuedeAprobar(){return soyMaestro()||tienePermiso('viaticos.aprobar');}
+function _viVeTodos(){return _viPuedeAprobar()||tienePermiso('viaticos.ver_todos');}
+function _viNombre(email){try{return _nombreDeEmail(email)||email;}catch(e){return email;}}
+function _viTotal(v,soloOk){return (v.comprobantes||[]).filter(x=>!soloOk||x.estado!=='rechazado').reduce((m,x)=>{m[x.moneda||'CRC']=_contaRound((m[x.moneda||'CRC']||0)+num(x.monto));return m;},{});}
+function _viTotalTxt(v,soloOk){const t=_viTotal(v,soloOk);const k=Object.keys(t);return k.length?k.map(m=>_contaFmtOrig(t[m],m)).join(' + '):'—';}
+function _viEstadoChip(e){const m={borrador:['Borrador','#f1f3f5;color:#4d5c63'],enviada:['Enviada · por aprobar','#fff8e1;color:#8a6d00'],aprobada:['Aprobada','#e1f5ee;color:#0f6e56'],rechazada:['Rechazada','#fcebeb;color:#a32d2d']};const x=m[e]||[e,'#f1f3f5;color:#4d5c63'];return `<span class="lt-badge" style="background:${x[1]};">${x[0]}</span>`;}
+function _viHist(v,txt){v.historial=Array.isArray(v.historial)?v.historial:[];v.historial.push({ts:Date.now(),quien:_viEmail(),txt});}
+function viaticosPendientesBadge(){const yo=_viEmail();const arr=getViaticos();if(_viPuedeAprobar())return arr.filter(v=>v&&v.estado==='enviada').length;return arr.filter(v=>v&&v.colaboradora===yo&&(v.estado==='borrador'||v.estado==='rechazada')).length;}
+// Duplicado: mismo comercio (normalizado), fecha y monto en cualquier liquidación (de cualquiera), sin contar el propio comprobante
+function _viDuplicado(comp,exceptId){const k=x=>normalizarParaMatch(x.comercio||'')+'|'+String(x.fecha||'').slice(0,10)+'|'+num(x.monto).toFixed(2)+'|'+(x.moneda||'CRC');const key=k(comp);if(!comp.comercio||!comp.fecha||!(num(comp.monto)>0))return null;for(const v of getViaticos()){for(const x of (v.comprobantes||[])){if(x.id!==exceptId&&k(x)===key)return {liq:v,comp:x};}}return null;}
+function _viGuardar(v){const arr=getViaticos().map(x=>Object.assign({},x));const i=arr.findIndex(x=>x.id===v.id);if(i>=0)arr[i]=v;else arr.push(v);saveViaticos(arr);}
+
+// --- Pantalla ---
+let _viTab='mias',_viFiltro='activas';
+function renderViaticos(){
+    const body=document.getElementById('viaticosBody');if(!body)return;
+    const yo=_viEmail();const todos=getViaticos().filter(Boolean);
+    const puedeAprob=_viPuedeAprobar(),veTodos=_viVeTodos();
+    if(!puedeAprob&&!veTodos)_viTab='mias';
+    const nPend=todos.filter(v=>v.estado==='enviada').length;
+    const tabs=`<div class="cal-seg" style="margin-bottom:10px;"><button class="${_viTab==='mias'?'active':''}" onclick="_viTab='mias';renderViaticos()">Mis liquidaciones</button>${puedeAprob?`<button class="${_viTab==='aprobar'?'active':''}" onclick="_viTab='aprobar';renderViaticos()">Por aprobar${nPend?' <span style="background:#e6a700;color:#fff;border-radius:10px;padding:0 6px;font-size:0.7rem;">'+nPend+'</span>':''}</button>`:''}${veTodos?`<button class="${_viTab==='todas'?'active':''}" onclick="_viTab='todas';renderViaticos()">Todo el equipo</button>`:''}</div>`;
+    let lista=_viTab==='aprobar'?todos.filter(v=>v.estado==='enviada'):(_viTab==='todas'?todos:todos.filter(v=>v.colaboradora===yo));
+    const filtro=_viTab==='aprobar'?'':`<select onchange="_viFiltro=this.value;renderViaticos()" style="padding:4px 8px;margin-left:8px;"><option value="activas"${_viFiltro==='activas'?' selected':''}>Activas (sin aprobar)</option><option value="todas"${_viFiltro==='todas'?' selected':''}>Todas</option><option value="aprobadas"${_viFiltro==='aprobadas'?' selected':''}>Aprobadas</option></select>`;
+    if(_viTab!=='aprobar'){if(_viFiltro==='activas')lista=lista.filter(v=>v.estado!=='aprobada');else if(_viFiltro==='aprobadas')lista=lista.filter(v=>v.estado==='aprobada');}
+    lista.sort((a,b)=>(b.creadoTs||0)-(a.creadoTs||0));
+    const intro=`<p class="config-hint" style="margin:0 0 10px;">Cada liquidaci&oacute;n agrupa los comprobantes de un viaje o salida. <strong>Tom&aacute; la foto de cada factura en el momento</strong> y cargala aqu&iacute;; sin foto no se puede enviar. ${puedeAprob?'Vos aprob&aacute;s las liquidaciones enviadas.':'Cuando termines, enviala para que la aprueben.'}</p>`;
+    const cards=lista.map(v=>{const n=(v.comprobantes||[]).length,sinFoto=(v.comprobantes||[]).filter(x=>!x.foto).length,rech=(v.comprobantes||[]).filter(x=>x.estado==='rechazado').length;
+        return `<div class="vi-card" onclick="verViatico('${v.id}')"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><strong style="font-size:0.95rem;">${esc(v.titulo||'(sin título)')}</strong>${_viEstadoChip(v.estado)}<span style="flex:1;"></span><strong>${_viTotalTxt(v,true)}</strong></div>
+        <div class="lt-secondary" style="margin-top:4px;">${v.fechaDesde?fmtFechaCorta(v.fechaDesde)+(v.fechaHasta&&v.fechaHasta!==v.fechaDesde?' al '+fmtFechaCorta(v.fechaHasta):''):''}${_viTab!=='mias'?' · '+esc(_viNombre(v.colaboradora)):''}${v.ventaEtiqueta?' · '+esc(v.ventaEtiqueta):''} · ${n} comprobante${n===1?'':'s'}${sinFoto?` · <span style="color:#a32d2d;">${sinFoto} sin foto</span>`:''}${rech?` · <span style="color:#a32d2d;">${rech} rechazado${rech===1?'':'s'}</span>`:''}${v.estado==='enviada'&&v.enviadaTs?' · enviada '+fmtFechaCorta(new Date(v.enviadaTs).toISOString().slice(0,10)):''}</div></div>`;}).join('');
+    body.innerHTML=`<div style="display:flex;align-items:center;flex-wrap:wrap;">${tabs}${filtro}</div>${intro}${cards||`<div class="grid-empty"><h3>${_viTab==='aprobar'?'Nada por aprobar':'Sin liquidaciones'}</h3><p>${_viTab==='aprobar'?'Cuando una colaboradora env&iacute;e una liquidaci&oacute;n, aparece ac&aacute; y te llega un aviso.':'Cre&aacute; una con el bot&oacute;n + Nueva liquidaci&oacute;n.'}</p></div>`}`;
+}
+
+// --- Crear / editar liquidación ---
+let _viActual=null;
+function openViaticoModal(id){
+    const yo=_viEmail();
+    let v=id?getViaticos().find(x=>x&&x.id===id):null;
+    if(v&&v.colaboradora!==yo&&!_viPuedeAprobar()){alert('Solo podés editar tus propias liquidaciones.');return;}
+    if(v&&v.estado==='enviada'&&!_viPuedeAprobar()){alert('Esta liquidación ya fue enviada. Pedile a quien aprueba que la devuelva si hay que corregirla.');return;}
+    if(v&&v.estado==='aprobada'){alert('Una liquidación aprobada no se edita.');return;}
+    if(!v)v={id:'vi_'+Date.now()+'_'+Math.random().toString(36).slice(2,6),titulo:'',fechaDesde:_hitoHoyISO(),fechaHasta:'',ventaId:'',ventaEtiqueta:'',colaboradora:yo,estado:'borrador',comprobantes:[],historial:[{ts:Date.now(),quien:yo,txt:'Creada'}],creadoTs:Date.now()};
+    _viActual=JSON.parse(JSON.stringify(v));
+    if(_viActual.estado==='rechazada'){_viActual.estado='borrador';_viHist(_viActual,'Reabierta para corregir');}
+    const ov=document.getElementById('modalViatico');
+    ov.innerHTML=`<div class="modal" style="max-width:760px;"><div class="modal-header"><h3>${id?'Editar liquidaci\u00f3n':'Nueva liquidaci\u00f3n de vi\u00e1ticos'}</h3><button class="modal-close" onclick="closeModal('modalViatico')">&times;</button></div>
+    <div class="modal-body">
+        ${v.motivo&&v.estado==='rechazada'?`<div style="background:#fcebeb;color:#a32d2d;border-radius:8px;padding:8px 12px;font-size:0.8rem;margin-bottom:10px;">Rechazada: ${esc(v.motivo)}. Correg&iacute; y volv&eacute; a enviar.</div>`:''}
+        <div class="form-group"><label>Motivo del viaje o salida *</label><input type="text" id="viTitulo" value="${esc(_viActual.titulo)}" placeholder="Ej: Grupo Per\u00fa setiembre · Visita a hotel · Feria de turismo"></div>
+        <div class="form-row"><div class="form-group"><label>Desde</label><input type="date" id="viDesde" value="${esc(_viActual.fechaDesde||'')}"></div><div class="form-group"><label>Hasta (opcional)</label><input type="date" id="viHasta" value="${esc(_viActual.fechaHasta||'')}"></div></div>
+        <div class="form-group"><label>Venta o grupo al que pertenece (opcional)</label><select id="viVenta">${_contaVentaOpciones(_viActual.ventaId||'')}</select></div>
+        <div style="display:flex;align-items:center;gap:8px;margin:12px 0 6px;"><strong style="font-size:0.9rem;">Comprobantes</strong><span style="flex:1;"></span><label class="vi-cam">&#128247; Tomar foto / subir<input type="file" accept="image/*,application/pdf" capture="environment" onchange="viFotoNueva(this)"></label></div>
+        <div id="viCompList"></div>
+        <div id="viTotales" style="font-size:0.85rem;margin-top:6px;"></div>
+    </div>
+    <div class="modal-footer" style="flex-wrap:wrap;gap:6px;"><button class="btn btn-ghost" onclick="closeModal('modalViatico')">Cancelar</button><span style="flex:1;"></span><button class="btn btn-primary" onclick="guardarViatico(false)">Guardar borrador</button><button class="btn btn-success" onclick="guardarViatico(true)">Enviar a aprobaci\u00f3n</button></div></div>`;
+    ov.classList.add('open');_viRenderComps();
+}
+function _viRenderComps(){
+    const box=document.getElementById('viCompList');if(!box)return;const cs=_viActual.comprobantes;
+    const sel=(i,k,opts)=>`<select onchange="_viActual.comprobantes[${i}].${k}=this.value" style="padding:4px 6px;font-size:0.8rem;">${opts.map(o=>`<option value="${o[0]}"${(cs[i][k]||'')===o[0]?' selected':''}>${o[1]}</option>`).join('')}</select>`;
+    box.innerHTML=cs.length?cs.map((x,i)=>{const dup=_viDuplicado(x,x.id);
+        return `<div class="vi-comp${x.estado==='rechazado'?' rechazado':''}">
+        <div>${x.foto?`<img class="vi-thumb" src="${esc(x.foto)}" onclick="viVerFoto(_viActual.comprobantes[${i}].foto)" alt="comprobante">`:`<div class="vi-thumb-empty">Sin foto</div>`}<label class="vi-cam" style="padding:3px 6px;font-size:0.66rem;margin-top:4px;width:76px;justify-content:center;box-sizing:border-box;">${x.foto?'Cambiar':'Foto'}<input type="file" accept="image/*,application/pdf" capture="environment" onchange="viFotoNueva(this,${i})"></label></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px;min-width:0;">
+            <input type="text" placeholder="Comercio / proveedor *" value="${esc(x.comercio||'')}" oninput="_viActual.comprobantes[${i}].comercio=this.value" onblur="_viRenderComps()" style="grid-column:1/-1;padding:5px 8px;font-size:0.8rem;">
+            <input type="date" value="${esc(x.fecha||'')}" onchange="_viActual.comprobantes[${i}].fecha=this.value;_viRenderComps()" style="padding:5px 8px;font-size:0.8rem;">
+            <div style="display:flex;gap:4px;"><input type="number" step="0.01" min="0" placeholder="Monto *" value="${esc(String(x.monto||''))}" oninput="_viActual.comprobantes[${i}].monto=this.value" onblur="_viRenderComps()" style="flex:1;min-width:0;padding:5px 8px;font-size:0.8rem;"><select onchange="_viActual.comprobantes[${i}].moneda=this.value;_viRenderComps()" style="padding:4px;font-size:0.8rem;"><option value="CRC"${x.moneda==='CRC'?' selected':''}>&#8353;</option><option value="USD"${x.moneda==='USD'?' selected':''}>$</option></select></div>
+            ${sel(i,'categoria',VIATICO_CATS)}${sel(i,'pago',VIATICO_PAGO)}
+            <input type="text" placeholder="Nota (opcional)" value="${esc(x.nota||'')}" oninput="_viActual.comprobantes[${i}].nota=this.value" style="grid-column:1/-1;padding:5px 8px;font-size:0.8rem;">
+            ${x.estado==='rechazado'?`<div style="grid-column:1/-1;font-size:0.74rem;color:#a32d2d;">Rechazado: ${esc(x.motivo||'')} &middot; <span class="cliente-link" onclick="_viActual.comprobantes[${i}].estado='ok';_viActual.comprobantes[${i}].motivo='';_viRenderComps()">marcar como corregido</span></div>`:''}
+            ${dup?`<div style="grid-column:1/-1;font-size:0.74rem;color:#854f0b;">&#9888; Posible duplicado: ya existe un comprobante igual en &laquo;${esc(dup.liq.titulo||'')}&raquo; de ${esc(_viNombre(dup.liq.colaboradora))}.</div>`:''}
+        </div>
+        <button type="button" class="btn-icon remove" onclick="if(confirm('¿Quitar este comprobante?')){_viActual.comprobantes.splice(${i},1);_viRenderComps();}" title="Quitar">&times;</button></div>`;}).join(''):'<div style="font-size:0.8rem;color:var(--text-light);padding:6px 0;">Todav&iacute;a no hay comprobantes. Toc&aacute; &laquo;Tomar foto / subir&raquo; por cada factura.</div>';
+    const t=document.getElementById('viTotales');if(t)t.innerHTML=cs.length?`<strong>Total:</strong> ${_viTotalTxt(_viActual,true)} &middot; ${cs.length} comprobante${cs.length===1?'':'s'}${cs.some(x=>!x.foto)?' &middot; <span style="color:#a32d2d;">falta foto en '+cs.filter(x=>!x.foto).length+'</span>':''}`:'';
+}
+// Nueva foto: comprime en el celular antes de guardar (≈300 KB). Si i es undefined, crea el comprobante.
+function viFotoNueva(inp,i){
+    const f=inp.files&&inp.files[0];if(!f)return;
+    const listo=d=>{if(i==null){_viActual.comprobantes.push({id:'vc_'+Date.now()+'_'+Math.random().toString(36).slice(2,5),foto:d,fecha:_hitoHoyISO(),comercio:'',monto:'',moneda:'CRC',categoria:'alimentacion',pago:'tarjeta',nota:'',estado:'ok',motivo:''});}else{_viActual.comprobantes[i].foto=d;}_viRenderComps();};
+    if(f.type==='application/pdf'){if(f.size>2*1024*1024){alert('El PDF es muy pesado (máximo 2 MB). Mejor tomale una foto.');return;}const rd=new FileReader();rd.onload=e=>listo(e.target.result);rd.readAsDataURL(f);return;}
+    Promise.resolve(compressImage(f,1400,1400,0.78)).then(listo).catch(()=>alert('No se pudo leer la imagen.'));
+}
+function viVerFoto(src){const ov=document.getElementById('modalViaticoFoto');if(String(src).startsWith('data:application/pdf')||/\.pdf(\?|$)/i.test(src)){window.open(src,'_blank');return;}ov.innerHTML=`<div style="display:flex;align-items:center;justify-content:center;height:100%;"><img class="vi-foto-full" src="${esc(src)}"></div>`;ov.classList.add('open');}
+function viVerFotoLiq(id,compId){const v=getViaticos().find(x=>x&&x.id===id);const x=v&&(v.comprobantes||[]).find(y=>y.id===compId);if(x&&x.foto)viVerFoto(x.foto);}
+function _viValidar(enviar){
+    _viActual.titulo=(document.getElementById('viTitulo').value||'').trim();_viActual.fechaDesde=document.getElementById('viDesde').value||'';_viActual.fechaHasta=document.getElementById('viHasta').value||'';
+    const vid=document.getElementById('viVenta').value;const v=vid?getVentas().find(x=>x.id===vid):null;_viActual.ventaId=vid||'';_viActual.ventaEtiqueta=v?_contaVentaEtiqueta(v):'';
+    if(!_viActual.titulo){alert('Escribí el motivo del viaje o salida.');return false;}
+    if(!enviar)return true;
+    const cs=_viActual.comprobantes;const p=[];
+    if(!cs.length)p.push('No hay comprobantes.');
+    cs.forEach((x,i)=>{const n='Comprobante '+(i+1)+(x.comercio?' ('+x.comercio+')':'');if(!x.foto)p.push(n+': falta la foto.');if(!x.comercio)p.push(n+': falta el comercio.');if(!(num(x.monto)>0))p.push(n+': falta el monto.');if(!x.fecha)p.push(n+': falta la fecha.');});
+    if(p.length){alert('Antes de enviar:\n\n- '+p.join('\n- '));return false;}
+    const dups=cs.filter(x=>_viDuplicado(x,x.id));
+    if(dups.length&&!confirm('Hay '+dups.length+' comprobante(s) que parecen duplicados de otros ya cargados. ¿Enviar igual?'))return false;
+    return true;
+}
+function guardarViatico(enviar){
+    if(!_viValidar(enviar))return;
+    const v=_viActual;v.comprobantes.forEach(x=>{x.monto=_contaRound(x.monto);});
+    if(enviar){v.estado='enviada';v.enviadaTs=Date.now();v.motivo='';_viHist(v,'Enviada a aprobación');}
+    else _viHist(v,'Guardada como borrador');
+    _viGuardar(v);
+    if(enviar){try{crearNotificacion({paraPermiso:'viaticos.aprobar',titulo:'Liquidación de viáticos para aprobar',detalle:v.titulo+' · '+_viTotalTxt(v,true)+' · '+_viNombre(v.colaboradora),origen:'viatico',refId:v.id});}catch(e){}}
+    closeModal('modalViatico');renderViaticos();updateBadges();
+    if(enviar)alert('Liquidación enviada. Te llega un aviso cuando la aprueben o si hay algo que corregir.');
+}
+
+// --- Ver / aprobar ---
+function verViatico(id){
+    const v=getViaticos().find(x=>x&&x.id===id);if(!v){alert('No se encontró la liquidación.');return;}
+    const yo=_viEmail();const mia=v.colaboradora===yo;const puedeAprob=_viPuedeAprobar();
+    if(!mia&&!_viVeTodos()){alert('No tenés acceso a esta liquidación.');return;}
+    const cs=v.comprobantes||[];
+    const filas=cs.map((x,i)=>`<div class="vi-comp${x.estado==='rechazado'?' rechazado':''}"><div>${x.foto?`<img class="vi-thumb" src="${esc(x.foto)}" onclick="viVerFotoLiq('${v.id}','${x.id}')">`:'<div class="vi-thumb-empty">Sin foto</div>'}</div>
+        <div style="font-size:0.82rem;"><div><strong>${esc(x.comercio||'-')}</strong> · ${x.fecha?fmtFechaCorta(x.fecha):'-'} · <strong>${_contaFmtOrig(x.monto,x.moneda||'CRC')}</strong></div><div class="lt-secondary">${esc((VIATICO_CATS.find(c=>c[0]===x.categoria)||['','Otros'])[1])} · ${esc((VIATICO_PAGO.find(c=>c[0]===x.pago)||['','Tarjeta de la empresa'])[1])}${x.nota?' · '+esc(x.nota):''}</div>${x.estado==='rechazado'?`<div style="font-size:0.74rem;color:#a32d2d;">Rechazado: ${esc(x.motivo||'')}</div>`:''}${_viDuplicado(x,x.id)?'<div style="font-size:0.74rem;color:#854f0b;">&#9888; Posible duplicado</div>':''}</div>
+        <div>${(puedeAprob&&v.estado==='enviada'&&x.estado!=='rechazado')?`<button class="btn btn-sm btn-danger" style="padding:2px 8px;font-size:0.7rem;" onclick="viRechazarComp('${v.id}','${x.id}')">Rechazar</button>`:''}</div></div>`).join('');
+    const hist=(v.historial||[]).slice().reverse().map(h=>`<div style="font-size:0.72rem;color:var(--text-light);">${fmtFechaCorta(new Date(h.ts).toISOString().slice(0,10))} · ${esc(_viNombre(h.quien))} · ${esc(h.txt)}</div>`).join('');
+    const acciones=[];
+    if(v.estado==='enviada'&&puedeAprob){acciones.push(`<button class="btn btn-danger" onclick="viRechazar('${v.id}')">Rechazar / devolver</button>`);acciones.push(`<button class="btn btn-success" onclick="viAprobar('${v.id}')">Aprobar</button>`);}
+    if((v.estado==='borrador'||v.estado==='rechazada')&&(mia||puedeAprob))acciones.push(`<button class="btn btn-primary" onclick="closeModal('modalViatico');openViaticoModal('${v.id}')">Editar</button>`);
+    if(v.estado==='enviada'&&mia&&!puedeAprob)acciones.push(`<button class="btn btn-ghost" onclick="viRetirar('${v.id}')">Retirar para corregir</button>`);
+    const ov=document.getElementById('modalViatico');
+    ov.innerHTML=`<div class="modal" style="max-width:760px;"><div class="modal-header"><h3>${esc(v.titulo)}</h3><button class="modal-close" onclick="closeModal('modalViatico')">&times;</button></div>
+    <div class="modal-body">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">${_viEstadoChip(v.estado)}<span style="font-size:0.82rem;">${esc(_viNombre(v.colaboradora))}</span><span style="font-size:0.82rem;color:var(--text-light);">${v.fechaDesde?fmtFechaCorta(v.fechaDesde)+(v.fechaHasta&&v.fechaHasta!==v.fechaDesde?' al '+fmtFechaCorta(v.fechaHasta):''):''}${v.ventaEtiqueta?' · '+esc(v.ventaEtiqueta):''}</span><span style="flex:1;"></span><strong>${_viTotalTxt(v,true)}</strong></div>
+        ${v.motivo?`<div style="background:#fcebeb;color:#a32d2d;border-radius:8px;padding:6px 10px;font-size:0.8rem;margin-bottom:8px;">Motivo: ${esc(v.motivo)}</div>`:''}
+        ${filas||'<div style="color:var(--text-light);font-size:0.82rem;">Sin comprobantes.</div>'}
+        <details style="margin-top:10px;"><summary style="font-size:0.78rem;cursor:pointer;color:var(--text-light);">Historial</summary>${hist}</details>
+    </div>
+    <div class="modal-footer" style="flex-wrap:wrap;gap:6px;"><button class="btn btn-ghost" onclick="closeModal('modalViatico')">Cerrar</button><span style="flex:1;"></span>${acciones.join('')}</div></div>`;
+    ov.classList.add('open');
+}
+function _viResolver(id,estado,motivo,txt){
+    const v=getViaticos().find(x=>x&&x.id===id);if(!v||v.estado!=='enviada')return null;
+    const c=JSON.parse(JSON.stringify(v));c.estado=estado;c.resueltaPor=_viEmail();c.resueltaTs=Date.now();c.motivo=String(motivo||'');_viHist(c,txt);_viGuardar(c);
+    try{crearNotificacion({paraEmail:c.colaboradora,titulo:estado==='aprobada'?'Liquidación de viáticos aprobada':'Liquidación de viáticos devuelta',detalle:c.titulo+(motivo?' · '+motivo:''),origen:'viatico',refId:c.id});}catch(e){}
+    return c;
+}
+function viAprobar(id){if(!_viPuedeAprobar())return;const v=getViaticos().find(x=>x&&x.id===id);if(!v)return;const rech=(v.comprobantes||[]).filter(x=>x.estado==='rechazado').length;if(!confirm('¿Aprobar «'+v.titulo+'» por '+_viTotalTxt(v,true)+'?'+(rech?'\n\n('+rech+' comprobante(s) rechazado(s) quedan fuera del total)':'')))return;_viResolver(id,'aprobada','','Aprobada');closeModal('modalViatico');renderViaticos();updateBadges();}
+function viRechazar(id){if(!_viPuedeAprobar())return;const m=prompt('Motivo (le llega a la colaboradora):','');if(m===null)return;_viResolver(id,'rechazada',m,'Devuelta: '+m);closeModal('modalViatico');renderViaticos();updateBadges();}
+function viRechazarComp(id,compId){if(!_viPuedeAprobar())return;const m=prompt('¿Por qué se rechaza este comprobante? (foto ilegible, no corresponde, duplicado…)','');if(m===null)return;const v=getViaticos().find(x=>x&&x.id===id);if(!v)return;const c=JSON.parse(JSON.stringify(v));const x=(c.comprobantes||[]).find(y=>y.id===compId);if(!x)return;x.estado='rechazado';x.motivo=m;_viHist(c,'Comprobante rechazado ('+(x.comercio||'')+'): '+m);_viGuardar(c);verViatico(id);}
+function viRetirar(id){const v=getViaticos().find(x=>x&&x.id===id);if(!v||v.colaboradora!==_viEmail()||v.estado!=='enviada')return;if(!confirm('¿Retirar la liquidación para corregirla? Vuelve a borrador.'))return;const c=JSON.parse(JSON.stringify(v));c.estado='borrador';_viHist(c,'Retirada para corregir');_viGuardar(c);closeModal('modalViatico');renderViaticos();updateBadges();}
 
 // ===== CONFIGURACIÓN → CONTABILIDAD =====
 function _cfgCuentaSelect(cls,valor,filtroTipo){
