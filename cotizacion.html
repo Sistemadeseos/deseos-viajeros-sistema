@@ -1966,8 +1966,15 @@ const defaultContaCuentas=[
     {codigo:'6209',nombre:'Software y suscripciones',tipo:'gasto',moneda:''},
     {codigo:'6210',nombre:'Depreciación',tipo:'gasto',moneda:'CRC'},
     {codigo:'6290',nombre:'Otros gastos',tipo:'gasto',moneda:''},
-    {codigo:'6401',nombre:'Pérdida por diferencial cambiario',tipo:'gasto',moneda:'CRC'}
+    {codigo:'6401',nombre:'Pérdida por diferencial cambiario',tipo:'gasto',moneda:'CRC'},
+    {codigo:'2120',nombre:'Tarjeta de crédito por pagar',tipo:'pasivo',moneda:''},
+    {codigo:'2121',nombre:'Viáticos por reembolsar',tipo:'pasivo',moneda:'CRC'},
+    {codigo:'6211',nombre:'Alimentación en viajes',tipo:'gasto',moneda:''},
+    {codigo:'6212',nombre:'Hospedaje en viajes',tipo:'gasto',moneda:''},
+    {codigo:'6213',nombre:'Boletos y entradas en viajes',tipo:'gasto',moneda:''}
 ].concat(defaultContaTitulos);
+// Cuentas agregadas después del lanzamiento: se suman a los planes ya guardados si faltan (por código)
+const CONTA_CUENTAS_NUEVAS=['2120','2121','6211','6212','6213'];
 // Cuentas por defecto para los asientos automáticos (se ajustan en Configuración → Contabilidad)
 const defaultContaMapeo={
     bancoPorMetodo:{
@@ -1981,7 +1988,8 @@ const defaultContaMapeo={
     planilla:{salarios:'6101',cargas:'6102',ccssPorPagar:'2203',rentaPorPagar:'2202',otrasDedPorPagar:'2205',salariosPorPagar:'2204'},
     cargaPatronalPct:26.67,
     difCambGanancia:'4401',difCambPerdida:'6401',
-    ivaPorPagar:'2201',ivaPorRecuperar:'1301'
+    ivaPorPagar:'2201',ivaPorRecuperar:'1301',
+    viaticos:{tarjeta:'2120',reembolsar:'2121',transporte:'6208',combustible:'6208',peajes:'6208',alimentacion:'6211',hospedaje:'6212',boletos:'6213',otros:'6208'}
 };
 function _normContaCuentas(arr){
     const src=(Array.isArray(arr)&&arr.length)?arr:defaultContaCuentas;
@@ -1989,11 +1997,12 @@ function _normContaCuentas(arr){
     src.forEach(c=>{if(!c)return;const codigo=String(c.codigo||'').trim();const nombre=String(c.nombre||'').trim();if(!codigo||!nombre||vistos.has(codigo))return;vistos.add(codigo);out.push({codigo,nombre,tipo:CONTA_TIPOS.some(t=>t[0]===c.tipo)?c.tipo:'gasto',titulo:!!c.titulo,moneda:CONTA_MONEDAS.includes(c.moneda)?c.moneda:''});});
     // Planes guardados antes de existir los títulos: se les agregan los títulos sugeridos (sin pisar códigos ya usados)
     if(!out.some(x=>x.titulo))defaultContaTitulos.forEach(t=>{if(!vistos.has(t.codigo)){vistos.add(t.codigo);out.push(Object.assign({},t));}});
+    CONTA_CUENTAS_NUEVAS.forEach(code=>{if(!vistos.has(code)){const d=defaultContaCuentas.find(x=>x.codigo===code);if(d){vistos.add(code);out.push(Object.assign({},d));}}});
     return out.sort((a,b)=>a.codigo.localeCompare(b.codigo));
 }
 function _normContaMapeo(m){
     m=m||{};const d=defaultContaMapeo;
-    const out={bancoPorMetodo:{},cxcClientes:m.cxcClientes||d.cxcClientes,anticiposClientes:m.anticiposClientes||d.anticiposClientes,ingresoPorTipo:Object.assign({},d.ingresoPorTipo,m.ingresoPorTipo||{}),planilla:Object.assign({},d.planilla,m.planilla||{}),cargaPatronalPct:(m.cargaPatronalPct!=null&&m.cargaPatronalPct!=='')?parseFloat(m.cargaPatronalPct):d.cargaPatronalPct,difCambGanancia:m.difCambGanancia||d.difCambGanancia,difCambPerdida:m.difCambPerdida||d.difCambPerdida,ivaPorPagar:m.ivaPorPagar||d.ivaPorPagar,ivaPorRecuperar:m.ivaPorRecuperar||d.ivaPorRecuperar};
+    const out={bancoPorMetodo:{},cxcClientes:m.cxcClientes||d.cxcClientes,anticiposClientes:m.anticiposClientes||d.anticiposClientes,ingresoPorTipo:Object.assign({},d.ingresoPorTipo,m.ingresoPorTipo||{}),planilla:Object.assign({},d.planilla,m.planilla||{}),cargaPatronalPct:(m.cargaPatronalPct!=null&&m.cargaPatronalPct!=='')?parseFloat(m.cargaPatronalPct):d.cargaPatronalPct,difCambGanancia:m.difCambGanancia||d.difCambGanancia,difCambPerdida:m.difCambPerdida||d.difCambPerdida,ivaPorPagar:m.ivaPorPagar||d.ivaPorPagar,ivaPorRecuperar:m.ivaPorRecuperar||d.ivaPorRecuperar,viaticos:Object.assign({},d.viaticos,m.viaticos||{})};
     Object.keys(d.bancoPorMetodo).forEach(k=>{out.bancoPorMetodo[k]=Object.assign({},d.bancoPorMetodo[k],(m.bancoPorMetodo||{})[k]||{});});
     Object.keys(m.bancoPorMetodo||{}).forEach(k=>{if(!out.bancoPorMetodo[k])out.bancoPorMetodo[k]=Object.assign({},d.bancoPorMetodo['Otro'],m.bancoPorMetodo[k]);});
     return out;
@@ -2024,6 +2033,7 @@ function contaCentroDe(a,_prof){
     try{
         if(o==='cobro'||o==='ingreso_venta'){const v=getVentas().find(x=>x&&x.id===r);return contaCentroDeVenta(v);}
         if(o==='proveedor'||o==='gasto'||o==='pago_proveedor'){const d=getContaDocs().find(x=>x&&x.id===r);if(d&&d.centro)return d.centro;if(d&&d.ventaId){const v=getVentas().find(x=>x&&x.id===d.ventaId);if(v)return contaCentroDeVenta(v);}return 'admin';}
+        if(o==='viatico'){const li=getViaticos().find(x=>x&&x.id===r);if(li&&li.ventaId){const v=getVentas().find(x=>x&&x.id===li.ventaId);if(v)return contaCentroDeVenta(v);}return 'admin';}
         if(o==='reversion'&&a.reversaDe&&!_prof){const orig=getContaAsientos().find(x=>x&&x.id===a.reversaDe);if(orig)return contaCentroDe(orig,true);}
     }catch(e){}
     return 'admin';
@@ -2617,7 +2627,7 @@ function contaReporteIVA(desde,hasta){
     return {desde,hasta,cuentaPagar:cp,cuentaRecuperar:cr,cobrado,pagado,ajustesP,ajustesR,neto,saldoIniP,saldoIniR,saldoFinP:_contaRound(saldoIniP+cobrado+ajustesP),saldoFinR:_contaRound(saldoIniR+pagado+ajustesR),movs:movs.sort((x,y)=>x.a.fecha.localeCompare(y.a.fecha)||(x.a.numero-y.a.numero))};
 }
 // Flujo de efectivo (método directo) sobre cuentas bancarias y cajas (activo 11xx)
-const CONTA_FLUJO_GRUPOS={cobro:'Cobros de clientes',pago_proveedor:'Pagos a proveedores',gasto:'Gastos pagados',manual:'Otros movimientos',ingreso_venta:'Otros movimientos',planilla:'Planilla',apertura:'Saldo inicial',revaluacion:'Revaluación cambiaria',reversion:'Reversiones',periodico:'Gastos periódicos',traspaso:'Traspasos entre cuentas',depreciacion:'Otros movimientos',cierre_anual:'Otros movimientos',proveedor:'Otros movimientos',activo_fijo:'Compra de activos fijos'};
+const CONTA_FLUJO_GRUPOS={cobro:'Cobros de clientes',pago_proveedor:'Pagos a proveedores',gasto:'Gastos pagados',manual:'Otros movimientos',ingreso_venta:'Otros movimientos',planilla:'Planilla',apertura:'Saldo inicial',revaluacion:'Revaluación cambiaria',reversion:'Reversiones',periodico:'Gastos periódicos',viatico:'Viáticos',traspaso:'Traspasos entre cuentas',depreciacion:'Otros movimientos',cierre_anual:'Otros movimientos',proveedor:'Otros movimientos',activo_fijo:'Compra de activos fijos'};
 function contaFlujoEfectivo(desde,hasta){
     const bancos=contaCfg().cuentas.filter(c=>c.tipo==='activo'&&/^11/.test(c.codigo));const setB=new Set(bancos.map(c=>c.codigo));
     const ini=contaSaldosEx('',_addDiasISO(desde,-1),[]);
@@ -6128,7 +6138,7 @@ function cerrarNotifPanel(){
     closeModal('modalNotif');
 }
 function openNotifPanel(){
-    try{generarNotificacionesViajesProximos();}catch(e){console.error('[notif viajes]',e);}try{generarNotificacionesHitos();}catch(e){console.error('[notif hitos]',e);}
+    try{generarNotificacionesViajesProximos();}catch(e){console.error('[notif viajes]',e);}try{generarNotificacionesHitos();}catch(e){console.error('[notif hitos]',e);}try{generarNotificacionesViaticos();}catch(e){console.error('[notif viaticos]',e);}
     try{_limpiarNotifObsoletas();}catch(e){console.error('[notif limpieza]',e);}
     const overlay=document.getElementById('modalNotif');
     const todas=misNotificaciones();
@@ -6150,7 +6160,7 @@ function openNotifPanel(){
             ${n.detalle?`<div style="font-size:0.8rem;color:var(--text);margin:3px 0;">${esc(n.detalle)}</div>`:''}
             <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;gap:8px;">
                 <span style="font-size:0.7rem;color:var(--text-light);">${_notifFecha(n.creadaTs)}</span>
-                <span style="display:flex;gap:6px;align-items:center;">${n.origen==='tarea'&&n.refId?`<button class="btn btn-sm btn-outline" style="padding:3px 10px;font-size:0.72rem;color:var(--primary-dark);border-color:var(--primary);" onclick="notifAbrirTarea('${n.id}','${n.refId}')">Ver tarea</button>`:''}${n.origen==='conta_borrador'?`<button class="btn btn-sm btn-outline" style="padding:3px 10px;font-size:0.72rem;color:var(--primary-dark);border-color:var(--primary);" onclick="_contaTab='preliminares';nav('contabilidad');renderContabilidad();">Ver preliminares</button>`:''}${n.origen==='viatico'&&n.refId?`<button class="btn btn-sm btn-outline" style="padding:3px 10px;font-size:0.72rem;color:var(--primary-dark);border-color:var(--primary);" onclick="nav('viaticos');verViatico('${n.refId}')">Ver liquidaci\u00f3n</button>`:''}${(n.origen==='hito'||n.origen==='viaje')&&n.refId?`<button class="btn btn-sm btn-outline" style="padding:3px 10px;font-size:0.72rem;color:var(--primary-dark);border-color:var(--primary);" onclick="notifAbrirChecklist('${n.id}','${n.refId}')">Abrir checklist</button>`:''}${btn}</span>
+                <span style="display:flex;gap:6px;align-items:center;">${n.origen==='tarea'&&n.refId?`<button class="btn btn-sm btn-outline" style="padding:3px 10px;font-size:0.72rem;color:var(--primary-dark);border-color:var(--primary);" onclick="notifAbrirTarea('${n.id}','${n.refId}')">Ver tarea</button>`:''}${n.origen==='conta_borrador'?`<button class="btn btn-sm btn-outline" style="padding:3px 10px;font-size:0.72rem;color:var(--primary-dark);border-color:var(--primary);" onclick="_contaTab='preliminares';nav('contabilidad');renderContabilidad();">Ver preliminares</button>`:''}${(n.origen==='viatico'||n.origen==='viatico_rec')&&n.refId?`<button class="btn btn-sm btn-outline" style="padding:3px 10px;font-size:0.72rem;color:var(--primary-dark);border-color:var(--primary);" onclick="nav('viaticos');verViatico('${n.refId}')">Ver liquidaci\u00f3n</button>`:''}${(n.origen==='hito'||n.origen==='viaje')&&n.refId?`<button class="btn btn-sm btn-outline" style="padding:3px 10px;font-size:0.72rem;color:var(--primary-dark);border-color:var(--primary);" onclick="notifAbrirChecklist('${n.id}','${n.refId}')">Abrir checklist</button>`:''}${btn}</span>
             </div>
         </div>`;
     };
@@ -6486,6 +6496,7 @@ function mostrarRecordatorios(forzar){
     if(!window.currentUser)return false;
     try{generarNotificacionesViajesProximos();}catch(e){}
     try{generarNotificacionesHitos();}catch(e){}
+    try{generarNotificacionesViaticos();}catch(e){}
     try{_limpiarNotifObsoletas();}catch(e){}
     try{renderNotifBell();}catch(e){}
     const items=_recActivos();
@@ -6525,7 +6536,7 @@ function iniciarRecordatorios(){
 }
 // ===== CONTABILIDAD: pantalla =====
 let _contaTab='diario';
-const CONTA_ORIGEN_LABEL={apertura:'Apertura',pago_proveedor:'Pago a proveedor',revaluacion:'Revaluación',depreciacion:'Depreciación',activo_fijo:'Activo fijo',cierre_anual:'Cierre anual',manual:'Manual',cobro:'Cobro',planilla:'Planilla',ingreso_venta:'Ingreso por viaje',reversion:'Reversión',gasto:'Gasto',proveedor:'Proveedor',ajuste:'Ajuste',periodico:'Periódico'};
+const CONTA_ORIGEN_LABEL={apertura:'Apertura',pago_proveedor:'Pago a proveedor',revaluacion:'Revaluación',depreciacion:'Depreciación',activo_fijo:'Activo fijo',cierre_anual:'Cierre anual',manual:'Manual',cobro:'Cobro',planilla:'Planilla',ingreso_venta:'Ingreso por viaje',reversion:'Reversión',gasto:'Gasto',proveedor:'Proveedor',ajuste:'Ajuste',periodico:'Periódico',viatico:'Viáticos'};
 // Menú principal organizado como SAP Business One: módulo → pantalla
 const CONTA_MENU=[
     {id:'finanzas',label:'Finanzas',items:[['plan','Plan de cuentas'],['diario','Asientos de diario'],['preliminares','Asientos preliminares'],['plantillas','Plantillas y peri\u00f3dicos'],['mayor','Mayor y balance de comprobaci\u00f3n'],['activos','Activos fijos']]},
@@ -6580,6 +6591,7 @@ function _contaEnlaceDestino(a){
     if(o==='apertura')return {label:'Ver la conciliación bancaria',js:`_bcoCuenta='${r}';contaTab('bancos')`};
     if(o==='reversion'&&a.reversaDe)return {label:'Ir al asiento reversado',js:`contaIrAsiento('${a.reversaDe}')`};
     if(o==='periodico')return {label:'Ver la plantilla periódica',js:`contaTab('plantillas')`};
+    if(o==='viatico')return {label:'Ver la liquidación de viáticos',js:`verViatico('${r}')`};
     return null;
 }
 function _contaEnlaceHtml(a){const d=_contaEnlaceDestino(a);if(!d)return '';return `<button class="btn btn-sm btn-ghost" style="padding:1px 7px;font-size:0.8rem;color:#b8860b;border-color:#e6c766;" onclick="event.stopPropagation();${d.js}" title="${esc(d.label)}">&#10148;</button>`;}
@@ -7042,7 +7054,8 @@ function renderViaticos(){
     const puedeAprob=_viPuedeAprobar(),veTodos=_viVeTodos();
     if(!puedeAprob&&!veTodos)_viTab='mias';
     const nPend=todos.filter(v=>v.estado==='enviada').length;
-    const tabs=`<div class="cal-seg" style="margin-bottom:10px;"><button class="${_viTab==='mias'?'active':''}" onclick="_viTab='mias';renderViaticos()">Mis liquidaciones</button>${puedeAprob?`<button class="${_viTab==='aprobar'?'active':''}" onclick="_viTab='aprobar';renderViaticos()">Por aprobar${nPend?' <span style="background:#e6a700;color:#fff;border-radius:10px;padding:0 6px;font-size:0.7rem;">'+nPend+'</span>':''}</button>`:''}${veTodos?`<button class="${_viTab==='todas'?'active':''}" onclick="_viTab='todas';renderViaticos()">Todo el equipo</button>`:''}</div>`;
+    const tabs=`<div class="cal-seg" style="margin-bottom:10px;"><button class="${_viTab==='mias'?'active':''}" onclick="_viTab='mias';renderViaticos()">Mis liquidaciones</button>${puedeAprob?`<button class="${_viTab==='aprobar'?'active':''}" onclick="_viTab='aprobar';renderViaticos()">Por aprobar${nPend?' <span style="background:#e6a700;color:#fff;border-radius:10px;padding:0 6px;font-size:0.7rem;">'+nPend+'</span>':''}</button>`:''}${veTodos?`<button class="${_viTab==='todas'?'active':''}" onclick="_viTab='todas';renderViaticos()">Todo el equipo</button><button class="${_viTab==='reporte'?'active':''}" onclick="_viTab='reporte';renderViaticos()">Reporte</button>`:''}</div>`;
+    if(_viTab==='reporte'&&veTodos){body.innerHTML=`<div style="display:flex;align-items:center;flex-wrap:wrap;">${tabs}</div>`+_viReporteHtml();return;}
     let lista=_viTab==='aprobar'?todos.filter(v=>v.estado==='enviada'):(_viTab==='todas'?todos:todos.filter(v=>v.colaboradora===yo));
     const filtro=_viTab==='aprobar'?'':`<select onchange="_viFiltro=this.value;renderViaticos()" style="padding:4px 8px;margin-left:8px;"><option value="activas"${_viFiltro==='activas'?' selected':''}>Activas (sin aprobar)</option><option value="todas"${_viFiltro==='todas'?' selected':''}>Todas</option><option value="aprobadas"${_viFiltro==='aprobadas'?' selected':''}>Aprobadas</option></select>`;
     if(_viTab!=='aprobar'){if(_viFiltro==='activas')lista=lista.filter(v=>v.estado!=='aprobada');else if(_viFiltro==='aprobadas')lista=lista.filter(v=>v.estado==='aprobada');}
@@ -7054,6 +7067,39 @@ function renderViaticos(){
     body.innerHTML=`<div style="display:flex;align-items:center;flex-wrap:wrap;">${tabs}${filtro}</div>${intro}${cards||`<div class="grid-empty"><h3>${_viTab==='aprobar'?'Nada por aprobar':'Sin liquidaciones'}</h3><p>${_viTab==='aprobar'?'Cuando una colaboradora env&iacute;e una liquidaci&oacute;n, aparece ac&aacute; y te llega un aviso.':'Cre&aacute; una con el bot&oacute;n + Nueva liquidaci&oacute;n.'}</p></div>`}`;
 }
 
+// --- Reporte mensual (aprobadas): por colaboradora y por categoría, en colones al TC de cada comprobante ---
+let _viRepMes='',_viRepAcum=false;
+function _viRepDatos(){
+    const mes=_viRepMes||_hitoHoyISO().slice(0,7);const desde=_viRepAcum?mes.slice(0,4)+'-01':mes;
+    const filas=[];
+    getViaticos().filter(v=>v&&v.estado==='aprobada').forEach(v=>{(v.comprobantes||[]).forEach(x=>{if(!x||x.estado==='rechazado')return;const f=String(x.fecha||'').slice(0,10);const per=f.slice(0,7);if(!per||per<desde||per>mes)return;const conv=contaACRC(x.monto,x.moneda||'CRC',f);filas.push({v,x,crc:conv.crc||0,sinTC:!(conv.crc>0)});});});
+    return {mes,desde,filas};
+}
+function _viReporteHtml(){
+    const d=_viRepDatos();const sum=(arr)=>_contaRound(arr.reduce((s,f)=>s+f.crc,0));
+    const porCol={},porCat={};d.filas.forEach(f=>{const c=f.v.colaboradora;porCol[c]=(porCol[c]||0)+f.crc;porCat[f.x.categoria||'otros']=(porCat[f.x.categoria||'otros']||0)+f.crc;});
+    const tools=`<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;"><label style="font-size:0.78rem;color:var(--text-light);margin:0;">Mes</label><input type="month" value="${esc(d.mes)}" onchange="_viRepMes=this.value;renderViaticos()" style="width:170px;"><label style="display:flex;align-items:center;gap:4px;font-size:0.8rem;margin:0;"><input type="checkbox" ${_viRepAcum?'checked':''} onchange="_viRepAcum=this.checked;renderViaticos()"> Acumulado del a\u00f1o</label><span style="flex:1;"></span><button class="btn btn-sm btn-ghost" onclick="viExportarReporte()">&#128196; Exportar a Excel</button></div>`;
+    if(!d.filas.length)return tools+'<div class="grid-empty"><h3>Sin vi\u00e1ticos aprobados en el per\u00edodo</h3><p>El reporte toma solo las liquidaciones aprobadas, con la fecha de cada comprobante.</p></div>';
+    const tabla=(tit,obj,lbl)=>`<table class="list-table" style="margin-bottom:14px;"><thead><tr><th>${tit}</th><th style="text-align:right;">Colones</th><th style="text-align:right;">%</th></tr></thead><tbody>${Object.keys(obj).sort((a,b)=>obj[b]-obj[a]).map(k=>`<tr><td>${esc(lbl(k))}</td><td style="text-align:right;">${fmtCRC2(obj[k])}</td><td style="text-align:right;color:var(--text-light);">${Math.round(obj[k]/sum(d.filas)*100)} %</td></tr>`).join('')}<tr style="font-weight:700;background:var(--bg);"><td>Total</td><td style="text-align:right;">${fmtCRC2(sum(d.filas))}</td><td></td></tr></tbody></table>`;
+    const det=d.filas.sort((a,b)=>String(a.x.fecha).localeCompare(String(b.x.fecha))).map(f=>`<tr><td style="white-space:nowrap;">${fmtFechaCorta(f.x.fecha)}</td><td>${esc(_viNombre(f.v.colaboradora))}</td><td><span class="cliente-link" onclick="verViatico('${f.v.id}')">${esc(f.v.titulo)}</span>${f.v.ventaEtiqueta?'<div class="lt-secondary">'+esc(f.v.ventaEtiqueta)+'</div>':''}</td><td>${esc(f.x.comercio||'')}</td><td>${esc((VIATICO_CATS.find(c=>c[0]===f.x.categoria)||['','Otros'])[1])}</td><td style="text-align:right;white-space:nowrap;">${_contaFmtOrig(f.x.monto,f.x.moneda||'CRC')}</td><td style="text-align:right;white-space:nowrap;${f.sinTC?'color:#a32d2d;':''}">${f.sinTC?'sin TC':fmtCRC2(f.crc)}</td><td>${f.x.foto?`<span class="cliente-link" onclick="viVerFotoLiq('${f.v.id}','${f.x.id}')">foto</span>`:''}${f.v.asientoId?' '+_contaLinkAsientoHtml(f.v.asientoId):''}</td></tr>`).join('');
+    return tools+`<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px;">${tabla('Por colaboradora',porCol,_viNombre)}${tabla('Por categor\u00eda',porCat,k=>(VIATICO_CATS.find(c=>c[0]===k)||['','Otros'])[1])}</div>
+    <h4 style="margin:6px 0;font-size:0.9rem;">Detalle (${d.filas.length} comprobante${d.filas.length===1?'':'s'})</h4><table class="list-table"><thead><tr><th>Fecha</th><th>Colaboradora</th><th>Liquidaci\u00f3n</th><th>Comercio</th><th>Categor\u00eda</th><th style="text-align:right;">Monto</th><th style="text-align:right;">Colones</th><th></th></tr></thead><tbody>${det}</tbody></table>`;
+}
+function viExportarReporte(){
+    const d=_viRepDatos();if(!d.filas.length){alert('No hay datos para exportar.');return;}
+    const rows=d.filas.map(f=>{const a=f.v.asientoId?getContaAsientos().find(x=>x&&x.id===f.v.asientoId):null;return {'Fecha':f.x.fecha,'Colaboradora':_viNombre(f.v.colaboradora),'Liquidación':f.v.titulo,'Venta / grupo':f.v.ventaEtiqueta||'','Comercio':f.x.comercio||'','Categoría':(VIATICO_CATS.find(c=>c[0]===f.x.categoria)||['','Otros'])[1],'Pago':(VIATICO_PAGO.find(c=>c[0]===f.x.pago)||['','Tarjeta'])[1],'Moneda':f.x.moneda||'CRC','Monto':num(f.x.monto),'Colones':f.crc,'Nota':f.x.nota||'','Asiento':a?contaNumAsiento(a):'','Foto':(f.x.foto&&!String(f.x.foto).startsWith('data:'))?f.x.foto:(f.x.foto?'(pendiente de subir)':'')};});
+    const ws=XLSX.utils.json_to_sheet(rows);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Viáticos');XLSX.writeFile(wb,'Viaticos_'+(_viRepAcum?d.mes.slice(0,4):d.mes)+'.xlsx');
+}
+// --- Recordatorios: borradores viejos sin enviar y enviadas sin aprobar ---
+function generarNotificacionesViaticos(){
+    const hoy=_hitoHoyISO();const arr=getNotificaciones().map(x=>Object.assign({},x));
+    const ya=new Set(arr.filter(n=>n.origen==='viatico_rec').map(n=>String(n.refId)+'|'+String(n.etapa||'')));let creadas=0;
+    getViaticos().forEach(v=>{if(!v)return;
+        if(v.estado==='borrador'||v.estado==='rechazada'){const ref=String(v.fechaHasta||v.fechaDesde||'').slice(0,10)||new Date(v.creadoTs||Date.now()).toISOString().slice(0,10);const dias=_diasEntreISO(ref,hoy);if(dias>=7&&!ya.has(v.id+'|sinenviar')){arr.push({id:newRrhhId(),tipo:'tarea',titulo:'Viáticos sin enviar: '+(v.titulo||''),detalle:'La liquidación lleva '+dias+' días sin enviarse a aprobación. Completá las fotos y envíala.',paraEmail:v.colaboradora,paraPermiso:'',estado:'pendiente',origen:'viatico_rec',etapa:'sinenviar',refId:String(v.id),creadaTs:Date.now(),creadaPor:'sistema'});ya.add(v.id+'|sinenviar');creadas++;}}
+        if(v.estado==='enviada'&&v.enviadaTs){const dias=Math.floor((Date.now()-v.enviadaTs)/86400000);if(dias>=3&&!ya.has(v.id+'|sinaprobar')){arr.push({id:newRrhhId(),tipo:'tarea',titulo:'Viáticos esperando aprobación: '+(v.titulo||''),detalle:_viNombre(v.colaboradora)+' la envió hace '+dias+' días · '+_viTotalTxt(v,true),paraEmail:'',paraPermiso:'viaticos.aprobar',estado:'pendiente',origen:'viatico_rec',etapa:'sinaprobar',refId:String(v.id),creadaTs:Date.now(),creadaPor:'sistema'});ya.add(v.id+'|sinaprobar');creadas++;}}
+    });
+    if(creadas)saveNotificaciones(arr);return creadas;
+}
 // --- Crear / editar liquidación ---
 let _viActual=null;
 function openViaticoModal(id){
@@ -7149,6 +7195,7 @@ function verViatico(id){
     <div class="modal-body">
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">${_viEstadoChip(v.estado)}<span style="font-size:0.82rem;">${esc(_viNombre(v.colaboradora))}</span><span style="font-size:0.82rem;color:var(--text-light);">${v.fechaDesde?fmtFechaCorta(v.fechaDesde)+(v.fechaHasta&&v.fechaHasta!==v.fechaDesde?' al '+fmtFechaCorta(v.fechaHasta):''):''}${v.ventaEtiqueta?' · '+esc(v.ventaEtiqueta):''}</span><span style="flex:1;"></span><strong>${_viTotalTxt(v,true)}</strong></div>
         ${v.motivo?`<div style="background:#fcebeb;color:#a32d2d;border-radius:8px;padding:6px 10px;font-size:0.8rem;margin-bottom:8px;">Motivo: ${esc(v.motivo)}</div>`:''}
+        ${v.estado==='aprobada'?`<div style="font-size:0.8rem;margin-bottom:8px;">Asiento contable: ${v.asientoId?_contaLinkAsientoHtml(v.asientoId):'<span style="color:#a32d2d;">sin registrar</span>'+((tienePermiso('contabilidad.registrar')||puedeAprob)?` <button class="btn btn-sm btn-ghost" style="padding:2px 8px;font-size:0.7rem;" onclick="viContabilizar('${v.id}')">Registrar ahora</button>`:'')}</div>`:''}
         ${filas||'<div style="color:var(--text-light);font-size:0.82rem;">Sin comprobantes.</div>'}
         <details style="margin-top:10px;"><summary style="font-size:0.78rem;cursor:pointer;color:var(--text-light);">Historial</summary>${hist}</details>
     </div>
@@ -7161,7 +7208,29 @@ function _viResolver(id,estado,motivo,txt){
     try{crearNotificacion({paraEmail:c.colaboradora,titulo:estado==='aprobada'?'Liquidación de viáticos aprobada':'Liquidación de viáticos devuelta',detalle:c.titulo+(motivo?' · '+motivo:''),origen:'viatico',refId:c.id});}catch(e){}
     return c;
 }
-function viAprobar(id){if(!_viPuedeAprobar())return;const v=getViaticos().find(x=>x&&x.id===id);if(!v)return;const rech=(v.comprobantes||[]).filter(x=>x.estado==='rechazado').length;if(!confirm('¿Aprobar «'+v.titulo+'» por '+_viTotalTxt(v,true)+'?'+(rech?'\n\n('+rech+' comprobante(s) rechazado(s) quedan fuera del total)':'')))return;_viResolver(id,'aprobada','','Aprobada');closeModal('modalViatico');renderViaticos();updateBadges();}
+// Asiento de la liquidación aprobada: una línea de gasto por comprobante (en colones, TC de su fecha) contra la tarjeta o "por reembolsar".
+// Fecha del asiento: la del último comprobante; si ese mes está cerrado o es anterior al inicio de la contabilidad, hoy.
+function contaSyncViatico(v){
+    if(!v||v.estado!=='aprobada'||v.asientoId)return null;
+    const mp=contaCfg().mapeo.viaticos;const cs=(v.comprobantes||[]).filter(x=>x&&x.estado!=='rechazado'&&num(x.monto)>0);
+    if(!cs.length)return null;
+    let fecha=cs.map(x=>String(x.fecha||'').slice(0,10)).filter(Boolean).sort().pop()||_hitoHoyISO();
+    if(!contaFechaEnLibros(fecha)||contaPeriodoCerrado(contaPeriodoDe(fecha)))fecha=_hitoHoyISO();
+    if(!contaFechaEnLibros(fecha))return null;
+    const lineas=[];const contra={};let ok=true;
+    cs.forEach(x=>{const m=(x.moneda||'CRC').toUpperCase();const conv=contaACRC(x.monto,m,x.fecha||fecha);if(!(conv.crc>0)){ok=false;return;}
+        const cta=mp[x.categoria]||mp.otros;const k=x.pago==='propio'?mp.reembolsar:mp.tarjeta;
+        lineas.push({cuenta:cta,debe:conv.crc,haber:0,moneda:m,montoOrig:num(x.monto),tc:conv.tc,detalle:(x.comercio||'')+(x.fecha?' · '+fmtFechaCorta(x.fecha):'')});
+        const o=contra[k]||(contra[k]={crc:0,orig:{}});o.crc=_contaRound(o.crc+conv.crc);o.orig[m]=_contaRound((o.orig[m]||0)+num(x.monto));});
+    if(!ok){alert('No hay tipo de cambio para la fecha de algún comprobante en dólares. Cargalo en Contabilidad → Tipos de cambio y volvé a intentar desde la liquidación.');return null;}
+    Object.keys(contra).forEach(k=>{const o=contra[k];const mons=Object.keys(o.orig);const m=mons.length===1?mons[0]:'CRC';lineas.push({cuenta:k,debe:0,haber:o.crc,moneda:m,montoOrig:m==='CRC'?o.crc:o.orig[m],tc:m==='CRC'?1:_contaRound(o.crc/o.orig[m]),detalle:k===mp.reembolsar?'Reembolso a '+_viNombre(v.colaboradora):'Tarjeta de la empresa · '+_viNombre(v.colaboradora)});});
+    const a=contaRegistrarAsiento({fecha,origen:'viatico',refId:v.id,silencioso:true,descripcion:'Viáticos · '+(v.titulo||'')+' · '+_viNombre(v.colaboradora)+(v.ventaEtiqueta?' · '+v.ventaEtiqueta:''),lineas});
+    if(!a){alert('No se pudo registrar el asiento de viáticos (revisá el plan de cuentas en Configuración → Contabilidad). La liquidación quedó aprobada; se puede reintentar desde ella.');return null;}
+    const c2=JSON.parse(JSON.stringify(getViaticos().find(x=>x.id===v.id)||v));c2.asientoId=a.id;_viHist(c2,'Asiento contable '+contaNumAsiento(a));_viGuardar(c2);
+    return a;
+}
+function viContabilizar(id){const v=getViaticos().find(x=>x&&x.id===id);if(!v)return;if(!tienePermiso('contabilidad.registrar')&&!_viPuedeAprobar())return;const a=contaSyncViatico(v);if(a)verViatico(id);}
+function viAprobar(id){if(!_viPuedeAprobar())return;const v=getViaticos().find(x=>x&&x.id===id);if(!v)return;const rech=(v.comprobantes||[]).filter(x=>x.estado==='rechazado').length;if(!confirm('¿Aprobar «'+v.titulo+'» por '+_viTotalTxt(v,true)+'?'+(rech?'\n\n('+rech+' comprobante(s) rechazado(s) quedan fuera del total)':'')+'\n\nSe registra solo el asiento contable.'))return;const r=_viResolver(id,'aprobada','','Aprobada');try{if(r)contaSyncViatico(r);}catch(e){console.error('[viatico conta]',e);}closeModal('modalViatico');renderViaticos();updateBadges();}
 function viRechazar(id){if(!_viPuedeAprobar())return;const m=prompt('Motivo (le llega a la colaboradora):','');if(m===null)return;_viResolver(id,'rechazada',m,'Devuelta: '+m);closeModal('modalViatico');renderViaticos();updateBadges();}
 function viRechazarComp(id,compId){if(!_viPuedeAprobar())return;const m=prompt('¿Por qué se rechaza este comprobante? (foto ilegible, no corresponde, duplicado…)','');if(m===null)return;const v=getViaticos().find(x=>x&&x.id===id);if(!v)return;const c=JSON.parse(JSON.stringify(v));const x=(c.comprobantes||[]).find(y=>y.id===compId);if(!x)return;x.estado='rechazado';x.motivo=m;_viHist(c,'Comprobante rechazado ('+(x.comercio||'')+'): '+m);_viGuardar(c);verViatico(id);}
 function viRetirar(id){const v=getViaticos().find(x=>x&&x.id===id);if(!v||v.colaboradora!==_viEmail()||v.estado!=='enviada')return;if(!confirm('¿Retirar la liquidación para corregirla? Vuelve a borrador.'))return;const c=JSON.parse(JSON.stringify(v));c.estado='borrador';_viHist(c,'Retirada para corregir');_viGuardar(c);closeModal('modalViatico');renderViaticos();updateBadges();}
@@ -7185,7 +7254,7 @@ function _collectContaFromDOM(){
     const cont=document.getElementById('cfgContaCuentasList');if(!cont)return null;
     const cuentas=Array.from(cont.querySelectorAll('.cfg-cta')).map(d=>({codigo:(d.querySelector('.cfg-cta-codigo')?.value||'').trim(),nombre:(d.querySelector('.cfg-cta-nombre')?.value||'').trim(),tipo:d.querySelector('.cfg-cta-tipo')?.value||'gasto',moneda:d.querySelector('.cfg-cta-moneda')?.value||'',titulo:!!d.querySelector('.cfg-cta-titulo')?.checked})).filter(c=>c.codigo&&c.nombre);
     const g=id=>document.getElementById(id)?.value||'';
-    const mapeo={bancoPorMetodo:{},cxcClientes:g('cfgMapCxc'),anticiposClientes:g('cfgMapAnt'),ingresoPorTipo:{},planilla:{salarios:g('cfgMapPlSal'),cargas:g('cfgMapPlCar'),ccssPorPagar:g('cfgMapPlCcss'),rentaPorPagar:g('cfgMapPlRenta'),otrasDedPorPagar:g('cfgMapPlOtras'),salariosPorPagar:g('cfgMapPlNeto')},cargaPatronalPct:parseFloat(g('cfgContaPatronal'))||0,difCambGanancia:g('cfgMapDifG'),difCambPerdida:g('cfgMapDifP'),ivaPorPagar:g('cfgMapIvaP'),ivaPorRecuperar:g('cfgMapIvaR')};
+    const mapeo={bancoPorMetodo:{},cxcClientes:g('cfgMapCxc'),anticiposClientes:g('cfgMapAnt'),ingresoPorTipo:{},planilla:{salarios:g('cfgMapPlSal'),cargas:g('cfgMapPlCar'),ccssPorPagar:g('cfgMapPlCcss'),rentaPorPagar:g('cfgMapPlRenta'),otrasDedPorPagar:g('cfgMapPlOtras'),salariosPorPagar:g('cfgMapPlNeto')},cargaPatronalPct:parseFloat(g('cfgContaPatronal'))||0,difCambGanancia:g('cfgMapDifG'),difCambPerdida:g('cfgMapDifP'),ivaPorPagar:g('cfgMapIvaP'),ivaPorRecuperar:g('cfgMapIvaR'),viaticos:(function(){const o={tarjeta:g('cfgMapViTarjeta'),reembolsar:g('cfgMapViReemb')};VIATICO_CATS.forEach(k=>{o[k[0]]=g('cfgMapVi_'+k[0]);});return o;})()};
     document.querySelectorAll('#cfgContaBancos [data-metodo]').forEach(row=>{const k=row.getAttribute('data-metodo');mapeo.bancoPorMetodo[k]={};CONTA_MONEDAS.forEach(m=>{const s=row.querySelector('select[data-moneda="'+m+'"]');if(s)mapeo.bancoPorMetodo[k][m]=s.value;});});
     document.querySelectorAll('#cfgContaIngresos select[data-tipo]').forEach(s=>{mapeo.ingresoPorTipo[s.getAttribute('data-tipo')]=s.value;});
     return {cuentas,mapeo,fechaInicio:g('cfgContaInicio'),requiereAprobacion:!!document.getElementById('cfgContaAprob')?.checked};
@@ -7218,6 +7287,12 @@ function renderConfigContabilidad(){
         <label style="display:flex;align-items:center;gap:6px;margin:0;"><span style="min-width:150px;">IVA por pagar (cobrado)</span><span id="wrapIvaP"></span></label>
         <label style="display:flex;align-items:center;gap:6px;margin:0;"><span style="min-width:150px;">IVA por recuperar (pagado)</span><span id="wrapIvaR"></span></label>
     </div>
+    <p class="config-hint">Viáticos: cuenta de gasto por categoría y contrapartida (tarjeta de la empresa o reembolso). El asiento se crea solo al aprobar la liquidación.</p>
+    <div id="cfgContaViaticos" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:6px 10px;max-width:820px;margin-bottom:12px;font-size:0.8rem;">
+        <label style="display:flex;align-items:center;gap:6px;margin:0;"><span style="min-width:150px;">Tarjeta de la empresa</span><span id="wrapViTarjeta"></span></label>
+        <label style="display:flex;align-items:center;gap:6px;margin:0;"><span style="min-width:150px;">Dinero propio (reembolso)</span><span id="wrapViReemb"></span></label>
+        ${VIATICO_CATS.map(k=>`<label style="display:flex;align-items:center;gap:6px;margin:0;"><span style="min-width:150px;">${k[1]}</span><span id="wrapVi_${k[0]}"></span></label>`).join('')}
+    </div>
     <h3 style="font-size:0.95rem;margin:14px 0 6px;color:var(--primary-dark);">Plan de cuentas</h3>
     <p class="config-hint">Código, nombre, tipo y moneda (Mixta = admite cualquier moneda). Las cuentas marcadas como <strong>Título</strong> solo agrupan (por ejemplo 11 &middot; Efectivo y bancos agrupa a 1101, 1110&hellip;) y no admiten movimientos; el plan se ve en &aacute;rbol en Contabilidad &rarr; Finanzas &rarr; Plan de cuentas. Cambiar el código de una cuenta con movimientos deja huérfanos esos asientos: mejor agregar una cuenta nueva.</p>
     <div style="display:flex;gap:5px;font-size:0.66rem;color:var(--text-light);text-transform:uppercase;letter-spacing:.5px;padding:0 0 4px 24px;"><span style="width:80px;">Código</span><span style="flex:1;">Nombre</span><span style="width:130px;">Tipo</span><span style="width:90px;">Moneda</span><span style="width:64px;"></span><span style="width:24px;"></span></div>
@@ -7230,6 +7305,7 @@ function renderConfigContabilidad(){
     put('wrapPlSal','cfgMapPlSal',mp.planilla.salarios,gastos);put('wrapPlCar','cfgMapPlCar',mp.planilla.cargas,gastos);put('wrapPlCcss','cfgMapPlCcss',mp.planilla.ccssPorPagar,pasivos);put('wrapPlRenta','cfgMapPlRenta',mp.planilla.rentaPorPagar,pasivos);put('wrapPlOtras','cfgMapPlOtras',mp.planilla.otrasDedPorPagar,pasivos);put('wrapPlNeto','cfgMapPlNeto',mp.planilla.salariosPorPagar,pasivos);
     put('wrapDifG','cfgMapDifG',mp.difCambGanancia,ingresos);put('wrapDifP','cfgMapDifP',mp.difCambPerdida,gastos);
     put('wrapIvaP','cfgMapIvaP',mp.ivaPorPagar,pasivos);put('wrapIvaR','cfgMapIvaR',mp.ivaPorRecuperar,activos);
+    put('wrapViTarjeta','cfgMapViTarjeta',mp.viaticos.tarjeta,pasivos);put('wrapViReemb','cfgMapViReemb',mp.viaticos.reembolsar,pasivos);VIATICO_CATS.forEach(k=>put('wrapVi_'+k[0],'cfgMapVi_'+k[0],mp.viaticos[k[0]],['gasto','costo']));
     initDrag(pane.querySelector('#cfgContaCuentasList'));
 }
 
@@ -7321,7 +7397,7 @@ function openContaDocModal(o){
         <div class="form-row"><div class="form-group"><label>Moneda</label><select id="cdMoneda" onchange="_cdTC()"><option value="USD"${(v&&v.cobranza&&v.cobranza.moneda==='USD')||(!v&&tipo==='factura')?' selected':''}>Dólares ($)</option><option value="CRC"${(v&&v.cobranza&&v.cobranza.moneda==='CRC')||(!v&&tipo==='gasto')?' selected':''}>Colones (₡)</option><option value="EUR"${(v&&v.cobranza&&v.cobranza.moneda==='EUR')?' selected':''}>Euros (€)</option></select></div><div class="form-group"><label>Monto</label><input type="number" step="0.01" id="cdMonto" oninput="_cdTotal()"></div><div class="form-group"><label>Tipo de cambio</label><input type="number" step="0.01" id="cdTC" oninput="_cdTotal()"></div></div>
         <div id="cdTotal" style="font-size:0.8rem;color:var(--text-light);margin:-4px 0 10px;"></div>
         <div class="form-row"><div class="form-group"><label>IVA acreditable incluido</label><select id="cdIva" onchange="_cdTotal()"><option value="0">Sin IVA acreditable</option><option value="13">13 % (tarifa general)</option><option value="4">4 %</option><option value="2">2 %</option><option value="1">1 %</option></select><div style="font-size:0.72rem;color:var(--text-light);margin-top:2px;">Solo si el contador acredita ese IVA. El monto ingresado es el total con IVA; se separa solo.</div></div><div class="form-group"><label>Centro de costo</label>${_contaSelectCentro('cdCentro',o.centro||'')}<div style="font-size:0.72rem;color:var(--text-light);margin-top:2px;">Autom&aacute;tico: la l&iacute;nea de negocio de la venta, o Administraci&oacute;n.</div></div></div>
-        <div class="form-row"><div class="form-group"><label>Cuenta de ${tipo==='factura'?'costo o gasto':'gasto'}</label>${_contaSelectCuentas('cdCuentaGasto',tipo==='factura'?'5101':'6290',['costo','gasto'])}</div>${tipo==='factura'?`<div class="form-group"><label>Cuenta por pagar</label>${_contaSelectCuentas('cdCuentaCxP','2105',['pasivo'])}</div>`:`<div class="form-group"><label>Pagado desde</label>${_contaSelectCuentas('cdCuentaBanco','1110',['activo'])}</div>`}</div>
+        <div class="form-row"><div class="form-group"><label>Cuenta de ${tipo==='factura'?'costo o gasto':'gasto'}</label>${_contaSelectCuentas('cdCuentaGasto',tipo==='factura'?'5101':'6290',['costo','gasto'])}</div>${tipo==='factura'?`<div class="form-group"><label>Cuenta por pagar</label>${_contaSelectCuentas('cdCuentaCxP','2105',['pasivo'])}</div>`:`<div class="form-group"><label>Pagado desde</label>${_contaSelectBancos('cdCuentaBanco','1110')}</div>`}</div>
         <div class="form-group"><label>Comprobante (imagen o PDF, opcional)</label><input type="file" id="cdAdjunto" accept="image/*,application/pdf" onchange="_cdAdjuntoChange(this)"><div id="cdAdjuntoInfo" style="font-size:0.74rem;color:var(--text-light);"></div></div>
     </div>
     <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modalContaDoc')">Cancelar</button><button class="btn btn-success" onclick="guardarContaDoc()">Registrar</button></div></div>`;
@@ -7451,16 +7527,20 @@ function renderCobCostos(){
 
 // ===== CONTABILIDAD fase 3: pantalla Bancos =====
 let _bcoCuenta='',_bcoFiltro='pendiente';
-function _contaCuentasBancarias(){return contaCfg().cuentas.filter(c=>c.tipo==='activo'&&/^11/.test(c.codigo));}
+// Cuentas conciliables: bancos y cajas (activo 11xx) + la tarjeta de crédito de la empresa (pasivo)
+function _contaCuentasBancarias(){const tj=contaCfg().mapeo.viaticos.tarjeta;return contaCfg().cuentas.filter(c=>!c.titulo&&((c.tipo==='activo'&&/^11/.test(c.codigo))||c.codigo===tj));}
+function _contaSelectBancos(id,valor){const cs=_contaCuentasBancarias();return `<select id="${id}">${cs.map(c=>`<option value="${esc(c.codigo)}"${c.codigo===valor?' selected':''}>${esc(c.codigo+' · '+c.nombre)}</option>`).join('')}</select>`;}
 function _contaBancosHtml(p){
     const ctas=_contaCuentasBancarias();if(!_bcoCuenta&&ctas.length)_bcoCuenta=ctas[0].codigo;
     const cta=contaCuenta(_bcoCuenta);const r=_contaRangoPeriodo(p);const puedeReg=tienePermiso('contabilidad.registrar');
-    const sel=`<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">
+    let sel=`<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">
         <label style="font-size:0.78rem;color:var(--text-light);">Cuenta</label><select onchange="_bcoCuenta=this.value;renderContabilidad()" style="min-width:220px;">${ctas.map(c=>`<option value="${esc(c.codigo)}"${c.codigo===_bcoCuenta?' selected':''}>${esc(c.codigo+' · '+c.nombre+(c.moneda?' ('+c.moneda+')':''))}</option>`).join('')}</select>
         ${puedeReg?`<label class="btn btn-sm btn-primary" style="cursor:pointer;">&#128229; Importar extracto<input type="file" accept=".xls,.xlsx,.csv,.html,.htm" style="display:none;" onchange="contaImportarArchivo(this)"></label><button class="btn btn-sm btn-ghost" onclick="contaEmparejarUI(false)" title="Busca en los libros el asiento de cada movimiento pendiente">&#8646; Emparejar</button><button class="btn btn-sm btn-ghost" onclick="contaEmparejarUI(true)" title="Concilia de una vez los movimientos con un único candidato">&#10003; Confirmar todo lo seguro</button>`:''}
         <select onchange="_bcoFiltro=this.value;renderContabilidad()" style="padding:4px 8px;"><option value="pendiente"${_bcoFiltro==='pendiente'?' selected':''}>Pendientes</option><option value="periodo"${_bcoFiltro==='periodo'?' selected':''}>Del período ${p}</option><option value="todas"${_bcoFiltro==='todas'?' selected':''}>Todas</option></select>
         <span style="flex:1;"></span><button class="btn btn-sm btn-ghost" onclick="contaExportarBancos()">&#128196; Exportar a Excel</button></div>`;
     if(!cta)return sel+'<div class="grid-empty"><h3>Sin cuentas bancarias</h3><p>Agregá cuentas de activo con código 11xx en Configuración → Contabilidad.</p></div>';
+    const avisoTj=cta.tipo==='pasivo'?'<div style="background:#eef6f7;border-radius:8px;padding:6px 12px;font-size:0.78rem;margin-bottom:10px;">&#128179; Estado de cuenta de la <strong>tarjeta de la empresa</strong>: cada compra del estado se empareja con el asiento de la liquidaci&oacute;n de vi&aacute;ticos aprobada (o con un gasto registrado desde esa tarjeta); los pagos a la tarjeta se emparejan con el traspaso desde el banco.</div>':'';
+    sel=sel+avisoTj;
     const rep=contaReporteConciliacion(_bcoCuenta,r.hasta);
     const m=cta.moneda||'CRC';const F=n=>_contaFmtOrig(n,m);
     const ok=rep.diferencia!=null&&Math.abs(rep.diferencia)<0.01;
@@ -14959,7 +15039,7 @@ window.onUserReady=async function(user){
         // Cargar datos desde Firestore antes de inicializar la app
         await loadAllFromFirestore();
         init();
-        try{generarNotificacionesViajesProximos();}catch(e){console.error('[notif viajes]',e);}try{generarNotificacionesHitos();}catch(e){console.error('[notif hitos]',e);}
+        try{generarNotificacionesViajesProximos();}catch(e){console.error('[notif viajes]',e);}try{generarNotificacionesHitos();}catch(e){console.error('[notif hitos]',e);}try{generarNotificacionesViaticos();}catch(e){console.error('[notif viaticos]',e);}
         try{generarTareasAutomaticas();}catch(e){console.error('[tareas auto]',e);}
     }
     // Activar control de inactividad (auto-logout)
