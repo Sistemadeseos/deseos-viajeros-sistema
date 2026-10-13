@@ -5088,10 +5088,25 @@ function _rrhhColillaRenderPeriodoCampos(){
     box.innerHTML=html;
 }
 
+// Filtros de la lista de colillas (se recuerdan mientras dure la sesión)
+let _rrhhColFiltro={emp:'',estado:'',mes:'',desde:'',hasta:'',tipo:'',q:'',agrupar:true};
+function _rrhhColillasFiltradas(){
+    const f=_rrhhColFiltro;const q=normalizarParaMatch(f.q||'');
+    return getRrhhColillas().filter(c=>c&&(!f.emp||c.empleadoId===f.emp||c.empleadoNombre===f.emp)&&(!f.estado||(c.estado||'borrador')===f.estado)&&(!f.tipo||c.periodoTipo===f.tipo)&&(!f.mes||String(c.fechaPago||'').slice(0,7)===f.mes)&&(!f.desde||String(c.fechaPago||'')>=f.desde)&&(!f.hasta||String(c.fechaPago||'')<=f.hasta)&&(!q||normalizarParaMatch([c.empleadoNombre,_rrhhColillaPeriodoTexto(c),c.periodoEtiqueta,c.notas].join(' ')).includes(q)))
+        .sort((a,b)=>String(b.fechaPago||b.periodoHasta||'').localeCompare(String(a.fechaPago||a.periodoHasta||''))||(num(b.creadaTs)-num(a.creadaTs)));
+}
+function rrhhColFiltroSet(k,v){_rrhhColFiltro[k]=v;if(k==='mes'&&v){_rrhhColFiltro.desde='';_rrhhColFiltro.hasta='';}if((k==='desde'||k==='hasta')&&v)_rrhhColFiltro.mes='';renderRrhh();}
+function rrhhColFiltroLimpiar(){_rrhhColFiltro={emp:'',estado:'',mes:'',desde:'',hasta:'',tipo:'',q:'',agrupar:_rrhhColFiltro.agrupar};renderRrhh();}
+function rrhhExportarColillas(){
+    const rows=_rrhhColillasFiltradas().map(c=>({'Empleado':c.empleadoNombre||'','Período':_rrhhColillaPeriodoTexto(c),'Tipo':_RRHH_PERIODO_LABEL[c.periodoTipo]||c.periodoTipo||'','Fecha de pago':c.fechaPago||'','Bruto':Math.round(num(c.brutoTotal)),'Deducciones':Math.round(num(c.totalDeducciones)),'Neto':Math.round(num(c.neto)),'Estado':(c.estado||'borrador')==='emitida'?'Emitida':'Borrador'}));
+    if(!rows.length){alert('No hay colillas con esos filtros.');return;}
+    const ws=XLSX.utils.json_to_sheet(rows);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Colillas');XLSX.writeFile(wb,'Colillas'+(_rrhhColFiltro.mes?'_'+_rrhhColFiltro.mes:'')+'.xlsx');
+}
 function _renderRrhhColillas(){
     const puedeEditar=tienePermiso('rrhh.colillas.gestionar');
     const emp=getRrhhEmpleados();
-    const colillas=getRrhhColillas().slice().sort((a,b)=>String(b.periodoHasta||'').localeCompare(String(a.periodoHasta||''))||(num(b.creadaTs)-num(a.creadaTs)));
+    const todas=getRrhhColillas();
+    const colillas=_rrhhColillasFiltradas();
     let html=`<p class="config-hint">Generá la colilla de pago de cada empleado para un período. El sistema calcula las deducciones de CCSS y del impuesto sobre la renta con los parámetros vigentes a la fecha de pago. Revisá siempre los montos antes de entregar.</p>`;
     if(!emp.length){
         html+=`<p style="font-size:0.82rem;color:var(--text-light);font-style:italic;background:var(--bg);padding:14px;border-radius:6px;">Primero registrá empleados en la pestaña <strong>Empleados</strong>.</p>`;
@@ -5101,21 +5116,43 @@ function _renderRrhhColillas(){
         html+=`<div style="background:#fff3cd;border:1px solid #ffd966;border-radius:8px;padding:9px 13px;margin-bottom:12px;font-size:0.76rem;color:#7a5c00;">No cargaste parámetros de nómina: se usarán valores de referencia por defecto. Para mayor exactitud, agregá una versión en la pestaña <strong>Parámetros de nómina</strong>.</div>`;
     }
     if(puedeEditar)html+=`<div style="margin-bottom:12px;"><button class="btn btn-sm btn-accent" onclick="openRrhhColillaModal('')">+ Generar colilla</button></div>`;
-    if(!colillas.length){
+    if(!todas.length){
         html+=`<p style="font-size:0.82rem;color:var(--text-light);font-style:italic;background:var(--bg);padding:14px;border-radius:6px;">Todavía no hay colillas generadas.${puedeEditar?' Generá la primera con el botón de arriba.':''}</p>`;
         return html;
     }
+    // Barra de filtros
+    const f=_rrhhColFiltro;const inp='padding:5px 8px;font-size:0.8rem;border:1px solid var(--border);border-radius:6px;';
+    const nombres=Array.from(new Set(todas.map(c=>c.empleadoNombre).filter(Boolean))).sort();
+    const meses=Array.from(new Set(todas.map(c=>String(c.fechaPago||'').slice(0,7)).filter(Boolean))).sort().reverse();
+    const hayFiltro=f.emp||f.estado||f.mes||f.desde||f.hasta||f.tipo||f.q;
+    html+=`<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;background:var(--bg);border-radius:8px;padding:10px 12px;margin-bottom:10px;">
+        <label style="margin:0;font-size:0.66rem;display:flex;flex-direction:column;gap:3px;">Colaborador<select style="${inp}min-width:170px;" onchange="rrhhColFiltroSet('emp',this.value)"><option value="">Todos</option>${nombres.map(n=>`<option value="${esc(n)}"${f.emp===n?' selected':''}>${esc(n)}</option>`).join('')}</select></label>
+        <label style="margin:0;font-size:0.66rem;display:flex;flex-direction:column;gap:3px;">Mes de pago<select style="${inp}" onchange="rrhhColFiltroSet('mes',this.value)"><option value="">Todos</option>${meses.map(m=>`<option value="${m}"${f.mes===m?' selected':''}>${esc(labelMes(m))}</option>`).join('')}</select></label>
+        <label style="margin:0;font-size:0.66rem;display:flex;flex-direction:column;gap:3px;">Pago desde<input type="date" style="${inp}" value="${esc(f.desde)}" onchange="rrhhColFiltroSet('desde',this.value)"></label>
+        <label style="margin:0;font-size:0.66rem;display:flex;flex-direction:column;gap:3px;">Hasta<input type="date" style="${inp}" value="${esc(f.hasta)}" onchange="rrhhColFiltroSet('hasta',this.value)"></label>
+        <label style="margin:0;font-size:0.66rem;display:flex;flex-direction:column;gap:3px;">Tipo<select style="${inp}" onchange="rrhhColFiltroSet('tipo',this.value)"><option value="">Todos</option>${Object.keys(_RRHH_PERIODO_LABEL).map(k=>`<option value="${k}"${f.tipo===k?' selected':''}>${_RRHH_PERIODO_LABEL[k]}</option>`).join('')}</select></label>
+        <label style="margin:0;font-size:0.66rem;display:flex;flex-direction:column;gap:3px;">Estado<select style="${inp}" onchange="rrhhColFiltroSet('estado',this.value)"><option value="">Todos</option><option value="emitida"${f.estado==='emitida'?' selected':''}>Emitida</option><option value="borrador"${f.estado==='borrador'?' selected':''}>Borrador</option></select></label>
+        <label style="margin:0;font-size:0.66rem;display:flex;flex-direction:column;gap:3px;">Buscar<input type="text" placeholder="Nombre, per\u00edodo, nota\u2026" style="${inp}min-width:160px;" value="${esc(f.q)}" onchange="rrhhColFiltroSet('q',this.value)"></label>
+        <label style="margin:0 0 6px;font-size:0.76rem;display:flex;align-items:center;gap:4px;text-transform:none;letter-spacing:0;"><input type="checkbox" ${f.agrupar?'checked':''} onchange="_rrhhColFiltro.agrupar=this.checked;renderRrhh()"> Agrupar por mes</label>
+        ${hayFiltro?`<button class="btn btn-sm btn-ghost" onclick="rrhhColFiltroLimpiar()">&times; Limpiar</button>`:''}
+        <span style="flex:1;"></span><button class="btn btn-sm btn-ghost" onclick="rrhhExportarColillas()">&#128196; Excel</button></div>`;
+    const tB=colillas.reduce((s,c)=>s+num(c.brutoTotal),0),tD=colillas.reduce((s,c)=>s+num(c.totalDeducciones),0),tN=colillas.reduce((s,c)=>s+num(c.neto),0);
+    html+=`<div style="display:flex;gap:14px;flex-wrap:wrap;font-size:0.8rem;margin-bottom:8px;"><span><strong>${colillas.length}</strong> colilla${colillas.length===1?'':'s'}${hayFiltro?' (de '+todas.length+')':''}</span><span>Bruto: <strong>${fmtCRC(tB)}</strong></span><span>Deducciones: <strong style="color:var(--danger);">-${fmtCRC(tD)}</strong></span><span>Neto: <strong>${fmtCRC(tN)}</strong></span>${f.emp&&colillas.length?`<span style="color:var(--text-light);">Promedio neto: ${fmtCRC(tN/colillas.length)}</span>`:''}</div>`;
+    if(!colillas.length){html+=`<p style="font-size:0.82rem;color:var(--text-light);font-style:italic;background:var(--bg);padding:14px;border-radius:6px;">Ninguna colilla coincide con los filtros.</p>`;return html;}
     html+=`<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:0.8rem;">
         <thead><tr style="text-align:left;border-bottom:2px solid var(--border);color:var(--text-light);text-transform:uppercase;font-size:0.68rem;letter-spacing:0.4px;">
             <th style="padding:7px 8px;">Empleado</th><th style="padding:7px 8px;">Período</th><th style="padding:7px 8px;">Pago</th><th style="padding:7px 8px;text-align:right;">Bruto</th><th style="padding:7px 8px;text-align:right;">Deducciones</th><th style="padding:7px 8px;text-align:right;">Neto</th><th style="padding:7px 8px;text-align:center;">Estado</th><th style="padding:7px 8px;text-align:right;">Acciones</th>
         </tr></thead><tbody>`;
+    let mesAnt='';
     html+=colillas.map(c=>{
+        let cab='';
+        if(_rrhhColFiltro.agrupar){const m=String(c.fechaPago||'').slice(0,7);if(m!==mesAnt){mesAnt=m;const del=colillas.filter(x=>String(x.fechaPago||'').slice(0,7)===m);cab=`<tr style="background:var(--bg);"><td colspan="3" style="padding:6px 8px;font-weight:700;">${esc(m?labelMes(m):'Sin fecha de pago')} <span style="font-weight:400;color:var(--text-light);font-size:0.74rem;">· ${del.length} colilla${del.length===1?'':'s'}</span></td><td style="padding:6px 8px;text-align:right;font-weight:600;">${fmtCRC(del.reduce((s,x)=>s+num(x.brutoTotal),0))}</td><td style="padding:6px 8px;text-align:right;font-weight:600;color:var(--danger);">-${fmtCRC(del.reduce((s,x)=>s+num(x.totalDeducciones),0))}</td><td style="padding:6px 8px;text-align:right;font-weight:700;">${fmtCRC(del.reduce((s,x)=>s+num(x.neto),0))}</td><td colspan="2"></td></tr>`;}}
         const emitida=(c.estado||'borrador')==='emitida';
         const estadoTag=emitida?'<span style="color:var(--success);font-weight:700;">Emitida</span>':'<span style="color:#b8860b;font-weight:700;">Borrador</span>';
         const acciones=`<td style="padding:6px 8px;text-align:right;white-space:nowrap;">
             <button class="btn btn-sm btn-ghost" style="padding:3px 8px;" onclick="verColillaDocumento('${c.id}')">Ver / Imprimir</button>
             ${puedeEditar?`<button class="btn btn-sm btn-ghost" style="padding:3px 8px;" onclick="openRrhhColillaModal('${c.id}')">Editar</button><button class="btn-icon remove" title="Eliminar" onclick="eliminarRrhhColilla('${c.id}')">&times;</button>`:''}</td>`;
-        return `<tr style="border-bottom:1px solid var(--border);">
+        return cab+`<tr style="border-bottom:1px solid var(--border);">
             <td style="padding:6px 8px;font-weight:600;">${esc(c.empleadoNombre||'—')}</td>
             <td style="padding:6px 8px;font-size:0.74rem;">${esc(_rrhhColillaPeriodoTexto(c))}<br><span style="color:var(--text-light);">${esc(_RRHH_PERIODO_LABEL[c.periodoTipo]||c.periodoTipo||'')}</span></td>
             <td style="padding:6px 8px;">${fmtFechaCorta(c.fechaPago)}</td>
