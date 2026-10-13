@@ -1619,8 +1619,8 @@ onAuthStateChanged(fbAuth, (user) => {
 <div class="modal-overlay" id="modalChecklist"><div class="modal" style="max-width:660px;"><div class="modal-header"><h3 id="modalChecklistTitulo">Checklist</h3><button class="modal-close" onclick="closeModal('modalChecklist')">&times;</button></div><div class="modal-body">
     <input type="hidden" id="clVentaId">
     <div class="form-group" style="margin-bottom:12px;"><label>Estado de la venta</label><select id="clEstado" onchange="updateVentaEstado()"><option value="pendiente">Pendiente</option><option value="en_proceso">En proceso</option><option value="completada">Completada</option><option value="cancelada">Cancelada</option></select></div>
-    <div class="form-row" style="margin-bottom:8px;"><div class="form-group" style="margin:0;"><label>Aerol&iacute;nea</label><select id="clAerolinea" onchange="clVueloChange()"></select></div><div class="form-group" style="margin:0;"><label>Hora del vuelo de ida</label><input type="time" id="clHoraVuelo" onchange="clVueloChange()"></div></div>
-    <div class="form-row" style="margin-bottom:8px;" id="clRegresoRow"><div class="form-group" style="margin:0;"><label>Aerol&iacute;nea de regreso</label><select id="clAerolineaRegreso" onchange="clVueloChange()"></select></div><div class="form-group" style="margin:0;"><label>Hora del vuelo de regreso</label><input type="time" id="clHoraVueloRegreso" onchange="clVueloChange()"></div></div>
+    <div class="form-row" style="margin-bottom:8px;"><div class="form-group" style="margin:0;"><label>Aerol&iacute;nea</label><select id="clAerolinea" onchange="aerolineaOtra(this);clVueloChange()"></select></div><div class="form-group" style="margin:0;"><label>Hora del vuelo de ida</label><input type="time" id="clHoraVuelo" onchange="clVueloChange()"></div></div>
+    <div class="form-row" style="margin-bottom:8px;" id="clRegresoRow"><div class="form-group" style="margin:0;"><label>Aerol&iacute;nea de regreso</label><select id="clAerolineaRegreso" onchange="aerolineaOtra(this);clVueloChange()"></select></div><div class="form-group" style="margin:0;"><label>Hora del vuelo de regreso</label><input type="time" id="clHoraVueloRegreso" onchange="clVueloChange()"></div></div>
     <div id="clVuelosExtra" style="display:none;"></div>
     <p style="font-size:0.7rem;color:var(--text-light);margin:0 0 8px;">Eleg&iacute; la aerol&iacute;nea (o "Sin vuelo") y la hora del vuelo: con eso se calcula el check-in. Las fechas calculadas son <em>sugeridas</em>: hay que revisarlas una por una (cambiarlas o marcar "Revisada"). Los hitos con <span style="color:#a32d2d;">*</span> son obligatorios.</p>
     <div id="clHitosAviso" style="display:none;font-size:0.76rem;padding:6px 10px;border-radius:6px;background:#fcebeb;color:#a32d2d;margin-bottom:8px;"></div>
@@ -1774,8 +1774,8 @@ onAuthStateChanged(fbAuth, (user) => {
         <div id="veAcompContainer" style="display:none;margin-bottom:10px;"><label style="display:block;font-weight:600;font-size:0.78rem;color:var(--text-light);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.5px;">Nombres de acompa&ntilde;antes</label><div id="veAcompList" style="display:flex;flex-direction:column;gap:5px;"></div></div>
         <div class="form-group"><label style="display:flex;align-items:center;gap:8px;">Plan de pago <button type="button" class="btn btn-sm btn-ghost" style="font-size:0.7rem;padding:3px 8px;" onclick="distribuirPlanPagoVe()" title="Divide el monto total en partes iguales">Distribuir total</button></label><p style="font-size:0.7rem;color:var(--text-light);margin-top:0;margin-bottom:6px;">Una fila por mes desde la fecha de la venta hasta la fecha de inicio del viaje.</p><div id="vePlanPagoBox"></div></div>
         <div class="form-group"><label>Fechas importantes <span style="font-weight:400;font-size:0.7rem;color:var(--text-light);text-transform:none;letter-spacing:0;">(las fechas son sugeridas: revisalas una por una. Las marcadas con <span style="color:#a32d2d;">*</span> son obligatorias)</span></label>
-            <div class="form-row"><div class="form-group" style="margin-bottom:6px;"><label style="font-size:0.68rem;">Aerol&iacute;nea</label><select id="veAerolinea" onchange="veVueloChange()"></select></div><div class="form-group" style="margin-bottom:6px;"><label style="font-size:0.68rem;">Hora del vuelo de ida</label><input type="time" id="veHoraVuelo" onchange="veVueloChange()"></div></div>
-            <div class="form-row" id="veRegresoRow"><div class="form-group" style="margin-bottom:6px;"><label style="font-size:0.68rem;">Aerol&iacute;nea de regreso</label><select id="veAerolineaRegreso" onchange="veVueloChange()"></select></div><div class="form-group" style="margin-bottom:6px;"><label style="font-size:0.68rem;">Hora del vuelo de regreso</label><input type="time" id="veHoraVueloRegreso" onchange="veVueloChange()"></div></div>
+            <div class="form-row"><div class="form-group" style="margin-bottom:6px;"><label style="font-size:0.68rem;">Aerol&iacute;nea</label><select id="veAerolinea" onchange="aerolineaOtra(this);veVueloChange()"></select></div><div class="form-group" style="margin-bottom:6px;"><label style="font-size:0.68rem;">Hora del vuelo de ida</label><input type="time" id="veHoraVuelo" onchange="veVueloChange()"></div></div>
+            <div class="form-row" id="veRegresoRow"><div class="form-group" style="margin-bottom:6px;"><label style="font-size:0.68rem;">Aerol&iacute;nea de regreso</label><select id="veAerolineaRegreso" onchange="aerolineaOtra(this);veVueloChange()"></select></div><div class="form-group" style="margin-bottom:6px;"><label style="font-size:0.68rem;">Hora del vuelo de regreso</label><input type="time" id="veHoraVueloRegreso" onchange="veVueloChange()"></div></div>
             <div id="veVuelosExtra" style="display:none;"></div>
             <div id="veHitosBox"></div>
         </div>
@@ -1853,8 +1853,11 @@ const defaultAerolineas=[
     {nombre:'Volaris',horasCheckin:72},{nombre:'LATAM',horasCheckin:48},{nombre:'Iberia',horasCheckin:24},
     {nombre:'Air France',horasCheckin:30},{nombre:'KLM',horasCheckin:30},{nombre:'Lufthansa',horasCheckin:23},
     {nombre:'British Airways',horasCheckin:24},{nombre:'Turkish Airlines',horasCheckin:24},{nombre:'Arajet',horasCheckin:24},
-    {nombre:'Sansa',horasCheckin:24}
+    {nombre:'Sansa',horasCheckin:24},{nombre:'Iberojet',horasCheckin:24},{nombre:'Wingo',horasCheckin:24}
 ];
+// Aerolíneas agregadas después del lanzamiento: se suman a las listas ya guardadas si faltan
+const AEROLINEAS_NUEVAS=['Iberojet','Wingo'];
+function _normAerolineas(arr){const lista=(Array.isArray(arr)&&arr.length)?arr.slice():defaultAerolineas.slice();AEROLINEAS_NUEVAS.forEach(n=>{if(!lista.some(a=>a&&normalizarParaMatch(a.nombre||'')===normalizarParaMatch(n))){const d=defaultAerolineas.find(a=>a.nombre===n);if(d)lista.push(Object.assign({},d));}});return lista;}
 const SUPERVISOR_EMAIL_DEFAULT='miladyzuniga@deseosviajeros.com';
 const HITO_REGLAS=[['checkin','Check-in de ida (según aerolínea)'],['checkin_regreso','Check-in de regreso (según aerolínea)'],['antes_salida','Días antes de la salida'],['antes_regreso','Días antes del regreso'],['venta','Días después de la venta'],['sin_fecha','Sin fecha']];
 function _normHitos(h,checklist){
@@ -3462,7 +3465,7 @@ function cfgGet(){
         navieras: c.navieras || defaultNavieras,
         checklist: c.checklist || defaultChecklistItems,
         hitos: _normHitos(c.hitos, c.checklist),
-        aerolineas: (Array.isArray(c.aerolineas)&&c.aerolineas.length) ? c.aerolineas : defaultAerolineas,
+        aerolineas: _normAerolineas(c.aerolineas),
         supervisorEmail: c.supervisorEmail || SUPERVISOR_EMAIL_DEFAULT,
         contaCuentas: _normContaCuentas(c.contaCuentas),
         contaMapeo: _normContaMapeo(c.contaMapeo),
@@ -12384,9 +12387,20 @@ function _aerolineaHoras(nombre){if(!nombre)return 24;const n=normalizarParaMatc
 function _aerolineaOptionsHtml(sel,sinVuelo){
     const lista=(cfgGet().aerolineas||[]).map(a=>a&&a.nombre).filter(Boolean);
     if(sel&&!lista.includes(sel))lista.push(sel);
-    return '<option value="">-- Elegir --</option><option value="'+SIN_VUELO+'"'+(sinVuelo?' selected':'')+'>Sin vuelo (solo hotel / traslados / otros)</option>'+lista.map(n=>`<option value="${esc(n)}"${(!sinVuelo&&n===sel)?' selected':''}>${esc(n)}</option>`).join('');
+    return '<option value="">-- Elegir --</option><option value="'+SIN_VUELO+'"'+(sinVuelo?' selected':'')+'>Sin vuelo (solo hotel / traslados / otros)</option>'+lista.map(n=>`<option value="${esc(n)}"${(!sinVuelo&&n===sel)?' selected':''}>${esc(n)}</option>`).join('')+'<option value="__otra">Otra\u2026 (escribir el nombre)</option>';
 }
-function _aerolineaRegresoOptionsHtml(sel){const lista=(cfgGet().aerolineas||[]).map(a=>a&&a.nombre).filter(Boolean);if(sel&&!lista.includes(sel))lista.push(sel);return '<option value="">Misma que la ida</option>'+lista.map(n=>`<option value="${esc(n)}"${n===sel?' selected':''}>${esc(n)}</option>`).join('');}
+// "Otra…": pide el nombre, lo agrega a Configuración (check-in 24 h, editable) y lo deja elegido en el select. Devuelve true si quedó una aerolínea.
+function aerolineaOtra(sel){
+    if(!sel||sel.value!=='__otra')return true;
+    const nombre=(prompt('Nombre de la aerolínea:','')||'').trim();
+    if(!nombre){sel.value='';return false;}
+    const lista=cfgGet().aerolineas||[];const ya=lista.find(a=>a&&normalizarParaMatch(a.nombre||'')===normalizarParaMatch(nombre));
+    const final=ya?ya.nombre:nombre;
+    if(!ya){const c=getConfig();c.aerolineas=lista.concat([{nombre,horasCheckin:24}]);saveConfig(c);}
+    if(!Array.from(sel.options).some(o=>o.value===final)){const o=document.createElement('option');o.value=final;o.textContent=final;sel.insertBefore(o,sel.lastElementChild);}
+    sel.value=final;return true;
+}
+function _aerolineaRegresoOptionsHtml(sel){const lista=(cfgGet().aerolineas||[]).map(a=>a&&a.nombre).filter(Boolean);if(sel&&!lista.includes(sel))lista.push(sel);return '<option value="">Misma que la ida</option>'+lista.map(n=>`<option value="${esc(n)}"${n===sel?' selected':''}>${esc(n)}</option>`).join('')+'<option value="__otra">Otra\u2026 (escribir el nombre)</option>';}
 function _hitoNuevoDesdeCfg(h,i){return {id:Date.now()+'_'+i,texto:h.texto,completado:false,fecha:'',hora:'',regla:h.regla||'sin_fecha',dias:parseInt(h.dias||0,10)||0,obligatorio:!!h.obligatorio,avisarDias:(h.avisarDias!=null&&h.avisarDias!=='')?h.avisarDias:null,revisado:false,revisadoPor:'',revisadoTs:''};}
 // Checklist inicial de una venta nueva (las fechas se calculan cuando se conocen las fechas del viaje)
 function crearChecklistVenta(){return (cfgGet().hitos||[]).map((h,i)=>_hitoNuevoDesdeCfg(h,i));}
