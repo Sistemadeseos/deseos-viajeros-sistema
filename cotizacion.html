@@ -442,6 +442,10 @@ body.conta-mode .app-header{background:linear-gradient(135deg,#0b3f4a,#027584)}
 .ventas-tab.active .vtab-count{background:var(--accent);color:white}
 .grupo-section{margin-bottom:18px;border:1px solid var(--border);border-radius:10px;overflow:hidden;background:white}
 .grupo-header{padding:12px 16px;background:linear-gradient(135deg,var(--primary-light),#fff);cursor:pointer;display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--border)}
+.grupo-pasado .grupo-header{background:linear-gradient(135deg,#eef1f3,#fff)}
+.grupo-pasado{border-color:#dde3e7}
+.grupo-resumen{display:inline-flex;gap:10px;flex-wrap:wrap;margin-left:10px;font-size:0.72rem;color:var(--text-light)}
+.grupo-resumen > span::before{content:'\00b7';margin-right:8px;opacity:.6}
 .grupo-header h4{font-family:'Playfair Display',serif;color:var(--primary-dark);font-size:1rem;margin:0;flex:1}
 .grupo-header .grupo-count{font-size:0.75rem;color:var(--text-light);font-weight:600}
 .grupo-header .toggle{font-size:0.7rem;color:var(--primary-dark);transition:transform 0.2s}
@@ -11067,17 +11071,39 @@ function crearVenta(cotEntry){
 }
 
 // ===== VENTAS GRUPALES =====
+// --- Grupos vigentes / pasados ---
+// Un grupo es "pasado" cuando su fin de viaje (ficha del grupo o, si no, la última fecha de fin de sus ventas) pasó hace más de GRUPO_PASADO_DIAS.
+// Sin ninguna fecha, se considera vigente (nunca desaparece por error).
+const GRUPO_PASADO_DIAS=7;
+function _grupoFechaFin(nombre,lista){
+    const g=nombre&&nombre!=='Sin grupo'?getGrupoByNombre(nombre):null;
+    const fg=g&&String(g.fechaFin||g.fechaInicio||'').slice(0,10);
+    if(fg)return fg;
+    return (lista||[]).map(v=>String(v.fechaFin||v.fechaInicio||'').slice(0,10)).filter(Boolean).sort().pop()||'';
+}
+function _grupoEsPasado(nombre,lista){const f=_grupoFechaFin(nombre,lista);if(!f)return false;return _diasEntreISO(f,_hitoHoyISO())>GRUPO_PASADO_DIAS;}
+let _grupVista=(function(){try{return localStorage.getItem('dv_grupos_vista')||'vigentes';}catch(e){return 'vigentes';}})();
+function setGrupVista(v){_grupVista=v;try{localStorage.setItem('dv_grupos_vista',v);}catch(e){}renderVentas();}
 function renderVentasGrupales(filtered,grid){
     // Agrupar por grupoNombre (vacios -> "Sin grupo")
     const grupos={};
     filtered.forEach(v=>{const g=(v.grupoNombre||'').trim()||'Sin grupo';if(!grupos[g])grupos[g]=[];grupos[g].push(v);});
-    const nombresOrden=Object.keys(grupos).sort((a,b)=>a.localeCompare(b));
+    const todosNombres=Object.keys(grupos);
+    const pasados=new Set(todosNombres.filter(g=>_grupoEsPasado(g,grupos[g])));
+    const nVig=todosNombres.length-pasados.size,nPas=pasados.size;
+    const vista=_grupVista;
+    let nombresOrden=todosNombres.filter(g=>vista==='todos'||(vista==='pasados'?pasados.has(g):!pasados.has(g)));
+    // Vigentes: por nombre. Pasados: del más reciente al más antiguo.
+    if(vista==='pasados')nombresOrden.sort((a,b)=>_grupoFechaFin(b,grupos[b]).localeCompare(_grupoFechaFin(a,grupos[a])));
+    else nombresOrden.sort((a,b)=>a.localeCompare(b));
+    const selector=`<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;"><div class="cal-seg"><button class="${vista==='vigentes'?'active':''}" onclick="setGrupVista('vigentes')">Vigentes <span style="opacity:.8;">${nVig}</span></button><button class="${vista==='pasados'?'active':''}" onclick="setGrupVista('pasados')">Pasados <span style="opacity:.8;">${nPas}</span></button><button class="${vista==='todos'?'active':''}" onclick="setGrupVista('todos')">Todos</button></div><span style="font-size:0.74rem;color:var(--text-light);">Un grupo pasa a &laquo;Pasados&raquo; ${GRUPO_PASADO_DIAS} d&iacute;as despu&eacute;s del fin del viaje (seg&uacute;n la ficha del grupo o las fechas de sus ventas).</span></div>`;
+    if(!nombresOrden.length){grid.innerHTML=selector+`<div class="grid-empty"><h3>${vista==='pasados'?'Sin grupos pasados':'Sin grupos vigentes'}</h3><p>${vista==='pasados'?'Los grupos aparecen ac\u00e1 '+GRUPO_PASADO_DIAS+' d\u00edas despu\u00e9s del fin del viaje.':'Los grupos que ya viajaron est\u00e1n en la vista \u00abPasados\u00bb.'}</p></div>`;return;}
     const estadoLabels={pendiente:'Pendiente',en_proceso:'En proceso',completada:'Completada',cancelada:'Cancelada'};
     const estadoColors={pendiente:'var(--accent)',en_proceso:'var(--primary)',completada:'var(--success)',cancelada:'var(--danger)'};
     // Grupos expandidos persistidos. Default: todos colapsados; el usuario expande lo que necesita.
     let expandedSet=new Set();
     try{const arr=JSON.parse(localStorage.getItem('dv_grupos_expanded')||'[]');if(Array.isArray(arr))expandedSet=new Set(arr);}catch(e){}
-    grid.innerHTML=nombresOrden.map(g=>{
+    grid.innerHTML=selector+nombresOrden.map(g=>{
         const lista=grupos[g];
         const totalMonto=lista.reduce((s,v)=>s+calcCobranzaStatus(v).total,0);
         const monedas=Array.from(new Set(lista.map(v=>v.cobranza&&v.cobranza.moneda||'USD')));
@@ -11104,9 +11130,15 @@ function renderVentasGrupales(filtered,grid){
         }).join('');
         const safeG=esc(g).replace(/'/g,"\\'");
         const accionesGrupo=g==='Sin grupo'?'':`<button class="btn btn-sm btn-ghost" onclick="event.stopPropagation();abrirFichaGrupo('${safeG}')" title="Ver ficha del grupo">&#128203; Ficha</button><button class="btn btn-sm btn-primary" onclick="event.stopPropagation();agregarClienteAlGrupo('${safeG}')" title="Agregar cliente a este grupo">+ Cliente</button>`;
-        const expandedNow=expandedSet.has(g);
+        const esPasado=pasados.has(g);
+        // En "Pasados" todo arranca colapsado; en las demás vistas se respeta lo que la usuaria dejó abierto
+        const expandedNow=esPasado?false:expandedSet.has(g);
         const collapsedClass=expandedNow?'':' collapsed';
-        return`<div class="grupo-section"><div class="grupo-header${collapsedClass}" data-grupo="${esc(g)}" onclick="toggleGrupoSection(this)"><h4>${esc(g)}</h4><span class="grupo-count">${lista.length} ${lista.length===1?'cliente':'clientes'} &middot; Total ${monedaTxt} ${totalMonto.toFixed(2)}</span><div class="grupo-actions" style="display:flex;gap:6px;">${accionesGrupo}</div><span class="toggle">&#9660;</span></div><div class="grupo-body${collapsedClass}"><table class="list-table"><thead><tr><th>Cliente</th><th>Encargada</th><th>Fechas</th><th>Cobranza</th><th>Checklist</th><th>Acciones</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+        const gi=g!=='Sin grupo'?(getGrupoByNombre(g)||{}):{};
+        const fFin=_grupoFechaFin(g,lista);const fIni=String(gi.fechaInicio||'').slice(0,10)||lista.map(v=>String(v.fechaInicio||'').slice(0,10)).filter(Boolean).sort()[0]||'';
+        const pagadoTot=lista.reduce((s,v)=>s+calcCobranzaStatus(v).pagado,0);const saldoTot=Math.max(0,totalMonto-pagadoTot);
+        const resumen=(gi.destino?`<span>${esc(gi.destino)}</span>`:'')+(fIni||fFin?`<span>${esc(fIni&&fFin&&fIni!==fFin?formatDateRange(fIni,fFin):formatFechaCorta(fFin||fIni)||(fFin||fIni))}</span>`:'')+(esPasado?`<span>Cobrado ${monedaTxt} ${pagadoTot.toFixed(2)}</span>${saldoTot>0.005?`<span style="color:#a32d2d;font-weight:700;">&#9888; Saldo ${monedaTxt} ${saldoTot.toFixed(2)}</span>`:'<span style="color:#0f6e56;">&#10003; Cobrado</span>'}`:'');
+        return`<div class="grupo-section${esPasado?' grupo-pasado':''}"><div class="grupo-header${collapsedClass}" data-grupo="${esc(g)}" onclick="toggleGrupoSection(this)"><h4>${esc(g)}${esPasado?' <span class="lt-badge" style="background:#eef1f3;color:#4d5c63;font-size:0.62rem;vertical-align:middle;">pasado</span>':''}</h4><span class="grupo-count">${lista.length} ${lista.length===1?'cliente':'clientes'} &middot; Total ${monedaTxt} ${totalMonto.toFixed(2)}${resumen?'<span class="grupo-resumen">'+resumen+'</span>':''}</span><div class="grupo-actions" style="display:flex;gap:6px;">${accionesGrupo}</div><span class="toggle">&#9660;</span></div><div class="grupo-body${collapsedClass}"><table class="list-table"><thead><tr><th>Cliente</th><th>Encargada</th><th>Fechas</th><th>Cobranza</th><th>Checklist</th><th>Acciones</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
     }).join('');
 }
 function toggleGrupoSection(h){
@@ -11245,7 +11277,9 @@ function abrirFichaGrupo(grupo){
         :`<p style="color:var(--text-light);font-size:0.78rem;font-style:italic;margin-bottom:8px;">Cargue "Cupos totales" en datos generales para calcular espacios sin vender. Viajeros cargados: <strong>${ocupados}</strong>.</p>`;
     const filasViajeros=viajeros.length?viajeros.map((p,i)=>`<tr><td style="text-align:center;color:var(--text-light);font-size:0.78rem;">${i+1}</td><td>${esc(p.nombre)}</td><td style="font-size:0.78rem;color:${p.rol==='Titular'?'var(--primary-dark)':'var(--text-light)'};font-weight:${p.rol==='Titular'?'600':'400'};">${esc(p.rol)}</td></tr>`).join(''):`<tr><td colspan="3" style="text-align:center;color:var(--text-light);font-style:italic;">Sin viajeros cargados.</td></tr>`;
     const viajerosTabla=`<details class="ficha-collapse"><summary>Ver lista de viajeros (${viajeros.length})</summary><table class="list-table" style="margin-top:6px;"><thead><tr><th style="width:40px;">#</th><th>Nombre</th><th>Rol</th></tr></thead><tbody>${filasViajeros}</tbody></table></details>`;
-    document.getElementById('fichaGrupoBody').innerHTML=`<p style="color:var(--text-light);font-size:0.82rem;margin-bottom:10px;">${ventas.length} ${ventas.length===1?'cliente titular':'clientes titulares'} en este grupo · ${viajeros.length} ${viajeros.length===1?'viajero':'viajeros'} en total.</p><h4 class="ficha-h">Datos generales del grupo</h4>${generalHtml}<h4 class="ficha-h">Cupos y viajeros</h4>${cuposBlock}${viajerosTabla}<h4 class="ficha-h">Totales</h4>${totalesHtml||'<p style="color:var(--text-light);">Sin montos cargados.</p>'}<h4 class="ficha-h">Estado de pago</h4>${fichaPagosHtml}<h4 class="ficha-h">Estado de la venta</h4>${fichaEstHtml}<h4 class="ficha-h">Detalle por cliente</h4>${tablaHtml}`;
+    const pasadoG=_grupoEsPasado(grupo,ventas);const abiertas=ventas.filter(v=>v.estado!=='completada'&&v.estado!=='cancelada');
+    const cerrarHtml=(pasadoG&&abiertas.length&&tienePermiso('ventas.crear_editar'))?`<div style="background:#eef1f3;border-radius:8px;padding:8px 12px;font-size:0.8rem;margin-bottom:10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;"><span>Este grupo ya viaj&oacute;. ${abiertas.length} venta${abiertas.length===1?'':'s'} sigue${abiertas.length===1?'':'n'} abierta${abiertas.length===1?'':'s'}.</span><span style="flex:1;"></span><button class="btn btn-sm btn-primary" onclick="cerrarGrupo('${esc(grupo).replace(/'/g,"\\'")}')">&#10003; Cerrar grupo</button></div>`:'';
+    document.getElementById('fichaGrupoBody').innerHTML=cerrarHtml+`<p style="color:var(--text-light);font-size:0.82rem;margin-bottom:10px;">${ventas.length} ${ventas.length===1?'cliente titular':'clientes titulares'} en este grupo · ${viajeros.length} ${viajeros.length===1?'viajero':'viajeros'} en total.</p><h4 class="ficha-h">Datos generales del grupo</h4>${generalHtml}<h4 class="ficha-h">Cupos y viajeros</h4>${cuposBlock}${viajerosTabla}<h4 class="ficha-h">Totales</h4>${totalesHtml||'<p style="color:var(--text-light);">Sin montos cargados.</p>'}<h4 class="ficha-h">Estado de pago</h4>${fichaPagosHtml}<h4 class="ficha-h">Estado de la venta</h4>${fichaEstHtml}<h4 class="ficha-h">Detalle por cliente</h4>${tablaHtml}`;
     document.getElementById('modalFichaGrupo').classList.add('open');
 }
 // Renombra un grupo: actualiza el nombre en todas las ventas vinculadas y en dv_grupos.
@@ -11280,6 +11314,19 @@ function renombrarGrupo(nombreActual){
     closeModal('modalFichaGrupo');
     renderVentas();
     alert('Grupo renombrado. Se actualizaron '+cambios+' venta'+(cambios===1?'':'s')+'.');
+}
+// Marca como completadas las ventas pagadas de un grupo que ya viajó; avisa cuáles quedan con saldo
+function cerrarGrupo(grupo){
+    if(!exigirPermiso('ventas.crear_editar','cerrar grupos'))return;
+    const ventas=getVentas();const del=ventas.filter(v=>v.tipo==='grupal'&&(v.grupoNombre||'')===grupo&&v.estado!=='completada'&&v.estado!=='cancelada');
+    if(!del.length){alert('No hay ventas abiertas en este grupo.');return;}
+    const conSaldo=del.filter(v=>{const c=calcCobranzaStatus(v);return c.total>0&&(c.total-c.pagado)>0.005;});const pagadas=del.filter(v=>!conSaldo.includes(v));
+    if(!confirm('Cerrar el grupo «'+grupo+'»:\n\n- '+pagadas.length+' venta(s) pagada(s) pasan a Completada.\n- '+conSaldo.length+' venta(s) con saldo pendiente quedan como están'+(conSaldo.length?':\n  · '+conSaldo.map(v=>(v.clienteNombre||'')+' ('+fmtMoney(calcCobranzaStatus(v).total-calcCobranzaStatus(v).pagado,(v.cobranza||{}).moneda)+')').join('\n  · '):'.')+'\n\n¿Continuar?'))return;
+    const ahora=new Date().toISOString();pagadas.forEach(v=>{v.estado='completada';v.fechaActualizacion=ahora;v._lastModifiedAt=Date.now();});
+    saveVentas(ventas);
+    try{_contaBitacora&&_contaBitacora('Cerró el grupo '+grupo+': '+pagadas.length+' venta(s) completadas');}catch(e){}
+    closeModal('modalFichaGrupo');renderVentas();updateBadges();
+    alert('Grupo cerrado: '+pagadas.length+' venta(s) completada(s)'+(conSaldo.length?'. '+conSaldo.length+' con saldo pendiente siguen abiertas; aparecen marcadas en «Pasados».':'.'));
 }
 function guardarFichaGrupo(nombre){
     const patch={
