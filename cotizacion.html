@@ -1943,12 +1943,13 @@ const defaultContaCuentas=[
     {codigo:'3101',nombre:'Capital social',tipo:'patrimonio',moneda:'CRC'},
     {codigo:'3201',nombre:'Utilidades acumuladas',tipo:'patrimonio',moneda:'CRC'},
     {codigo:'3301',nombre:'Utilidad del período',tipo:'patrimonio',moneda:'CRC'},
-    {codigo:'4101',nombre:'Ventas de paquetes',tipo:'ingreso',moneda:''},
+    {codigo:'4101',nombre:'Ventas de paquetes personalizados',tipo:'ingreso',moneda:''},
     {codigo:'4102',nombre:'Ventas de boletos aéreos',tipo:'ingreso',moneda:''},
     {codigo:'4103',nombre:'Ventas de hospedaje',tipo:'ingreso',moneda:''},
     {codigo:'4104',nombre:'Ventas de seguros de viaje',tipo:'ingreso',moneda:''},
     {codigo:'4105',nombre:'Ventas de traslados y tours',tipo:'ingreso',moneda:''},
     {codigo:'4106',nombre:'Ventas de cruceros',tipo:'ingreso',moneda:''},
+    {codigo:'4107',nombre:'Ventas de paquetes grupales',tipo:'ingreso',moneda:''},
     {codigo:'4201',nombre:'Comisiones ganadas',tipo:'ingreso',moneda:''},
     {codigo:'4301',nombre:'Otros ingresos',tipo:'ingreso',moneda:''},
     {codigo:'4401',nombre:'Ganancia por diferencial cambiario',tipo:'ingreso',moneda:'CRC'},
@@ -1981,7 +1982,7 @@ const defaultContaCuentas=[
     {codigo:'6213',nombre:'Boletos y entradas en viajes',tipo:'gasto',moneda:''}
 ].concat(defaultContaTitulos);
 // Cuentas agregadas después del lanzamiento: se suman a los planes ya guardados si faltan (por código)
-const CONTA_CUENTAS_NUEVAS=['2120','2121','6211','6212','6213'];
+const CONTA_CUENTAS_NUEVAS=['2120','2121','6211','6212','6213','4107'];
 // Cuentas por defecto para los asientos automáticos (se ajustan en Configuración → Contabilidad)
 const defaultContaMapeo={
     bancoPorMetodo:{
@@ -1991,7 +1992,7 @@ const defaultContaMapeo={
         'Otro':{CRC:'1110',USD:'1111',EUR:'1112'}
     },
     cxcClientes:'1201',anticiposClientes:'2110',
-    ingresoPorTipo:{personalizada:'4101',grupal:'4101',crucero:'4106',servicio_boleto:'4102',servicio_hospedaje:'4103',servicio_seguro:'4104',servicio_transporte:'4105',servicio_tour:'4105',servicio_otro:'4301'},
+    ingresoPorTipo:{personalizada:'4101',grupal:'4107',crucero:'4106',servicio_boleto:'4102',servicio_hospedaje:'4103',servicio_seguro:'4104',servicio_transporte:'4105',servicio_tour:'4105',servicio_otro:'4301'},
     planilla:{salarios:'6101',cargas:'6102',ccssPorPagar:'2203',rentaPorPagar:'2202',otrasDedPorPagar:'2205',salariosPorPagar:'2204'},
     cargaPatronalPct:26.67,
     difCambGanancia:'4401',difCambPerdida:'6401',
@@ -2005,6 +2006,8 @@ function _normContaCuentas(arr){
     // Planes guardados antes de existir los títulos: se les agregan los títulos sugeridos (sin pisar códigos ya usados)
     if(!out.some(x=>x.titulo))defaultContaTitulos.forEach(t=>{if(!vistos.has(t.codigo)){vistos.add(t.codigo);out.push(Object.assign({},t));}});
     CONTA_CUENTAS_NUEVAS.forEach(code=>{if(!vistos.has(code)){const d=defaultContaCuentas.find(x=>x.codigo===code);if(d){vistos.add(code);out.push(Object.assign({},d));}}});
+    // Separación de paquetes personalizados vs grupales: renombrar 4101 si todavía tiene el nombre viejo.
+    const c4101=out.find(x=>x.codigo==='4101');if(c4101&&c4101.nombre==='Ventas de paquetes')c4101.nombre='Ventas de paquetes personalizados';
     return out.sort((a,b)=>a.codigo.localeCompare(b.codigo));
 }
 function _normContaMapeo(m){
@@ -2012,6 +2015,9 @@ function _normContaMapeo(m){
     const out={bancoPorMetodo:{},cxcClientes:m.cxcClientes||d.cxcClientes,anticiposClientes:m.anticiposClientes||d.anticiposClientes,ingresoPorTipo:Object.assign({},d.ingresoPorTipo,m.ingresoPorTipo||{}),planilla:Object.assign({},d.planilla,m.planilla||{}),cargaPatronalPct:(m.cargaPatronalPct!=null&&m.cargaPatronalPct!=='')?parseFloat(m.cargaPatronalPct):d.cargaPatronalPct,difCambGanancia:m.difCambGanancia||d.difCambGanancia,difCambPerdida:m.difCambPerdida||d.difCambPerdida,ivaPorPagar:m.ivaPorPagar||d.ivaPorPagar,ivaPorRecuperar:m.ivaPorRecuperar||d.ivaPorRecuperar,viaticos:Object.assign({},d.viaticos,m.viaticos||{})};
     Object.keys(d.bancoPorMetodo).forEach(k=>{out.bancoPorMetodo[k]=Object.assign({},d.bancoPorMetodo[k],(m.bancoPorMetodo||{})[k]||{});});
     Object.keys(m.bancoPorMetodo||{}).forEach(k=>{if(!out.bancoPorMetodo[k])out.bancoPorMetodo[k]=Object.assign({},d.bancoPorMetodo['Otro'],m.bancoPorMetodo[k]);});
+    // Separación grupal↔personalizada: si una config vieja todavía manda las ventas grupales a 4101
+    // (igual que las personalizadas), se reapunta a la cuenta nueva 4107 (ventas de paquetes grupales).
+    if(out.ingresoPorTipo.grupal==='4101'&&out.ingresoPorTipo.personalizada==='4101')out.ingresoPorTipo.grupal='4107';
     return out;
 }
 function _contaPrimerDiaMesActual(){const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-01';}
@@ -7311,7 +7317,7 @@ function renderConfigContabilidad(){
     const pane=document.getElementById('cfgPane-contabilidad');if(!pane)return;
     const cfg=cfgGet();const mp=cfg.contaMapeo;
     const metodos=Array.from(new Set([].concat(cfg.metodosPagoRecibo||[],Object.keys(mp.bancoPorMetodo))));
-    const tiposIngreso=[['personalizada','Venta personalizada'],['grupal','Venta grupal'],['crucero','Crucero'],['servicio_boleto','Servicio: boleto'],['servicio_hospedaje','Servicio: hospedaje'],['servicio_seguro','Servicio: seguro'],['servicio_transporte','Servicio: transporte'],['servicio_tour','Servicio: tour'],['servicio_otro','Servicio: otro']];
+    const tiposIngreso=[['personalizada','Venta de paquete personalizado'],['grupal','Venta de paquete grupal'],['crucero','Crucero'],['servicio_boleto','Servicio: boleto'],['servicio_hospedaje','Servicio: hospedaje'],['servicio_seguro','Servicio: seguro'],['servicio_transporte','Servicio: transporte'],['servicio_tour','Servicio: tour'],['servicio_otro','Servicio: otro']];
     const activos=['activo'],pasivos=['pasivo'],ingresos=['ingreso'],gastos=['gasto'];
     pane.innerHTML=`<p class="config-hint">Los libros se llevan en <strong>colones</strong>. Los asientos se generan solos desde los cobros y las colillas emitidas a partir de la <strong>fecha de inicio</strong>; lo anterior a esa fecha no entra en los libros.</p>
     <div class="form-row" style="max-width:520px;"><div class="form-group"><label>Fecha de inicio de la contabilidad</label><input type="date" id="cfgContaInicio" value="${esc(cfg.contaFechaInicio||'')}" onchange="autoSaveConfigSilently()"></div><div class="form-group"><label>Carga patronal CCSS (%)</label><input type="number" step="0.01" id="cfgContaPatronal" value="${esc(String(mp.cargaPatronalPct))}" onblur="autoSaveConfigSilently()" title="Se usa si la colilla no trae el monto de carga patronal"></div></div>
