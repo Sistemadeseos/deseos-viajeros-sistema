@@ -6986,6 +6986,40 @@ function contaGuardarTCUI(){
     if(!f||!(u>0)){alert('Indicá la fecha y el valor del dólar.');return;}
     contaGuardarTC(f,u,e>0?e:0,'manual');_contaBitacora('Cargó tipo de cambio manual del '+f+': $'+u+(e>0?' €'+e:''));renderContabilidad();
 }
+// Devuelve (reversa) todos los ingresos de venta ya reconocidos: reversa el asiento ingreso_venta
+// y limpia v.contaIngresoReconocido para que el dinero vuelva a quedar como anticipo del cliente.
+// No borra nada (crea un asiento de reversión por cada uno). Sirve para deshacer la carga histórica.
+function _contaDevolverIngresosPreview(){
+    const asById=new Map(getContaAsientos().map(a=>[a.id,a]));
+    let n=0,totalCRC=0;
+    getVentas().forEach(v=>{
+        if(!v||!v.contaIngresoReconocido)return;
+        n++;
+        const a=asById.get(v.contaIngresoReconocido.asientoId);
+        if(a&&!a.reversadoPor)totalCRC+=num(a.totalHaber)||0;
+    });
+    return {n,totalCRC:_contaRound(totalCRC)};
+}
+function contaDevolverIngresosUI(){
+    if(!exigirPermiso('contabilidad.registrar','revertir asientos'))return;
+    const pv=_contaDevolverIngresosPreview();
+    if(!pv.n){alert('No hay ingresos de venta reconocidos para devolver.');return;}
+    if(!confirm('Se van a DEVOLVER (revertir) '+pv.n+' ingreso'+(pv.n===1?'':'s')+' de venta ya reconocido'+(pv.n===1?'':'s')+' (total aproximado '+_contaFmtCRCredondo(pv.totalCRC)+').\n\nEl dinero vuelve a quedar como anticipo del cliente. No se borra nada: por cada uno se crea un asiento de reversión.\n\n¿Continuar?'))return;
+    const ventas=getVentas().map(x=>Object.assign({},x));
+    let ok=0;
+    ventas.forEach(v=>{
+        if(!v||!v.contaIngresoReconocido)return;
+        const aId=v.contaIngresoReconocido.asientoId;
+        const a=aId?getContaAsientos().find(x=>x&&x.id===aId):null;
+        if(a&&!a.reversadoPor){
+            if(contaReversarAsiento(a.id,'devolución de ingreso (en revisión con el contador)',true)){ok++;delete v.contaIngresoReconocido;}
+        }else{delete v.contaIngresoReconocido;}
+    });
+    saveVentas(ventas);
+    _contaBitacora('Devolvió '+ok+' ingreso(s) de venta reconocido(s)');
+    alert('Listo. Se devolvieron '+ok+' ingreso'+(ok===1?'':'s')+'. El dinero quedó como anticipo del cliente.\n\nCuando definas con tu contador, podés volver a cargarlos con "Cargar todo el histórico de ingresos".');
+    renderContabilidad();
+}
 // --- Importar tipos de cambio desde Excel/CSV ---
 // Lee un valor numérico tolerando coma decimal (CR), puntos de miles y símbolo de colón.
 function _contaParseNum(x){
@@ -7108,7 +7142,7 @@ function _contaCierresHtml(){
         return `<tr><td>${p}</td><td>${n} asiento${n===1?'':'s'}${pend?` · <span style="color:#854f0b;">${pend} viaje${pend===1?'':'s'} sin reconocer ingreso</span>`:''}</td><td>${c?`<span class="lt-badge" style="background:#fcebeb;color:#a32d2d;">&#128274; cerrado</span> <span style="font-size:0.72rem;color:var(--text-light);">por ${esc(c.por||'')} el ${fmtFechaCorta(new Date(c.ts||0).toISOString().slice(0,10))}</span>`:'<span class="lt-badge" style="background:#e1f5ee;color:#0f6e56;">abierto</span>'}</td><td>${puedeCerrar?(c?`<button class="btn btn-sm btn-ghost" onclick="contaReabrirUI('${p}')">Reabrir</button>`:`<button class="btn btn-sm btn-primary" onclick="contaCerrarUI('${p}')">Cerrar mes</button>`):''}</td></tr>`;}).join('');
     const bit=(contaCfg().bitacora||[]).slice(-30).reverse().map(b=>`<div style="font-size:0.78rem;padding:4px 0;border-bottom:1px solid var(--border);"><span style="color:var(--text-light);">${fmtFechaCorta(new Date(b.ts||0).toISOString().slice(0,10))} · ${esc(b.por||'')}</span> — ${esc(b.txt||'')}</div>`).join('');
     return `<p style="font-size:0.78rem;color:var(--text-light);margin:0 0 10px;">Al cerrar un mes se reconocen los ingresos de los viajes que salieron hasta fin de ese mes (el anticipo del cliente pasa a ingreso) y el mes queda con candado: nadie puede registrar ni reversar en él sin reabrirlo. ${tienePermiso('contabilidad.registrar')?'<button class="btn btn-sm btn-ghost" style="margin-left:6px;" onclick="contaReconocerUI()">Reconocer ingresos de viajes realizados hasta hoy</button>':''}</p>
-    ${tienePermiso('contabilidad.registrar')?'<p style="font-size:0.78rem;color:var(--text-light);margin:0 0 10px;">¿Recién empezás y querés pasar al libro los ingresos de todas las ventas ya realizadas de una vez? <button class="btn btn-sm btn-primary" style="margin-left:6px;" onclick="contaCargarIngresosHistUI()">&#128230; Cargar todo el histórico de ingresos</button></p>':''}
+    ${tienePermiso('contabilidad.registrar')?'<p style="font-size:0.78rem;color:var(--text-light);margin:0 0 10px;">¿Recién empezás y querés pasar al libro los ingresos de todas las ventas ya realizadas de una vez? <button class="btn btn-sm btn-primary" style="margin-left:6px;" onclick="contaCargarIngresosHistUI()">&#128230; Cargar todo el histórico de ingresos</button> <button class="btn btn-sm btn-ghost" style="margin-left:6px;" onclick="contaDevolverIngresosUI()" title="Deshace la carga: los ingresos reconocidos vuelven a quedar como anticipo del cliente">&#8617; Devolver los ingresos cargados</button></p>':''}
     <p style="font-size:0.78rem;color:var(--text-light);margin:0 0 10px;">Al cerrar un mes también se registran solas la <strong>depreciación</strong> de los activos fijos y la <strong>revaluación</strong> de los saldos en dólares y euros al tipo de cambio de fin de mes. ${tienePermiso('contabilidad.registrar')?'<button class="btn btn-sm btn-ghost" onclick="contaRevaluarUI()">Revaluar saldos de '+_contaPeriodoUI()+'</button> <button class="btn btn-sm btn-ghost" onclick="contaDepreciarUI()">Depreciar activos de '+_contaPeriodoUI()+'</button>':''} ${tienePermiso('contabilidad.cerrar')?'<button class="btn btn-sm btn-outline" style="color:var(--primary-dark);border-color:var(--primary);" onclick="contaCierreAnualUI()">Cierre anual '+_contaPeriodoUI().slice(0,4)+'</button>':''}</p>
     <table class="list-table"><thead><tr><th>Mes</th><th>Movimiento</th><th>Estado</th><th></th></tr></thead><tbody>${rows}</tbody></table>
     <h3 style="font-size:0.95rem;margin:18px 0 6px;color:var(--primary-dark);">Bitácora</h3>${bit||'<div style="font-size:0.78rem;color:var(--text-light);">Sin registros todavía.</div>'}`;
