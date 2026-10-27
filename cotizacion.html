@@ -6948,8 +6948,23 @@ function contaExportarMayor(){
     const ws=XLSX.utils.json_to_sheet(rows);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Balance '+p);XLSX.writeFile(wb,'Balance_comprobacion_'+p+'.xlsx');
 }
 // --- Tipo de cambio ---
+let _contaTCDesde=null,_contaTCHasta=null;
+function _contaTCRangoDefault(){const d=new Date(),y=d.getFullYear(),m=d.getMonth(),p=n=>String(n).padStart(2,'0');_contaTCDesde=y+'-'+p(m+1)+'-01';_contaTCHasta=y+'-'+p(m+1)+'-'+p(new Date(y,m+1,0).getDate());}
+function _contaTCAplicar(){const d=document.getElementById('tcFiltroDesde'),h=document.getElementById('tcFiltroHasta');if(d)_contaTCDesde=d.value;if(h)_contaTCHasta=h.value;renderContabilidad();}
+function _contaTCRango(desde,hasta){_contaTCDesde=desde;_contaTCHasta=hasta;renderContabilidad();}
 function _contaTCHtml(){
-    const lista=getContaTC().filter(x=>x&&x.fecha).sort((a,b)=>b.fecha.localeCompare(a.fecha)).slice(0,90);
+    if(_contaTCDesde===null||_contaTCHasta===null)_contaTCRangoDefault();
+    const desde=_contaTCDesde||'',hasta=_contaTCHasta||'';
+    const todas=getContaTC().filter(x=>x&&x.fecha).sort((a,b)=>b.fecha.localeCompare(a.fecha));
+    const lista=todas.filter(x=>(!desde||x.fecha>=desde)&&(!hasta||x.fecha<=hasta));
+    const _d=new Date(),_p=n=>String(n).padStart(2,'0'),_mesD=_d.getFullYear()+'-'+_p(_d.getMonth()+1)+'-01',_mesH=_d.getFullYear()+'-'+_p(_d.getMonth()+1)+'-'+_p(new Date(_d.getFullYear(),_d.getMonth()+1,0).getDate());
+    const filtro=`<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px;">
+        <div class="form-group" style="margin:0;"><label>Desde</label><input type="date" id="tcFiltroDesde" value="${esc(desde)}" onchange="_contaTCAplicar()"></div>
+        <div class="form-group" style="margin:0;"><label>Hasta</label><input type="date" id="tcFiltroHasta" value="${esc(hasta)}" onchange="_contaTCAplicar()"></div>
+        <button class="btn btn-sm btn-ghost" onclick="_contaTCRango('${_mesD}','${_mesH}')">Mes actual</button>
+        <button class="btn btn-sm btn-ghost" onclick="_contaTCRango('','')">Todos</button>
+        <span style="font-size:0.76rem;color:var(--text-light);margin-left:auto;align-self:center;">${lista.length} tipo${lista.length===1?'':'s'} de cambio${lista.length?' · '+fmtFechaCorta(lista[lista.length-1].fecha)+' a '+fmtFechaCorta(lista[0].fecha):''}</span>
+    </div>`;
     const puede=tienePermiso('contabilidad.registrar');
     const form=puede?`<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px;background:#fff;border:1px solid var(--border);border-radius:8px;padding:10px 12px;">
         <div class="form-group" style="margin:0;"><label>Fecha</label><input type="date" id="tcFecha" value="${_hitoHoyISO()}"></div>
@@ -6959,8 +6974,10 @@ function _contaTCHtml(){
         <button class="btn btn-sm btn-ghost" onclick="contaActualizarTCHoy(true).then(()=>renderContabilidad())" title="Consulta el tipo de cambio de venta de hoy en el Ministerio de Hacienda">&#8635; Traer el de hoy (Hacienda)</button>
         <label class="btn btn-sm btn-success" style="cursor:pointer;" title="Cargá de una vez muchos tipos de cambio desde un archivo de Excel o CSV">&#128229; Importar desde Excel<input type="file" accept=".xls,.xlsx,.csv" style="display:none;" onchange="contaImportarTCArchivo(this)"></label>
     </div>`:'';
-    const rows=lista.map(t=>`<tr><td>${fmtFechaCorta(t.fecha)}</td><td style="text-align:right;">${fmtCRC2(t.usd)}</td><td style="text-align:right;">${t.usdCompra?fmtCRC2(t.usdCompra):'-'}</td><td style="text-align:right;">${t.eur?fmtCRC2(t.eur):'-'}</td><td>${t.fuente==='manual'?'<span class="lt-badge" style="background:#faeeda;color:#854f0b;">manual</span>':'<span class="lt-badge" style="background:#e1f5ee;color:#0f6e56;">Hacienda</span>'}</td><td style="font-size:0.74rem;color:var(--text-light);">${esc(t.por||'')}</td></tr>`).join('');
-    return `<p style="font-size:0.78rem;color:var(--text-light);margin:0 0 10px;">Se usa el tipo de cambio de <strong>venta</strong> del día para convertir dólares y euros a colones. El sistema lo trae solo cada día al entrar. Si un día no tiene tipo de cambio, se usa el último anterior.</p>${form}<table class="list-table"><thead><tr><th>Fecha</th><th style="text-align:right;">Dólar venta</th><th style="text-align:right;">Dólar compra</th><th style="text-align:right;">Euro</th><th>Fuente</th><th>Cargó</th></tr></thead><tbody>${rows||'<tr><td colspan="6" style="color:var(--text-light);text-align:center;">Todavía no hay tipos de cambio. Apretá "Traer el de hoy".</td></tr>'}</tbody></table>`;
+    const _fteBadge=f=>f==='manual'?'<span class="lt-badge" style="background:#faeeda;color:#854f0b;">manual</span>':(f==='import'?'<span class="lt-badge" style="background:#e3f2fd;color:#1565c0;">importado</span>':'<span class="lt-badge" style="background:#e1f5ee;color:#0f6e56;">Hacienda</span>');
+    const rows=lista.map(t=>`<tr><td>${fmtFechaCorta(t.fecha)}</td><td style="text-align:right;">${fmtCRC2(t.usd)}</td><td style="text-align:right;">${t.usdCompra?fmtCRC2(t.usdCompra):'-'}</td><td style="text-align:right;">${t.eur?fmtCRC2(t.eur):'-'}</td><td>${_fteBadge(t.fuente)}</td><td style="font-size:0.74rem;color:var(--text-light);">${esc(t.por||'')}</td></tr>`).join('');
+    const vacio=todas.length?'No hay tipos de cambio en ese rango de fechas. Probá ampliando el rango o apretá "Todos".':'Todavía no hay tipos de cambio. Apretá "Traer el de hoy" o "Importar desde Excel".';
+    return `<p style="font-size:0.78rem;color:var(--text-light);margin:0 0 10px;">Se usa el tipo de cambio de <strong>venta</strong> del día para convertir dólares y euros a colones. El sistema lo trae solo cada día al entrar. Si un día no tiene tipo de cambio, se usa el último anterior.</p>${form}${filtro}<table class="list-table"><thead><tr><th>Fecha</th><th style="text-align:right;">Dólar venta</th><th style="text-align:right;">Dólar compra</th><th style="text-align:right;">Euro</th><th>Fuente</th><th>Cargó</th></tr></thead><tbody>${rows||'<tr><td colspan="6" style="color:var(--text-light);text-align:center;">'+vacio+'</td></tr>'}</tbody></table>`;
 }
 function contaGuardarTCUI(){
     if(!exigirPermiso('contabilidad.registrar','cargar tipos de cambio'))return;
