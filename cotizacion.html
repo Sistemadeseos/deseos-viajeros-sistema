@@ -6592,7 +6592,7 @@ const CONTA_MENU=[
     {id:'finanzas',label:'Finanzas',items:[['plan','Plan de cuentas'],['diario','Asientos de diario'],['preliminares','Asientos preliminares'],['plantillas','Plantillas y peri\u00f3dicos'],['mayor','Mayor y balance de comprobaci\u00f3n'],['activos','Activos fijos']]},
     {id:'socios',label:'Socios de negocios',items:[['socio','Estado de cuenta'],['clientes','Clientes (por cobrar)'],['cxp','Proveedores (por pagar)'],['gastos','Gastos']]},
     {id:'bancos',label:'Bancos',items:[['bancos','Conciliaci\u00f3n bancaria']]},
-    {id:'informes',label:'Informes financieros',items:[['reportes','Estados financieros'],['margen','M\u00e1rgenes por venta']]},
+    {id:'informes',label:'Informes financieros',items:[['reportes','Estados financieros'],['margen','M\u00e1rgenes por venta'],['rentcli','Rentabilidad por cliente']]},
     {id:'admin',label:'Administraci\u00f3n',items:[['cierres','Per\u00edodos y cierres'],['tc','Tipos de cambio'],['config','Determinaci\u00f3n de cuentas']]}
 ];
 function _contaGrupoDe(t){return CONTA_MENU.find(g=>g.items.some(it=>it[0]===t))||CONTA_MENU[0];}
@@ -6664,6 +6664,7 @@ function renderContabilidad(){
     else if(_contaTab==='cxp')body.innerHTML=banner+_contaCxPHtml(p);
     else if(_contaTab==='gastos')body.innerHTML=banner+_contaGastosHtml(p);
     else if(_contaTab==='margen')body.innerHTML=_contaMargenHtml(p);
+    else if(_contaTab==='rentcli')body.innerHTML=_contaRentClienteHtml(p);
     else if(_contaTab==='bancos')body.innerHTML=banner+_contaBancosHtml(p);
     else if(_contaTab==='reportes')body.innerHTML=_contaReportesHtml(p);
     else if(_contaTab==='activos')body.innerHTML=banner+_contaActivosHtml(p);
@@ -7606,6 +7607,56 @@ function contaExportarDocs(tipo){
 function contaExportarMargen(){
     const rows=getVentas().filter(v=>v&&v.estado!=='cancelada').map(v=>{const m=contaMargenVenta(v);return {'Venta':_contaVentaEtiqueta(v),'Encargada':v.encargado||'','Salida':v.fechaInicio||'','Moneda':m.moneda,'Ingreso':m.total,'Ingreso ₡':m.ingresoCRC,'Costos ₡':m.costosCRC,'Margen ₡':m.margen,'Margen %':m.pct==null?'':m.pct};});
     const ws=XLSX.utils.json_to_sheet(rows);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Márgenes');XLSX.writeFile(wb,'Margen_por_venta.xlsx');
+}
+// --- Rentabilidad por cliente (estilo "cuenta por interlocutor" de SAP B1) ---
+// Por cada cliente: cuánto vendió (bruto), cuánto costó (proveedores de sus viajes) y el neto.
+// Es un REPORTE (no cambia los asientos). Los costos salen de las facturas/gastos ligados a la venta.
+let _rentCliScope='todas';
+function _contaRentClienteVentas(p){
+    const r=_contaRangoPeriodo(p);
+    let vs=getVentas().filter(v=>v&&v.estado!=='cancelada');
+    if(_rentCliScope==='periodo')vs=vs.filter(v=>{const fi=String(v.fechaInicio||'').slice(0,10);return fi>=r.desde&&fi<=r.hasta;});
+    return vs;
+}
+function _contaRentClienteNombre(v){return v.clienteNombre||((getClientes().find(c=>c&&c.id===v.clienteId)||{}).nombreCompleto)||'(sin cliente)';}
+function _contaRentClienteDatos(p){
+    const porCli={};
+    _contaRentClienteVentas(p).forEach(v=>{
+        const m=contaMargenVenta(v);
+        const cid=v.clienteId||'__sin__';
+        if(!porCli[cid])porCli[cid]={clienteId:v.clienteId||'',nombre:_contaRentClienteNombre(v),n:0,bruto:0,costos:0,docs:0};
+        porCli[cid].n++;porCli[cid].bruto+=m.ingresoCRC;porCli[cid].costos+=m.costosCRC;porCli[cid].docs+=m.docs.length;
+    });
+    const arr=Object.keys(porCli).map(k=>{const o=porCli[k];o.bruto=_contaRound(o.bruto);o.costos=_contaRound(o.costos);o.neto=_contaRound(o.bruto-o.costos);o.pct=o.bruto>0?Math.round(o.neto/o.bruto*1000)/10:null;return o;});
+    arr.sort((a,b)=>b.bruto-a.bruto);
+    return arr;
+}
+function _contaRentClienteHtml(p){
+    const datos=_contaRentClienteDatos(p);
+    const tools=`<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;"><select onchange="_rentCliScope=this.value;renderContabilidad()" style="padding:4px 8px;"><option value="todas"${_rentCliScope==='todas'?' selected':''}>Todas las ventas</option><option value="periodo"${_rentCliScope==='periodo'?' selected':''}>Viajes que salen en ${esc(p)}</option></select><span style="flex:1;"></span>${datos.length?'<button class="btn btn-sm btn-ghost" onclick="contaExportarRentCliente()">&#128196; Exportar a Excel</button>':''}</div>`;
+    if(!datos.length)return tools+`<div class="grid-empty"><h3>Sin ventas</h3><p>No hay ventas ${_rentCliScope==='periodo'?'con salida en '+esc(p):'registradas'}.</p></div>`;
+    let tB=0,tC=0,tN2=0;
+    const rows=datos.map(o=>{tB+=o.bruto;tC+=o.costos;tN2+=o.neto;const col=o.pct==null?'var(--text-light)':(o.pct<0?'#a32d2d':(o.pct<10?'#854f0b':'#0f6e56'));
+        const nameCell=o.clienteId?`<span class="cliente-link" onclick="contaAbrirSocio('cliente','${o.clienteId}')">${esc(o.nombre)}</span>`:esc(o.nombre);
+        return `<tr><td>${nameCell}</td><td style="text-align:right;">${o.n}</td><td style="text-align:right;">${fmtCRC2(o.bruto)}</td><td style="text-align:right;">${fmtCRC2(o.costos)}${o.docs?`<div class="lt-secondary">${o.docs} doc${o.docs===1?'':'s'}</div>`:'<div class="lt-secondary" style="color:#854f0b;">sin costos</div>'}</td><td style="text-align:right;font-weight:600;color:${col};">${fmtCRC2(o.neto)}</td><td style="text-align:right;color:${col};font-weight:700;">${o.pct==null?'-':o.pct+' %'}</td></tr>`;}).join('');
+    const totN=_contaRound(tB-tC);
+    return tools+`<table class="list-table"><thead><tr><th>Cliente</th><th style="text-align:right;">Ventas</th><th style="text-align:right;">Vendido (bruto)</th><th style="text-align:right;">Costos</th><th style="text-align:right;">Neto</th><th style="text-align:right;">%</th></tr></thead><tbody>${rows}<tr style="background:var(--bg);font-weight:700;"><td>Total</td><td style="text-align:right;">${datos.reduce((s,o)=>s+o.n,0)}</td><td style="text-align:right;">${fmtCRC2(_contaRound(tB))}</td><td style="text-align:right;">${fmtCRC2(_contaRound(tC))}</td><td style="text-align:right;">${fmtCRC2(totN)}</td><td style="text-align:right;">${tB>0?Math.round(totN/tB*1000)/10+' %':'-'}</td></tr></tbody></table>
+    <p style="font-size:0.74rem;color:var(--text-light);margin-top:8px;">Bruto = monto de la venta (en colones al TC de la salida). Costos = facturas y gastos de proveedor ligados a la venta. Neto = bruto &minus; costos. Para que el neto sea real, registrá cada costo con su venta (botón &laquo;+ Costo&raquo; en Márgenes por venta, o &laquo;+ Factura de proveedor&raquo; dentro del estado de cuenta de la venta). El Excel trae una hoja &laquo;Movimientos&raquo; con lo que entró (cobros) y salió (costos) por cliente, para filtrar a fin de mes. Clic en el cliente para ver su estado de cuenta.</p>`;
+}
+function contaExportarRentCliente(){
+    const p=_contaPeriodoSel||_hitoHoyISO().slice(0,7);
+    const resumen=_contaRentClienteDatos(p).map(o=>({'Cliente':o.nombre,'N° ventas':o.n,'Vendido (bruto) ₡':o.bruto,'Costos ₡':o.costos,'Neto ₡':o.neto,'Margen %':o.pct==null?'':o.pct}));
+    const movs=[];
+    _contaRentClienteVentas(p).forEach(v=>{
+        const nom=_contaRentClienteNombre(v),moneda=(v.cobranza&&v.cobranza.moneda)||'USD',etq=_contaVentaEtiqueta(v);
+        ((v.cobranza&&v.cobranza.pagos)||[]).forEach(pg=>{if(!pg||!pg.fecha)return;movs.push({'Cliente':nom,'Venta':etq,'Fecha':String(pg.fecha).slice(0,10),'Tipo':'Cobro','Detalle':(pg.metodo||'')+(pg.referencia?' · '+pg.referencia:''),'Entró ₡':_contaRound(contaACRC(num(pg.monto),moneda,pg.fecha).crc),'Salió ₡':''});});
+        contaMargenVenta(v).docs.forEach(d=>{movs.push({'Cliente':nom,'Venta':etq,'Fecha':String(d.fecha||'').slice(0,10),'Tipo':'Costo'+(d.proveedorNombre?' · '+d.proveedorNombre:''),'Detalle':d.descripcion||'','Entró ₡':'','Salió ₡':_contaRound(num(d.baseCRC)||num(d.montoCRC)||0)});});
+    });
+    movs.sort((a,b)=>String(a.Cliente).localeCompare(String(b.Cliente))||String(a.Fecha).localeCompare(String(b.Fecha)));
+    const wb=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(resumen.length?resumen:[{'Cliente':''}]),'Por cliente');
+    XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(movs.length?movs:[{'Cliente':'','Venta':'','Fecha':'','Tipo':'','Detalle':'','Entró ₡':'','Salió ₡':''}]),'Movimientos');
+    XLSX.writeFile(wb,'Rentabilidad_por_cliente.xlsx');
 }
 // --- Modal: factura de proveedor / gasto ---
 let _cdAdjunto='';
