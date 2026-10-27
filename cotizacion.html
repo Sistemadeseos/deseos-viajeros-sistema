@@ -6957,6 +6957,7 @@ function _contaTCHtml(){
         <div class="form-group" style="margin:0;"><label>€1 = ₡</label><input type="number" step="0.01" id="tcEur" placeholder="527.51" style="width:120px;"></div>
         <button class="btn btn-sm btn-primary" onclick="contaGuardarTCUI()">Guardar manual</button>
         <button class="btn btn-sm btn-ghost" onclick="contaActualizarTCHoy(true).then(()=>renderContabilidad())" title="Consulta el tipo de cambio de venta de hoy en el Ministerio de Hacienda">&#8635; Traer el de hoy (Hacienda)</button>
+        <label class="btn btn-sm btn-success" style="cursor:pointer;" title="Cargá de una vez muchos tipos de cambio desde un archivo de Excel o CSV">&#128229; Importar desde Excel<input type="file" accept=".xls,.xlsx,.csv" style="display:none;" onchange="contaImportarTCArchivo(this)"></label>
     </div>`:'';
     const rows=lista.map(t=>`<tr><td>${fmtFechaCorta(t.fecha)}</td><td style="text-align:right;">${fmtCRC2(t.usd)}</td><td style="text-align:right;">${t.usdCompra?fmtCRC2(t.usdCompra):'-'}</td><td style="text-align:right;">${t.eur?fmtCRC2(t.eur):'-'}</td><td>${t.fuente==='manual'?'<span class="lt-badge" style="background:#faeeda;color:#854f0b;">manual</span>':'<span class="lt-badge" style="background:#e1f5ee;color:#0f6e56;">Hacienda</span>'}</td><td style="font-size:0.74rem;color:var(--text-light);">${esc(t.por||'')}</td></tr>`).join('');
     return `<p style="font-size:0.78rem;color:var(--text-light);margin:0 0 10px;">Se usa el tipo de cambio de <strong>venta</strong> del día para convertir dólares y euros a colones. El sistema lo trae solo cada día al entrar. Si un día no tiene tipo de cambio, se usa el último anterior.</p>${form}<table class="list-table"><thead><tr><th>Fecha</th><th style="text-align:right;">Dólar venta</th><th style="text-align:right;">Dólar compra</th><th style="text-align:right;">Euro</th><th>Fuente</th><th>Cargó</th></tr></thead><tbody>${rows||'<tr><td colspan="6" style="color:var(--text-light);text-align:center;">Todavía no hay tipos de cambio. Apretá "Traer el de hoy".</td></tr>'}</tbody></table>`;
@@ -6966,6 +6967,118 @@ function contaGuardarTCUI(){
     const f=document.getElementById('tcFecha').value,u=parseFloat(document.getElementById('tcUsd').value),e=parseFloat(document.getElementById('tcEur').value);
     if(!f||!(u>0)){alert('Indicá la fecha y el valor del dólar.');return;}
     contaGuardarTC(f,u,e>0?e:0,'manual');_contaBitacora('Cargó tipo de cambio manual del '+f+': $'+u+(e>0?' €'+e:''));renderContabilidad();
+}
+// --- Importar tipos de cambio desde Excel/CSV ---
+// Lee un valor numérico tolerando coma decimal (CR), puntos de miles y símbolo de colón.
+function _contaParseNum(x){
+    if(typeof x==='number')return x;
+    let s=String(x==null?'':x).trim().replace(/[^\d.,-]/g,'');
+    if(!s)return 0;
+    if(s.indexOf(',')>-1&&s.indexOf('.')>-1){
+        if(s.lastIndexOf(',')>s.lastIndexOf('.'))s=s.replace(/\./g,'').replace(',','.');
+        else s=s.replace(/,/g,'');
+    }else if(s.indexOf(',')>-1){s=s.replace(',','.');}
+    const n=parseFloat(s);return isNaN(n)?0:n;
+}
+// Convierte una celda a fecha ISO (acepta Date de Excel, serial, dd/mm/aaaa y aaaa-mm-dd). CR: día primero.
+function _contaTCFecha(x){
+    if(x==null||x==='')return '';
+    if(x instanceof Date&&!isNaN(x))return x.getFullYear()+'-'+String(x.getMonth()+1).padStart(2,'0')+'-'+String(x.getDate()).padStart(2,'0');
+    if(typeof x==='number'&&x>20000&&x<80000&&window.XLSX&&XLSX.SSF){const d=XLSX.SSF.parse_date_code(x);if(d&&d.y)return d.y+'-'+String(d.m).padStart(2,'0')+'-'+String(d.d).padStart(2,'0');}
+    const s=String(x).trim();
+    let m=s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/);
+    if(m){let a=m[3];if(a.length===2)a='20'+a;return a+'-'+String(m[2]).padStart(2,'0')+'-'+String(m[1]).padStart(2,'0');}
+    m=s.match(/^(\d{4})[\/\-.](\d{1,2})[\/\-.](\d{1,2})$/);
+    if(m)return m[1]+'-'+String(m[2]).padStart(2,'0')+'-'+String(m[3]).padStart(2,'0');
+    return '';
+}
+// Detecta encabezado y columnas (fecha, dólar venta, dólar compra, euro) en una hoja (matriz de filas).
+function _contaTCDetectar(filas){
+    if(!filas||!filas.length)return {puntaje:0};
+    const ncols=Math.max.apply(null,filas.map(r=>(r||[]).length).concat([0]));
+    const norm=s=>String(s==null?'':s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').trim();
+    let headerRow=-1,fechaCol=-1,usdCol=-1,eurCol=-1,compraCol=-1;
+    for(let i=0;i<Math.min(filas.length,20);i++){
+        const fila=filas[i]||[];let fCol=-1,ventaCol=-1,dolarCol=-1,eCol=-1,cCol=-1;
+        fila.forEach((cel,j)=>{const t=norm(cel);if(!t)return;
+            if(fCol<0&&/fecha|dia|date/.test(t))fCol=j;
+            if(cCol<0&&/compra/.test(t))cCol=j;
+            if(eCol<0&&/euro|eur/.test(t))eCol=j;
+            if(ventaCol<0&&/venta/.test(t)&&!/compra/.test(t))ventaCol=j;
+            if(dolarCol<0&&/dolar|usd|tipo de cambio|colones/.test(t)&&!/compra/.test(t)&&!/euro|eur/.test(t))dolarCol=j;
+        });
+        const uCol=ventaCol>-1?ventaCol:dolarCol;
+        if(fCol>-1&&(uCol>-1||cCol>-1)){headerRow=i;fechaCol=fCol;usdCol=uCol>-1?uCol:cCol;eurCol=eCol;compraCol=(cCol>-1&&cCol!==usdCol)?cCol:-1;break;}
+    }
+    if(headerRow<0){for(let i=0;i<Math.min(filas.length,20);i++){const r=filas[i]||[];if(_contaTCFecha(r[0])&&_contaParseNum(r[1])>0){headerRow=i-1;fechaCol=0;usdCol=1;break;}}}
+    if(fechaCol<0||usdCol<0)return {puntaje:0};
+    let n=0;for(let i=headerRow+1;i<filas.length;i++){const r=filas[i]||[];if(_contaTCFecha(r[fechaCol])&&_contaParseNum(r[usdCol])>0)n++;}
+    const headerNames=[];for(let j=0;j<ncols;j++){const h=(headerRow>=0&&filas[headerRow])?String(filas[headerRow][j]||'').trim():'';headerNames.push(h||('Columna '+(j+1)));}
+    return {puntaje:n,headerRow,fechaCol,usdCol,eurCol,compraCol,ncols,headerNames};
+}
+function _contaTCParsearFilas(fechaCol,usdCol,eurCol,compraCol){
+    const imp=window._tcImport;if(!imp)return {rows:[],n:0,desde:'',hasta:''};
+    const rows=[];
+    for(let i=imp.headerRow+1;i<imp.filas.length;i++){
+        const r=imp.filas[i]||[];
+        const fecha=_contaTCFecha(r[fechaCol]);const usd=_contaParseNum(usdCol>-1?r[usdCol]:0);
+        if(!fecha||!(usd>0))continue;
+        const eur=eurCol>-1?_contaParseNum(r[eurCol]):0;const compra=compraCol>-1?_contaParseNum(r[compraCol]):0;
+        rows.push({fecha,usd,eur:eur>0?eur:0,compra:compra>0?compra:0});
+    }
+    rows.sort((a,b)=>a.fecha.localeCompare(b.fecha));
+    return {rows,n:rows.length,desde:rows.length?rows[0].fecha:'',hasta:rows.length?rows[rows.length-1].fecha:''};
+}
+function contaImportarTCArchivo(inp){
+    const f=inp.files&&inp.files[0];if(!f)return;
+    if(!exigirPermiso('contabilidad.registrar','cargar tipos de cambio')){inp.value='';return;}
+    const rd=new FileReader();
+    rd.onload=e=>{
+        try{
+            const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array',cellDates:true});
+            let mejor=null;
+            wb.SheetNames.forEach(n=>{const filas=XLSX.utils.sheet_to_json(wb.Sheets[n],{header:1,raw:true,defval:''});const det=_contaTCDetectar(filas);if(det&&det.puntaje>0&&(!mejor||det.puntaje>mejor.det.puntaje))mejor={filas,det};});
+            inp.value='';
+            if(!mejor){alert('No pude encontrar una columna de fechas y una de tipo de cambio en el archivo.\n\nRevisá que el Excel tenga una columna con la fecha y otra con el valor del dólar (venta).');return;}
+            window._tcImport={filas:mejor.filas,headerRow:mejor.det.headerRow,ncols:mejor.det.ncols,headerNames:mejor.det.headerNames};
+            _contaConfirmarImportTC(mejor.det.fechaCol,mejor.det.usdCol,mejor.det.eurCol,mejor.det.compraCol);
+        }catch(err){console.error(err);alert('No se pudo leer el archivo: '+err.message);inp.value='';}
+    };
+    rd.readAsArrayBuffer(f);
+}
+function _contaConfirmarImportTC(fechaCol,usdCol,eurCol,compraCol){
+    const imp=window._tcImport;if(!imp)return;
+    const pv=_contaTCParsearFilas(fechaCol,usdCol,eurCol,compraCol);
+    const opt=(sel,ninguna)=>{let o=ninguna?`<option value="-1"${sel<0?' selected':''}>(ninguna)</option>`:'';for(let j=0;j<imp.ncols;j++)o+=`<option value="${j}"${j===sel?' selected':''}>${esc(imp.headerNames[j]||('Columna '+(j+1)))}</option>`;return o;};
+    const muestra=pv.rows.slice(0,8).map(r=>`<tr><td>${fmtFechaCorta(r.fecha)}</td><td style="text-align:right;">${fmtCRC2(r.usd)}</td><td style="text-align:right;">${r.compra?fmtCRC2(r.compra):'-'}</td><td style="text-align:right;">${r.eur?fmtCRC2(r.eur):'-'}</td></tr>`).join('');
+    const ov=document.getElementById('modalContaDoc');
+    ov.innerHTML=`<div class="modal" style="max-width:580px;"><div class="modal-header"><h3>Importar tipos de cambio</h3><button class="modal-close" onclick="closeModal('modalContaDoc')">&times;</button></div>
+    <div class="modal-body" style="font-size:0.86rem;">
+        <p style="margin:0 0 10px;">Detecté <strong>${pv.n}</strong> tipo${pv.n===1?'':'s'} de cambio${pv.n?' del '+fmtFechaCorta(pv.desde)+' al '+fmtFechaCorta(pv.hasta):''}. Revisá que las columnas estén bien y confirmá.</p>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:6px 10px;margin-bottom:10px;">
+            <label style="font-size:0.78rem;margin:0;">Fecha<br><select id="tcImpFecha" style="width:100%;" onchange="_contaImportTCRemap()">${opt(fechaCol,false)}</select></label>
+            <label style="font-size:0.78rem;margin:0;">Dólar (venta)<br><select id="tcImpUsd" style="width:100%;" onchange="_contaImportTCRemap()">${opt(usdCol,false)}</select></label>
+            <label style="font-size:0.78rem;margin:0;">Dólar compra (opcional)<br><select id="tcImpCompra" style="width:100%;" onchange="_contaImportTCRemap()">${opt(compraCol,true)}</select></label>
+            <label style="font-size:0.78rem;margin:0;">Euro (opcional)<br><select id="tcImpEur" style="width:100%;" onchange="_contaImportTCRemap()">${opt(eurCol,true)}</select></label>
+        </div>
+        ${pv.n?`<table class="list-table"><thead><tr><th>Fecha</th><th style="text-align:right;">Dólar venta</th><th style="text-align:right;">Compra</th><th style="text-align:right;">Euro</th></tr></thead><tbody>${muestra}</tbody></table>${pv.n>8?`<p style="font-size:0.74rem;color:var(--text-light);margin:6px 0 0;">…y ${pv.n-8} más.</p>`:''}`:'<p style="color:#a32d2d;">No se pudo leer ninguna fila con esas columnas. Probá cambiando la columna de Fecha o de Dólar.</p>'}
+        <p style="font-size:0.76rem;color:var(--text-light);margin:8px 0 0;">Se usa el dólar <strong>venta</strong>. Los que ya existan para una fecha se actualizan; no se duplican. No pisa los que cargaste a mano.</p>
+    </div>
+    <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modalContaDoc')">Cancelar</button><button class="btn btn-success"${pv.n?'':' disabled'} onclick="_contaEjecutarImportTC()">Importar${pv.n?' '+pv.n:''}</button></div></div>`;
+    window._tcImportCols={fechaCol,usdCol,eurCol,compraCol};
+    ov.classList.add('open');
+}
+function _contaImportTCRemap(){const g=id=>parseInt(document.getElementById(id).value,10);_contaConfirmarImportTC(g('tcImpFecha'),g('tcImpUsd'),g('tcImpCompra'),g('tcImpEur'));}
+function _contaEjecutarImportTC(){
+    const c=window._tcImportCols;if(!c)return;
+    const pv=_contaTCParsearFilas(c.fechaCol,c.usdCol,c.eurCol,c.compraCol);
+    if(!pv.n){alert('No hay filas para importar.');return;}
+    let ok=0,saltados=0;
+    pv.rows.forEach(r=>{if(contaGuardarTC(r.fecha,r.usd,r.eur,'import',r.compra))ok++;else saltados++;});
+    _contaBitacora('Importó '+ok+' tipos de cambio desde Excel'+(pv.desde?' ('+pv.desde+' a '+pv.hasta+')':''));
+    closeModal('modalContaDoc');
+    alert('Listo. Se cargaron '+ok+' tipo'+(ok===1?'':'s')+' de cambio'+(saltados?'.\n('+saltados+' no se guardaron: ya existían cargados a mano o sin valor válido)':'.')+'\n\nYa podés volver a "Cargar todo el histórico de ingresos".');
+    renderContabilidad();
 }
 // --- Cierres ---
 function _contaCierresHtml(){
