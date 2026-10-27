@@ -6977,6 +6977,7 @@ function _contaCierresHtml(){
         return `<tr><td>${p}</td><td>${n} asiento${n===1?'':'s'}${pend?` · <span style="color:#854f0b;">${pend} viaje${pend===1?'':'s'} sin reconocer ingreso</span>`:''}</td><td>${c?`<span class="lt-badge" style="background:#fcebeb;color:#a32d2d;">&#128274; cerrado</span> <span style="font-size:0.72rem;color:var(--text-light);">por ${esc(c.por||'')} el ${fmtFechaCorta(new Date(c.ts||0).toISOString().slice(0,10))}</span>`:'<span class="lt-badge" style="background:#e1f5ee;color:#0f6e56;">abierto</span>'}</td><td>${puedeCerrar?(c?`<button class="btn btn-sm btn-ghost" onclick="contaReabrirUI('${p}')">Reabrir</button>`:`<button class="btn btn-sm btn-primary" onclick="contaCerrarUI('${p}')">Cerrar mes</button>`):''}</td></tr>`;}).join('');
     const bit=(contaCfg().bitacora||[]).slice(-30).reverse().map(b=>`<div style="font-size:0.78rem;padding:4px 0;border-bottom:1px solid var(--border);"><span style="color:var(--text-light);">${fmtFechaCorta(new Date(b.ts||0).toISOString().slice(0,10))} · ${esc(b.por||'')}</span> — ${esc(b.txt||'')}</div>`).join('');
     return `<p style="font-size:0.78rem;color:var(--text-light);margin:0 0 10px;">Al cerrar un mes se reconocen los ingresos de los viajes que salieron hasta fin de ese mes (el anticipo del cliente pasa a ingreso) y el mes queda con candado: nadie puede registrar ni reversar en él sin reabrirlo. ${tienePermiso('contabilidad.registrar')?'<button class="btn btn-sm btn-ghost" style="margin-left:6px;" onclick="contaReconocerUI()">Reconocer ingresos de viajes realizados hasta hoy</button>':''}</p>
+    ${tienePermiso('contabilidad.registrar')?'<p style="font-size:0.78rem;color:var(--text-light);margin:0 0 10px;">¿Recién empezás y querés pasar al libro los ingresos de todas las ventas ya realizadas de una vez? <button class="btn btn-sm btn-primary" style="margin-left:6px;" onclick="contaCargarIngresosHistUI()">&#128230; Cargar todo el histórico de ingresos</button></p>':''}
     <p style="font-size:0.78rem;color:var(--text-light);margin:0 0 10px;">Al cerrar un mes también se registran solas la <strong>depreciación</strong> de los activos fijos y la <strong>revaluación</strong> de los saldos en dólares y euros al tipo de cambio de fin de mes. ${tienePermiso('contabilidad.registrar')?'<button class="btn btn-sm btn-ghost" onclick="contaRevaluarUI()">Revaluar saldos de '+_contaPeriodoUI()+'</button> <button class="btn btn-sm btn-ghost" onclick="contaDepreciarUI()">Depreciar activos de '+_contaPeriodoUI()+'</button>':''} ${tienePermiso('contabilidad.cerrar')?'<button class="btn btn-sm btn-outline" style="color:var(--primary-dark);border-color:var(--primary);" onclick="contaCierreAnualUI()">Cierre anual '+_contaPeriodoUI().slice(0,4)+'</button>':''}</p>
     <table class="list-table"><thead><tr><th>Mes</th><th>Movimiento</th><th>Estado</th><th></th></tr></thead><tbody>${rows}</tbody></table>
     <h3 style="font-size:0.95rem;margin:18px 0 6px;color:var(--primary-dark);">Bitácora</h3>${bit||'<div style="font-size:0.78rem;color:var(--text-light);">Sin registros todavía.</div>'}`;
@@ -6984,6 +6985,50 @@ function _contaCierresHtml(){
 function contaCerrarUI(p){if(!exigirPermiso('contabilidad.cerrar','cerrar meses'))return;if(!confirm('¿Cerrar el mes '+p+'?\n\nSe reconocerán los ingresos de los viajes que salieron hasta fin de ese mes y el mes quedará con candado.'))return;if(contaCerrarPeriodo(p))renderContabilidad();}
 function contaReabrirUI(p){if(!exigirPermiso('contabilidad.cerrar','reabrir meses'))return;const m=prompt('Motivo para reabrir el mes '+p+' (queda en la bitácora):','');if(m===null)return;if(contaReabrirPeriodo(p,m))renderContabilidad();}
 function contaReconocerUI(){if(!exigirPermiso('contabilidad.registrar','registrar asientos'))return;const n=contaReconocerIngresosHasta(_hitoHoyISO());alert(n?('Se reconoció el ingreso de '+n+' viaje'+(n===1?'':'s')+'.'):'No hay viajes pendientes de reconocer.');renderContabilidad();}
+// Carga guiada de TODO el histórico de ingresos: extiende la fecha de inicio de libros si hace falta
+// y reconoce el ingreso de todos los viajes YA REALIZADOS (los futuros quedan como anticipo).
+// Muestra un resumen (cuántos viajes, total y desglose por cuenta) antes de confirmar.
+function _contaFmtCRCredondo(x){return '₡'+Math.round(num(x)).toLocaleString('es-CR');}
+function _contaPreviewIngresosHist(){
+    const hoy=_hitoHoyISO();
+    let nViajes=0,totalCRC=0,nSinTC=0,minFi='';
+    const porCuenta={};
+    getVentas().forEach(v=>{
+        if(!v||v.contaIngresoReconocido||v.estado==='cancelada')return;
+        const fi=String(v.fechaInicio||'').slice(0,10);
+        if(!fi||fi>hoy)return;                       // viaje futuro: queda como anticipo
+        const total=contaTotalVenta(v);if(!(total>0))return;
+        const moneda=(v.cobranza&&v.cobranza.moneda)||'USD';
+        const conv=contaACRC(total,moneda,fi);
+        if(!(conv.crc>0)){nSinTC++;return;}          // sin tipo de cambio: no se puede convertir
+        nViajes++;totalCRC+=conv.crc;
+        if(!minFi||fi<minFi)minFi=fi;
+        const cta=_contaIngresoCuentaVenta(v);
+        if(!porCuenta[cta])porCuenta[cta]={nombre:contaCuentaNombre(cta),crc:0,n:0};
+        porCuenta[cta].crc+=conv.crc;porCuenta[cta].n++;
+    });
+    return {nViajes,totalCRC:_contaRound(totalCRC),nSinTC,minFi,porCuenta};
+}
+function contaCargarIngresosHistUI(){
+    if(!exigirPermiso('contabilidad.registrar','registrar asientos'))return;
+    const pv=_contaPreviewIngresosHist();
+    if(pv.nViajes===0){alert(pv.nSinTC>0?('No se puede reconocer: hay '+pv.nSinTC+' venta(s) en dólares/euros y no hay tipo de cambio cargado. Cargá al menos un tipo de cambio en Tipos de cambio y volvé a intentar.'):'No hay viajes ya realizados pendientes de reconocer. (Los viajes futuros quedan como anticipo hasta que salgan.)');return;}
+    const cfg=getConfig();const inicioActual=cfg.contaFechaInicio||'';
+    let nuevoInicio=inicioActual;
+    if(pv.minFi){const mesIni=pv.minFi.slice(0,7)+'-01';if(!inicioActual||mesIni<inicioActual)nuevoInicio=mesIni;}
+    const cuentas=Object.keys(pv.porCuenta).sort();
+    let msg='Se va a reconocer el ingreso de '+pv.nViajes+' viaje'+(pv.nViajes===1?'':'s')+' ya realizado'+(pv.nViajes===1?'':'s')+'.\n';
+    msg+='Total aproximado: '+_contaFmtCRCredondo(pv.totalCRC)+'.\n\n';
+    if(cuentas.length)msg+='Por cuenta de ingreso:\n'+cuentas.map(c=>'  · '+pv.porCuenta[c].nombre+': '+_contaFmtCRCredondo(pv.porCuenta[c].crc)+' ('+pv.porCuenta[c].n+' viaje'+(pv.porCuenta[c].n===1?'':'s')+')').join('\n')+'\n\n';
+    if(nuevoInicio!==inicioActual)msg+='Se cambiará la fecha de inicio de los libros a '+fmtFechaCorta(nuevoInicio)+' para abarcar todo el histórico.\n\n';
+    if(pv.nSinTC>0)msg+='⚠ '+pv.nSinTC+' venta(s) en dólares/euros no se pueden convertir (falta tipo de cambio) y NO se incluyen.\n\n';
+    msg+='Los viajes futuros quedan como anticipo del cliente hasta que salgan.\n\n¿Continuar?';
+    if(!confirm(msg))return;
+    if(nuevoInicio!==inicioActual){cfg.contaFechaInicio=nuevoInicio;saveConfig(cfg);}
+    const n=contaReconocerIngresosHasta(_hitoHoyISO());
+    alert(n?('Listo. Se reconoció el ingreso de '+n+' viaje'+(n===1?'':'s')+'. Ya lo podés ver en el Diario, en el Mayor por cuenta y en el Estado de resultados.'):'No se reconoció ningún viaje. Revisá que haya tipo de cambio cargado en Tipos de cambio.');
+    renderContabilidad();
+}
 // --- Asiento manual ---
 let _asLineas=[];let _asCtx={};
 // opts: {plantillaId} (precarga), {borradorId} (editar preliminar), {fecha}
